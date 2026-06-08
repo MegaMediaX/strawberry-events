@@ -1,47 +1,92 @@
-import { NotImplemented } from "./errors";
+import { pretixFetch, pretixFetchAll } from "./client";
+import { fromI18n, toI18n, type PretixI18n } from "./mappers";
 
-export interface PretixEvent {
+interface PretixEventRaw {
   slug: string;
-  name: Record<string, string>;
+  name: PretixI18n;
   live: boolean;
   date_from: string | null;
   date_to: string | null;
 }
 
-/**
- * Adapter surface for pretix events. Organizer slug is always explicit and must
- * be resolved from the event mapping / organization — never a global constant.
- */
-export function listEvents(organizerSlug: string): Promise<PretixEvent[]> {
-  void organizerSlug;
-  throw new NotImplemented("events.listEvents");
+export interface PretixEvent {
+  slug: string;
+  titleEn: string;
+  titleAr: string | null;
+  live: boolean;
+  dateFrom: string | null;
+  dateTo: string | null;
 }
 
-export function getEvent(
+export interface CreateEventInput {
+  slug: string;
+  titleEn: string;
+  titleAr?: string | null;
+  live?: boolean;
+  date_from?: string | null;
+  date_to?: string | null;
+}
+
+function mapEvent(raw: PretixEventRaw): PretixEvent {
+  const { titleEn, titleAr } = fromI18n(raw.name);
+  return {
+    slug: raw.slug,
+    titleEn,
+    titleAr,
+    live: raw.live,
+    dateFrom: raw.date_from,
+    dateTo: raw.date_to,
+  };
+}
+
+const base = (org: string) => `/organizers/${org}/events/`;
+
+export async function listEvents(organizerSlug: string): Promise<PretixEvent[]> {
+  const raw = await pretixFetchAll<PretixEventRaw>(base(organizerSlug));
+  return raw.map(mapEvent);
+}
+
+export async function getEvent(
   organizerSlug: string,
   eventSlug: string,
 ): Promise<PretixEvent> {
-  void organizerSlug;
-  void eventSlug;
-  throw new NotImplemented("events.getEvent");
+  const raw = await pretixFetch<PretixEventRaw>(
+    `${base(organizerSlug)}${eventSlug}/`,
+  );
+  return mapEvent(raw);
 }
 
-export function createEvent(
+export async function createEvent(
   organizerSlug: string,
-  payload: Partial<PretixEvent>,
+  input: CreateEventInput,
 ): Promise<PretixEvent> {
-  void organizerSlug;
-  void payload;
-  throw new NotImplemented("events.createEvent");
+  const raw = await pretixFetch<PretixEventRaw>(base(organizerSlug), {
+    method: "POST",
+    body: JSON.stringify({
+      slug: input.slug,
+      name: toI18n(input.titleEn, input.titleAr),
+      live: input.live ?? false,
+      date_from: input.date_from ?? null,
+      date_to: input.date_to ?? null,
+    }),
+  });
+  return mapEvent(raw);
 }
 
-export function updateEvent(
+export async function updateEvent(
   organizerSlug: string,
   eventSlug: string,
-  payload: Partial<PretixEvent>,
+  patch: Partial<CreateEventInput>,
 ): Promise<PretixEvent> {
-  void organizerSlug;
-  void eventSlug;
-  void payload;
-  throw new NotImplemented("events.updateEvent");
+  const body: Record<string, unknown> = { ...patch };
+  if (patch.titleEn !== undefined) {
+    body.name = toI18n(patch.titleEn, patch.titleAr);
+    delete body.titleEn;
+    delete body.titleAr;
+  }
+  const raw = await pretixFetch<PretixEventRaw>(
+    `${base(organizerSlug)}${eventSlug}/`,
+    { method: "PATCH", body: JSON.stringify(body) },
+  );
+  return mapEvent(raw);
 }
