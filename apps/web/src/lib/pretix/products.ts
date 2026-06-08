@@ -66,3 +66,25 @@ export async function createItem(
   });
   return mapItem(raw);
 }
+
+export interface PretixQuota {
+  id: number;
+  name: string;
+  size: number | null;
+  items: number[];
+}
+
+/**
+ * Create a quota. pretix requires every sellable item to belong to a quota,
+ * otherwise orders for it are rejected. `size: null` means unlimited.
+ */
+export async function createQuota(
+  organizerSlug: string,
+  eventSlug: string,
+  input: { name: string; size: number | null; items: number[] },
+): Promise<PretixQuota> {
+  return pretixFetch<PretixQuota>(
+    `/organizers/${organizerSlug}/events/${eventSlug}/quotas/`,
+    { method: "POST", body: JSON.stringify(input) },
+  );
+}

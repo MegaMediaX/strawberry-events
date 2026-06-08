@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { listItems, createItem } from "@/lib/pretix/products";
+import { listItems, createItem, createQuota } from "@/lib/pretix/products";
 import { installFetchMock, jsonResponse, setPretixEnv } from "./helpers";
 
 const originalEnv = { ...process.env };
@@ -50,5 +50,28 @@ describe("createItem", () => {
     const body = JSON.parse(init?.body as string);
     expect(body.name).toEqual({ en: "Visitor", ar: "زائر" });
     expect(body.default_price).toBe("25.00");
+  });
+});
+
+describe("createQuota", () => {
+  it("POSTs a quota for the given items", async () => {
+    const spy = installFetchMock(
+      jsonResponse({ id: 1, name: "Q", size: 100, items: [7] }, 201),
+    );
+    await createQuota("strawberry", "expo", {
+      name: "Q",
+      size: 100,
+      items: [7],
+    });
+    const [url, init] = spy.mock.calls[0];
+    expect(url).toBe(
+      "https://pretix.example.com/api/v1/organizers/strawberry/events/expo/quotas/",
+    );
+    expect(init?.method).toBe("POST");
+    expect(JSON.parse(init?.body as string)).toEqual({
+      name: "Q",
+      size: 100,
+      items: [7],
+    });
   });
 });

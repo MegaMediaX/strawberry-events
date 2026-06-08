@@ -9,9 +9,17 @@ export interface PretixOrder {
   total: string;
 }
 
+export interface CreateOrderPosition {
+  item: number;
+  variation?: number;
+  /** Decimal price string (pretix expects e.g. "25.00"). */
+  price?: string;
+  [k: string]: unknown;
+}
+
 export interface CreateOrderInput {
   email: string;
-  positions: Array<{ item: number; variation?: number; [k: string]: unknown }>;
+  positions: CreateOrderPosition[];
   locale?: string;
   [k: string]: unknown;
 }
@@ -60,7 +68,8 @@ export async function cancelOrder(
   eventSlug: string,
   code: string,
 ): Promise<void> {
-  await pretixFetch(`${base(organizerSlug, eventSlug)}${code}/cancel/`, {
+  await pretixFetch(`${base(organizerSlug, eventSlug)}${code}/mark_canceled/`, {
     method: "POST",
+    body: JSON.stringify({}),
   });
 }

@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { createEvent, getEvent, updateEvent } from "@/lib/pretix/events";
-import { createItem, listItems } from "@/lib/pretix/products";
+import { createItem, listItems, createQuota } from "@/lib/pretix/products";
 import {
   createOrder,
   getOrder,
@@ -24,12 +24,14 @@ describe.skipIf(!live)("pretix live integration", () => {
       titleEn: "M2 Live Test",
       titleAr: "اختبار",
       live: false,
+      date_from: "2026-09-01T09:00:00Z",
     });
 
     const fetched = await getEvent(org, slug);
     expect(fetched.slug).toBe(slug);
 
-    await updateEvent(org, slug, { live: true });
+    const updated = await updateEvent(org, slug, { titleEn: "M2 Live Test (edited)" });
+    expect(updated.titleEn).toBe("M2 Live Test (edited)");
 
     const item = await createItem(org, slug, {
       titleEn: "Visitor",
@@ -38,9 +40,12 @@ describe.skipIf(!live)("pretix live integration", () => {
     const items = await listItems(org, slug);
     expect(items.some((i) => i.id === item.id)).toBe(true);
 
+    // pretix requires a quota before the item can be ordered.
+    await createQuota(org, slug, { name: "GA", size: 100, items: [item.id] });
+
     const order = await createOrder(org, slug, {
       email: "live@strawberry.local",
-      positions: [{ item: item.id }],
+      positions: [{ item: item.id, price: "25.00" }],
     });
     expect(order.status).toBe("n");
 
@@ -53,7 +58,7 @@ describe.skipIf(!live)("pretix live integration", () => {
     // A second order we then cancel.
     const toCancel = await createOrder(org, slug, {
       email: "cancel@strawberry.local",
-      positions: [{ item: item.id }],
+      positions: [{ item: item.id, price: "25.00" }],
     });
     await cancelOrder(org, slug, toCancel.code);
 

@@ -50,6 +50,7 @@ describe("createEvent", () => {
       titleEn: "Expo",
       titleAr: "إكسبو",
       live: false,
+      date_from: "2026-09-01T09:00:00Z",
     });
     const [url, init] = spy.mock.calls[0];
     expect(url).toBe(

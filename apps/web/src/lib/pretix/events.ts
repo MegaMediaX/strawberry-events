@@ -23,8 +23,11 @@ export interface CreateEventInput {
   titleEn: string;
   titleAr?: string | null;
   live?: boolean;
-  date_from?: string | null;
+  /** Required by pretix (ISO 8601). */
+  date_from: string;
   date_to?: string | null;
+  /** Defaults to USD per platform policy. */
+  currency?: string;
 }
 
 function mapEvent(raw: PretixEventRaw): PretixEvent {
@@ -66,8 +69,9 @@ export async function createEvent(
       slug: input.slug,
       name: toI18n(input.titleEn, input.titleAr),
       live: input.live ?? false,
-      date_from: input.date_from ?? null,
+      date_from: input.date_from,
       date_to: input.date_to ?? null,
+      currency: input.currency ?? "USD",
     }),
   });
   return mapEvent(raw);

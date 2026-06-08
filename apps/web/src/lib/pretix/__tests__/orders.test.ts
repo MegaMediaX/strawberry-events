@@ -64,7 +64,7 @@ describe("cancelOrder", () => {
     await cancelOrder("strawberry", "expo", "ABC12");
     const [url, init] = spy.mock.calls[0];
     expect(url).toBe(
-      "https://pretix.example.com/api/v1/organizers/strawberry/events/expo/orders/ABC12/cancel/",
+      "https://pretix.example.com/api/v1/organizers/strawberry/events/expo/orders/ABC12/mark_canceled/",
     );
     expect(init?.method).toBe("POST");
   });
