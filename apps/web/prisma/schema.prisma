@@ -1,0 +1,579 @@
+// Strawberry Events Platform — custom-layer schema.
+// pretix remains the source of truth for orders/tickets/check-ins; this DB
+// holds platform-specific data pretix does not own.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Enums
+// ---------------------------------------------------------------------------
+
+enum MemberRole {
+  super_admin
+  organizer_admin
+  checkin_staff
+  finance
+}
+
+enum OrgStatus {
+  active
+  suspended
+}
+
+enum Visibility {
+  public
+  private
+  hidden
+}
+
+enum AccountMode {
+  required
+  optional
+  guest
+}
+
+enum ApprovalMode {
+  none
+  manual
+  automatic
+  manual_and_automatic
+}
+
+enum ApprovalAction {
+  approve
+  require_manual
+  decline
+}
+
+enum ApprovalStatus {
+  pending
+  approved
+  declined
+}
+
+enum AttendeeTag {
+  media
+  partner
+  staff
+  speaker
+  visitor
+}
+
+enum SeatState {
+  available
+  temporarily_held
+  sold_or_reserved
+  blocked
+  accessible
+}
+
+enum SmtpEncryption {
+  none
+  tls
+  ssl
+}
+
+// ---------------------------------------------------------------------------
+// Auth.js models
+// ---------------------------------------------------------------------------
+
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  emailVerified DateTime?
+  name          String?
+  image         String?
+  passwordHash  String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  accounts    Account[]
+  sessions    Session[]
+  profile     UserProfile?
+  memberships OrganizationMember[]
+  apiKeys     ApiKey[]             @relation("ApiKeyCreatedBy")
+  auditLogs   AuditLog[]
+
+  @@map("users")
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@map("accounts")
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("sessions")
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+  @@map("verification_tokens")
+}
+
+// ---------------------------------------------------------------------------
+// Organizations & membership (multi-organizer isolation)
+// ---------------------------------------------------------------------------
+
+model Organization {
+  id                  String    @id @default(cuid())
+  name                String
+  slug                String    @unique
+  pretixOrganizerSlug String    @unique
+  status              OrgStatus @default(active)
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  members            OrganizationMember[]
+  eventMappings      EventMapping[]
+  customFormFields   CustomFormField[]
+  apiKeys            ApiKey[]
+  webhooks           Webhook[]
+  integrationSetting IntegrationSetting[]
+  smtpSetting        SmtpSetting?
+  auditLogs          AuditLog[]
+
+  @@map("organizations")
+}
+
+model OrganizationMember {
+  id               String     @id @default(cuid())
+  organizationId   String
+  userId           String
+  role             MemberRole
+  assignedEventIds String[]   @default([])
+  createdAt        DateTime   @default(now())
+  updatedAt        DateTime   @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, userId])
+  @@index([userId])
+  @@map("organization_members")
+}
+
+model UserProfile {
+  id          String   @id @default(cuid())
+  userId      String   @unique
+  phone       String?
+  phoneCC     String?
+  company     String?
+  preferredLocale String @default("en")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("user_profiles")
+}
+
+// ---------------------------------------------------------------------------
+// Event mappings (local event <-> pretix event)
+// ---------------------------------------------------------------------------
+
+model EventMapping {
+  id                  String       @id @default(cuid())
+  organizationId      String
+  localEventId        String       @unique
+  pretixOrganizerSlug String
+  pretixEventSlug     String
+  pretixEventId       String?
+  titleEn             String
+  titleAr             String?
+  descriptionEn       String?      @db.Text
+  descriptionAr       String?      @db.Text
+  visibility          Visibility   @default(public)
+  accountMode         AccountMode  @default(optional)
+  approvalMode        ApprovalMode @default(none)
+  badgeAutoPrint      Boolean      @default(false)
+  comingSoon          Boolean      @default(false)
+  createdAt           DateTime     @default(now())
+  updatedAt           DateTime     @updatedAt
+
+  organization     Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  pretixObjects    PretixObjectMapping[]
+  seatMaps         SeatMap[]
+  badgeTemplates   BadgeTemplate[]
+  approvalRules    ApprovalRule[]
+  approvalRequests ApprovalRequest[]
+  customFormFields CustomFormField[]
+
+  @@unique([pretixOrganizerSlug, pretixEventSlug])
+  @@index([organizationId])
+  @@map("event_mappings")
+}
+
+model PretixObjectMapping {
+  id             String   @id @default(cuid())
+  eventMappingId String
+  objectType     String // item | variation | quota | checkinlist | question | order
+  localId        String
+  pretixId       String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  eventMapping EventMapping @relation(fields: [eventMappingId], references: [id], onDelete: Cascade)
+
+  @@index([eventMappingId, objectType])
+  @@map("pretix_object_mappings")
+}
+
+// ---------------------------------------------------------------------------
+// Seat maps
+// ---------------------------------------------------------------------------
+
+model SeatMap {
+  id             String   @id @default(cuid())
+  eventMappingId String
+  name           String
+  layout         Json?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  eventMapping EventMapping  @relation(fields: [eventMappingId], references: [id], onDelete: Cascade)
+  sections     SeatSection[]
+
+  @@index([eventMappingId])
+  @@map("seat_maps")
+}
+
+model SeatSection {
+  id        String   @id @default(cuid())
+  seatMapId String
+  name      String
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  seatMap SeatMap   @relation(fields: [seatMapId], references: [id], onDelete: Cascade)
+  rows    SeatRow[]
+
+  @@index([seatMapId])
+  @@map("seat_sections")
+}
+
+model SeatRow {
+  id        String   @id @default(cuid())
+  sectionId String
+  label     String
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  section SeatSection      @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+  seats   SeatAssignment[]
+
+  @@index([sectionId])
+  @@map("seat_rows")
+}
+
+model SeatAssignment {
+  id            String    @id @default(cuid())
+  rowId         String
+  label         String
+  state         SeatState @default(available)
+  heldUntil     DateTime?
+  pretixOrderId String?
+  attendeeRef   String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  row SeatRow @relation(fields: [rowId], references: [id], onDelete: Cascade)
+
+  @@unique([rowId, label])
+  @@index([state])
+  @@map("seat_assignments")
+}
+
+// ---------------------------------------------------------------------------
+// Badges
+// ---------------------------------------------------------------------------
+
+model BadgeTemplate {
+  id             String      @id @default(cuid())
+  eventMappingId String
+  tag            AttendeeTag
+  nameEn         String
+  nameAr         String?
+  config         Json?
+  isDefault      Boolean     @default(false)
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+
+  eventMapping EventMapping     @relation(fields: [eventMappingId], references: [id], onDelete: Cascade)
+  printLogs    BadgePrintLog[]
+
+  @@unique([eventMappingId, tag])
+  @@map("badge_templates")
+}
+
+model BadgePrintLog {
+  id              String   @id @default(cuid())
+  badgeTemplateId String?
+  eventMappingId  String
+  attendeeRef     String
+  pretixOrderId   String?
+  printedByUserId String?
+  reprint         Boolean  @default(false)
+  createdAt       DateTime @default(now())
+
+  badgeTemplate BadgeTemplate? @relation(fields: [badgeTemplateId], references: [id], onDelete: SetNull)
+
+  @@index([eventMappingId])
+  @@map("badge_print_logs")
+}
+
+// ---------------------------------------------------------------------------
+// Approvals
+// ---------------------------------------------------------------------------
+
+model ApprovalRule {
+  id             String         @id @default(cuid())
+  eventMappingId String
+  ticketId       String?
+  name           String
+  conditions     Json
+  action         ApprovalAction
+  active         Boolean        @default(true)
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  eventMapping EventMapping @relation(fields: [eventMappingId], references: [id], onDelete: Cascade)
+
+  @@index([eventMappingId])
+  @@map("approval_rules")
+}
+
+model ApprovalRequest {
+  id              String         @id @default(cuid())
+  eventMappingId  String
+  pretixOrderId   String?
+  attendeeRef     String
+  ticketId        String?
+  status          ApprovalStatus @default(pending)
+  internalNotes   String?        @db.Text
+  decidedByUserId String?
+  decidedAt       DateTime?
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  eventMapping EventMapping @relation(fields: [eventMappingId], references: [id], onDelete: Cascade)
+
+  @@index([eventMappingId, status])
+  @@map("approval_requests")
+}
+
+// ---------------------------------------------------------------------------
+// Custom form fields (bilingual)
+// ---------------------------------------------------------------------------
+
+model CustomFormField {
+  id             String   @id @default(cuid())
+  organizationId String
+  eventMappingId String?
+  ticketId       String?
+  labelEn        String
+  labelAr        String?
+  helpTextEn     String?
+  helpTextAr     String?
+  type           String
+  required       Boolean  @default(false)
+  options        Json?
+  sortOrder      Int      @default(0)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  eventMapping EventMapping?      @relation(fields: [eventMappingId], references: [id], onDelete: Cascade)
+  answers      CustomFormAnswer[]
+
+  @@index([organizationId])
+  @@index([eventMappingId])
+  @@map("custom_form_fields")
+}
+
+model CustomFormAnswer {
+  id            String   @id @default(cuid())
+  fieldId       String
+  pretixOrderId String?
+  attendeeRef   String
+  value         String   @db.Text
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  field CustomFormField @relation(fields: [fieldId], references: [id], onDelete: Cascade)
+
+  @@index([fieldId])
+  @@index([attendeeRef])
+  @@map("custom_form_answers")
+}
+
+// ---------------------------------------------------------------------------
+// Integrations & SMTP
+// ---------------------------------------------------------------------------
+
+model IntegrationSetting {
+  id             String   @id @default(cuid())
+  organizationId String
+  provider       String
+  enabled        Boolean  @default(false)
+  config         Json     @default("{}")
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, provider])
+  @@map("integration_settings")
+}
+
+model SmtpSetting {
+  id             String         @id @default(cuid())
+  organizationId String         @unique
+  host           String
+  port           Int            @default(587)
+  username       String?
+  passwordEnc    String?
+  fromName       String
+  fromEmail      String
+  encryption     SmtpEncryption @default(tls)
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@map("smtp_settings")
+}
+
+// ---------------------------------------------------------------------------
+// API keys & webhooks
+// ---------------------------------------------------------------------------
+
+model ApiKey {
+  id                String    @id @default(cuid())
+  organizationId    String?
+  name              String
+  keyHash           String    @unique
+  prefix            String
+  scopes            String[]  @default([])
+  eventRestrictions String[]  @default([])
+  rateLimitPerMin   Int       @default(120)
+  createdByUserId   String?
+  lastUsedAt        DateTime?
+  expiresAt         DateTime?
+  revokedAt         DateTime?
+  createdAt         DateTime  @default(now())
+
+  organization Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdBy    User?         @relation("ApiKeyCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId])
+  @@map("api_keys")
+}
+
+model Webhook {
+  id             String   @id @default(cuid())
+  organizationId String
+  url            String
+  secret         String
+  events         String[] @default([])
+  active         Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  deliveries   WebhookDelivery[]
+
+  @@index([organizationId])
+  @@map("webhooks")
+}
+
+model WebhookDelivery {
+  id           String    @id @default(cuid())
+  webhookId    String
+  event        String
+  payload      Json
+  responseCode Int?
+  success      Boolean   @default(false)
+  attempts     Int       @default(0)
+  deliveredAt  DateTime?
+  createdAt    DateTime  @default(now())
+
+  webhook Webhook @relation(fields: [webhookId], references: [id], onDelete: Cascade)
+
+  @@index([webhookId])
+  @@map("webhook_deliveries")
+}
+
+// ---------------------------------------------------------------------------
+// Audit logs & archive
+// ---------------------------------------------------------------------------
+
+model AuditLog {
+  id             String   @id @default(cuid())
+  organizationId String?
+  eventMappingId String?
+  actorUserId    String?
+  action         String
+  entityType     String
+  entityId       String
+  before         Json?
+  after          Json?
+  ipAddress      String?
+  userAgent      String?
+  createdAt      DateTime @default(now())
+
+  organization Organization? @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+  actor        User?         @relation(fields: [actorUserId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId])
+  @@index([entityType, entityId])
+  @@map("audit_logs")
+}
+
+model ArchiveQueue {
+  id         String    @id @default(cuid())
+  entityType String
+  entityId   String
+  payload    Json
+  archivedAt DateTime  @default(now())
+  purgeAfter DateTime
+  purgedAt   DateTime?
+
+  @@index([purgeAfter])
+  @@map("archive_queue")
+}
