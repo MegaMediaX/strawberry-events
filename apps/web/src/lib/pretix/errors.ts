@@ -10,6 +10,17 @@ export class PretixError extends Error {
   }
 }
 
+/** Thrown on a pretix 400, carrying per-field validation messages. */
+export class PretixValidationError extends PretixError {
+  readonly fieldErrors: Record<string, string[]>;
+
+  constructor(message: string, fieldErrors: Record<string, string[]>) {
+    super(message, 400, fieldErrors);
+    this.name = "PretixValidationError";
+    this.fieldErrors = fieldErrors;
+  }
+}
+
 /** Thrown by adapter functions whose implementation is deferred past M1. */
 export class NotImplemented extends PretixError {
   constructor(operation: string) {
