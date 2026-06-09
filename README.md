@@ -300,6 +300,35 @@ Cleanup is an admin-invoked service today; schedule via cron (no self-scheduling
 `ReminderSetting` models per-org/event channel toggles (email/WhatsApp/SMS) and offsets
 (default 24h + 1h before). Scheduling/sending is wired in a later milestone.
 
+## Production hardening (Milestone 12)
+
+### Security headers
+Applied to every route via `next.config.ts` `headers()` (`lib/security/headers.ts`):
+- **Content-Security-Policy**: `default-src 'self'`; `img-src 'self' data: blob:`;
+  `style-src 'self' 'unsafe-inline'` (Tailwind/inline styles);
+  `script-src 'self' 'unsafe-inline'` (Next hydration). `'unsafe-eval'` is added **only in
+  development** (React dev uses `eval`); production stays strict. `frame-ancestors 'none'`,
+  `object-src 'none'`, `base-uri 'self'`, `form-action 'self'`. A nonce-based strict CSP is
+  a documented future refinement.
+- **Strict-Transport-Security** (production only): `max-age=63072000; includeSubDomains; preload`.
+- `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`,
+  `Referrer-Policy: strict-origin-when-cross-origin`,
+  `Permissions-Policy: camera=(), microphone=(), geolocation=()`, `X-DNS-Prefetch-Control: off`.
+- `poweredByHeader: false` removes `X-Powered-By`.
+
+### Cookies / transport
+Auth.js sets `httpOnly` + `sameSite`; `useSecureCookies` is enabled in production
+(`__Secure-` prefix + `Secure`). The theme cookie is non-sensitive (`sameSite=lax`).
+
+### Rate limiting (`lib/security/rate-limit.ts`)
+In-memory fixed-window limiter (`rateLimit(key, limit, windowMs)`), single-instance —
+**defense-in-depth; also rate-limit at the edge/CDN/nginx, and swap for Redis to scale
+horizontally**:
+- **Public registration**: 10 / min per client IP (`x-forwarded-for`/`x-real-ip`).
+- **Login** (credentials `authorize`): 5 attempts / 5 min per email (generic reject, no
+  account enumeration).
+- **External API**: per-key limits (Milestone 10).
+
 ## Notes / decisions
 
 - **ORM:** Prisma (relational integrity, migration tooling).
