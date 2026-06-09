@@ -98,6 +98,13 @@ enum AttendeeApprovalStatus {
   rejected
 }
 
+enum WaitlistStatus {
+  waiting
+  promoted
+  converted
+  canceled
+}
+
 // ---------------------------------------------------------------------------
 // Auth.js models
 // ---------------------------------------------------------------------------
@@ -242,6 +249,8 @@ model EventMapping {
   autoApproveItemIds  Int[]        @default([])
   payBeforeApproval   Boolean      @default(false)
   itemTagMap          Json         @default("{}")
+  seatSelectionEnabled Boolean     @default(false)
+  waitlistEnabled     Boolean      @default(false)
   badgeAutoPrint      Boolean      @default(false)
   comingSoon          Boolean      @default(false)
   createdAt           DateTime     @default(now())
@@ -255,6 +264,7 @@ model EventMapping {
   approvalRequests ApprovalRequest[]
   customFormFields CustomFormField[]
   attendeeOrders   AttendeeOrder[]
+  waitlistEntries  WaitlistEntry[]
 
   @@unique([pretixOrganizerSlug, pretixEventSlug])
   @@index([organizationId])
@@ -614,6 +624,24 @@ model AttendeeOrder {
   @@index([userId])
   @@index([email])
   @@map("attendee_orders")
+}
+
+model WaitlistEntry {
+  id             String         @id @default(cuid())
+  eventMappingId String
+  itemId         Int?
+  email          String
+  userId         String?
+  position       Int
+  status         WaitlistStatus @default(waiting)
+  createdAt      DateTime       @default(now())
+  promotedAt     DateTime?
+
+  eventMapping EventMapping @relation(fields: [eventMappingId], references: [id], onDelete: Cascade)
+
+  @@index([eventMappingId, status])
+  @@index([email])
+  @@map("waitlist_entries")
 }
 
 model ArchiveQueue {
