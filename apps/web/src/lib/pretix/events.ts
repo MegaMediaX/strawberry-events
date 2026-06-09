@@ -44,17 +44,23 @@ function mapEvent(raw: PretixEventRaw): PretixEvent {
 
 const base = (org: string) => `/organizers/${org}/events/`;
 
-export async function listEvents(organizerSlug: string): Promise<PretixEvent[]> {
-  const raw = await pretixFetchAll<PretixEventRaw>(base(organizerSlug));
+export async function listEvents(
+  organizerSlug: string,
+  token?: string,
+): Promise<PretixEvent[]> {
+  const raw = await pretixFetchAll<PretixEventRaw>(base(organizerSlug), token);
   return raw.map(mapEvent);
 }
 
 export async function getEvent(
   organizerSlug: string,
   eventSlug: string,
+  token?: string,
 ): Promise<PretixEvent> {
   const raw = await pretixFetch<PretixEventRaw>(
     `${base(organizerSlug)}${eventSlug}/`,
+    {},
+    token,
   );
   return mapEvent(raw);
 }
@@ -62,18 +68,23 @@ export async function getEvent(
 export async function createEvent(
   organizerSlug: string,
   input: CreateEventInput,
+  token?: string,
 ): Promise<PretixEvent> {
-  const raw = await pretixFetch<PretixEventRaw>(base(organizerSlug), {
-    method: "POST",
-    body: JSON.stringify({
-      slug: input.slug,
-      name: toI18n(input.titleEn, input.titleAr),
-      live: input.live ?? false,
-      date_from: input.date_from,
-      date_to: input.date_to ?? null,
-      currency: input.currency ?? "USD",
-    }),
-  });
+  const raw = await pretixFetch<PretixEventRaw>(
+    base(organizerSlug),
+    {
+      method: "POST",
+      body: JSON.stringify({
+        slug: input.slug,
+        name: toI18n(input.titleEn, input.titleAr),
+        live: input.live ?? false,
+        date_from: input.date_from,
+        date_to: input.date_to ?? null,
+        currency: input.currency ?? "USD",
+      }),
+    },
+    token,
+  );
   return mapEvent(raw);
 }
 
@@ -81,6 +92,7 @@ export async function updateEvent(
   organizerSlug: string,
   eventSlug: string,
   patch: Partial<CreateEventInput>,
+  token?: string,
 ): Promise<PretixEvent> {
   const body: Record<string, unknown> = { ...patch };
   if (patch.titleEn !== undefined) {
@@ -91,6 +103,7 @@ export async function updateEvent(
   const raw = await pretixFetch<PretixEventRaw>(
     `${base(organizerSlug)}${eventSlug}/`,
     { method: "PATCH", body: JSON.stringify(body) },
+    token,
   );
   return mapEvent(raw);
 }

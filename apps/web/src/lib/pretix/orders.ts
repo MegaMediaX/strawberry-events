@@ -36,19 +36,26 @@ export async function createOrder(
   organizerSlug: string,
   eventSlug: string,
   input: CreateOrderInput,
+  token?: string,
 ): Promise<PretixOrder> {
-  return pretixFetch<PretixOrder>(base(organizerSlug, eventSlug), {
-    method: "POST",
-    body: JSON.stringify({ status: "n", ...input }),
-  });
+  return pretixFetch<PretixOrder>(
+    base(organizerSlug, eventSlug),
+    { method: "POST", body: JSON.stringify({ status: "n", ...input }) },
+    token,
+  );
 }
 
 export async function getOrder(
   organizerSlug: string,
   eventSlug: string,
   code: string,
+  token?: string,
 ): Promise<PretixOrder> {
-  return pretixFetch<PretixOrder>(`${base(organizerSlug, eventSlug)}${code}/`);
+  return pretixFetch<PretixOrder>(
+    `${base(organizerSlug, eventSlug)}${code}/`,
+    {},
+    token,
+  );
 }
 
 /** Mark a pending/manual (COD) order as paid. */
@@ -56,10 +63,12 @@ export async function markOrderPaid(
   organizerSlug: string,
   eventSlug: string,
   code: string,
+  token?: string,
 ): Promise<PretixOrder> {
   return pretixFetch<PretixOrder>(
     `${base(organizerSlug, eventSlug)}${code}/mark_paid/`,
     { method: "POST" },
+    token,
   );
 }
 
@@ -67,9 +76,11 @@ export async function cancelOrder(
   organizerSlug: string,
   eventSlug: string,
   code: string,
+  token?: string,
 ): Promise<void> {
-  await pretixFetch(`${base(organizerSlug, eventSlug)}${code}/mark_canceled/`, {
-    method: "POST",
-    body: JSON.stringify({}),
-  });
+  await pretixFetch(
+    `${base(organizerSlug, eventSlug)}${code}/mark_canceled/`,
+    { method: "POST", body: JSON.stringify({}) },
+    token,
+  );
 }
