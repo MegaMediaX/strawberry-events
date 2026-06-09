@@ -15,6 +15,7 @@ export const registerInputSchema = z.object({
   tickets: z
     .array(z.object({ itemId: z.number().int(), quantity: z.number().int().min(1) }))
     .min(1, "Select at least one ticket"),
+  seatIds: z.array(z.string()).optional(),
   consentTerms: z.literal(true, { message: "You must accept the Terms" }),
   consentPrivacy: z.literal(true, { message: "You must accept the Privacy Policy" }),
 });

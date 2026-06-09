@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label";
 import { centsToPrice } from "@/lib/pretix/mappers";
 import { Stepper } from "./stepper";
 import { PhoneCountryField } from "./phone-country-field";
+import { SeatSelector } from "@/components/seats/seat-selector";
 import { registerAction } from "@/app/[locale]/(public)/events/[slug]/register/actions";
 
 interface WizardTicket {
@@ -22,15 +23,18 @@ export function RegistrationWizard({
   locale,
   slug,
   tickets,
+  seatSections,
 }: {
   locale: string;
   slug: string;
   tickets: WizardTicket[];
+  seatSections?: import("@/components/seats/seat-selector").SectionNode[];
 }) {
   const reduce = useReducedMotion();
   const [step, setStep] = useState(0);
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [seatIds, setSeatIds] = useState<string[]>([]);
 
   const [a, setA] = useState({
     firstName: "",
@@ -77,6 +81,7 @@ export function RegistrationWizard({
       tickets: tickets
         .filter((t) => (qty[t.id] ?? 0) > 0)
         .map((t) => ({ itemId: t.id, quantity: qty[t.id] })),
+      seatIds: seatSections ? seatIds : undefined,
       consentTerms: terms,
       consentPrivacy: privacy,
     });
@@ -186,6 +191,12 @@ export function RegistrationWizard({
                     </div>
                   </div>
                 ))}
+                {seatSections && seatSections.length > 0 && (
+                  <div className="mt-2 rounded-[var(--radius-lg)] border border-border p-3">
+                    <div className="mb-2 font-medium">Choose your seat(s)</div>
+                    <SeatSelector sections={seatSections} onChange={setSeatIds} />
+                  </div>
+                )}
               </div>
             )}
 

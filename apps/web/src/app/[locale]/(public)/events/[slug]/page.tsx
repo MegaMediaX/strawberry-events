@@ -5,6 +5,7 @@ import { capacityState } from "@/lib/events/capacity";
 import { EventHero } from "@/components/public/event-hero";
 import { TicketRail } from "@/components/public/ticket-rail";
 import { MobileCtaBar } from "@/components/public/mobile-cta-bar";
+import { WaitlistJoin } from "@/components/public/waitlist-join";
 
 export const dynamic = "force-dynamic";
 
@@ -63,6 +64,11 @@ export default async function EventDetailPage({
               <p className="mt-2 whitespace-pre-line text-muted-foreground">
                 {description}
               </p>
+            </section>
+          )}
+          {event.waitlistEnabled && soldOut && (
+            <section className="mt-6">
+              <WaitlistJoin eventId={event.id} />
             </section>
           )}
           {/* Agenda / Speakers / Partners render here when content exists (later milestones). */}

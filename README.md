@@ -213,6 +213,20 @@ Hybrid model: a **custom browser print-station** at `/<locale>/staff/checkin` pl
 > Note: `/staff/badges` standalone reprint page deferred — reprint is available inline in the
 > check-in station.
 
+## Seat maps + waitlist (Milestone 9)
+
+Optional per-event reserved seating and a waitlist for full events.
+
+- **Seats** (custom layer = source of truth): enable via `EventMapping.seatSelectionEnabled`.
+  States `available/temporarily_held/sold_or_reserved/blocked/accessible`. Selecting in the
+  wizard holds seats for **10 minutes** (`heldUntil`); expired holds are released on read; on
+  submit seats are held+confirmed (`sold_or_reserved`) against the order; released on cancel.
+  GA events skip seat selection.
+- **Waitlist**: enable via `EventMapping.waitlistEnabled`. When sold out, the event page shows
+  **Join waitlist** (email) → `WaitlistEntry` with the next position. Admins promote from
+  `/<locale>/admin/events/[id]/waitlist` (sends a "spot opened" email, audited). Promotion is
+  manual (auto deferred); organizer/super admin only, impersonating blocked, cross-org denied.
+
 ## Notes / decisions
 
 - **ORM:** Prisma (relational integrity, migration tooling).
