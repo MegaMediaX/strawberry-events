@@ -91,6 +91,13 @@ enum AttendeeOrderProvider {
   manual_cod
 }
 
+enum AttendeeApprovalStatus {
+  not_required
+  pending
+  approved
+  rejected
+}
+
 // ---------------------------------------------------------------------------
 // Auth.js models
 // ---------------------------------------------------------------------------
@@ -232,6 +239,8 @@ model EventMapping {
   visibility          Visibility   @default(public)
   accountMode         AccountMode  @default(optional)
   approvalMode        ApprovalMode @default(none)
+  autoApproveItemIds  Int[]        @default([])
+  payBeforeApproval   Boolean      @default(false)
   badgeAutoPrint      Boolean      @default(false)
   comingSoon          Boolean      @default(false)
   createdAt           DateTime     @default(now())
@@ -585,10 +594,11 @@ model AttendeeOrder {
   orderCode      String
   email          String
   userId         String?
-  status         AttendeeOrderStatus   @default(pending)
-  provider       AttendeeOrderProvider @default(manual_cod)
-  totalCents     Int                   @default(0)
-  magicLinkToken String                @unique
+  status         AttendeeOrderStatus    @default(pending)
+  approvalStatus AttendeeApprovalStatus @default(not_required)
+  provider       AttendeeOrderProvider  @default(manual_cod)
+  totalCents     Int                    @default(0)
+  magicLinkToken String                 @unique
   createdAt      DateTime            @default(now())
   updatedAt      DateTime            @updatedAt
 
