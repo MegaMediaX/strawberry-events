@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { setRequestLocale } from "next-intl/server";
 import { getSessionContext } from "@/lib/auth/session";
 import { prisma } from "@/lib/db/client";
+import { registrationState } from "@/lib/approval/state";
 
 export const dynamic = "force-dynamic";
 
@@ -38,7 +39,7 @@ export default async function MyTicketsPage({
               <div>
                 <div className="font-medium">{o.eventMapping.titleEn}</div>
                 <div className="text-sm text-muted-foreground">
-                  Order {o.orderCode} · {o.status}
+                  Order {o.orderCode} · {registrationState(o).replace("_", " ")}
                 </div>
               </div>
               <Link

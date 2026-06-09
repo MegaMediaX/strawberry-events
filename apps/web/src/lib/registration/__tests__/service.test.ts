@@ -33,6 +33,8 @@ beforeEach(() => {
     pretixEventSlug: "expo",
     organizationId: "orgA",
     visibility: "public",
+    approvalMode: "none",
+    autoApproveItemIds: [],
   });
   mock(prisma.organization.findUnique).mockResolvedValue({
     id: "orgA",
@@ -99,6 +101,31 @@ describe("register", () => {
 
     const res = await register({ ...base, tickets: [{ itemId: 7, quantity: 1 }] });
     expect(res.orderCode).toBe("COD2");
+  });
+
+  it("approval-required free event → pending_approval, no mark-paid", async () => {
+    mock(prisma.eventMapping.findFirst).mockResolvedValue({
+      id: "e1",
+      titleEn: "Expo",
+      pretixEventSlug: "expo",
+      organizationId: "orgA",
+      visibility: "public",
+      approvalMode: "manual",
+      autoApproveItemIds: [],
+    });
+    mock(pretixProducts.listItems).mockResolvedValue([
+      { id: 7, titleEn: "Media", titleAr: null, priceCents: 0, active: true },
+    ]);
+    mock(pretixOrders.createOrder).mockResolvedValue({ code: "APR1", status: "n" });
+
+    const res = await register({ ...base, tickets: [{ itemId: 7, quantity: 1 }] });
+
+    expect(pretixOrders.markOrderPaid).not.toHaveBeenCalled();
+    expect(res.approvalStatus).toBe("pending");
+    const data = mock(prisma.attendeeOrder.create).mock.calls[0][0].data;
+    expect(data.approvalStatus).toBe("pending");
+    expect(data.status).toBe("pending");
+    expect(mock(email.sendEmail).mock.calls[0][0].subject).toMatch(/review/i);
   });
 
   it("rejects missing consent", async () => {

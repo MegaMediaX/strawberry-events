@@ -35,7 +35,9 @@ export async function registerAction(
     return { error: (err as Error).message };
   }
 
-  if (result.status === "paid") {
+  // Approval-pending and issued both land on the confirmation page, which renders
+  // the correct state (pending approval / QR). COD-without-approval → payment pending.
+  if (result.approvalStatus === "pending" || result.status === "paid") {
     redirect(`/${locale}/events/${slug}/confirmation/${result.orderCode}`);
   }
   redirect(`/${locale}/events/${slug}/payment-pending/${result.orderCode}`);
