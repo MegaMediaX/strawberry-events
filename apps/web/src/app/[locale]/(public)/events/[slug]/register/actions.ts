@@ -1,8 +1,19 @@
 "use server";
 
 import { redirect } from "next/navigation";
+import { headers } from "next/headers";
 import { register } from "@/lib/registration/service";
 import { registerInputSchema } from "@/lib/registration/schema";
+import { rateLimit } from "@/lib/security/rate-limit";
+
+async function clientIp(): Promise<string> {
+  const h = await headers();
+  return (
+    h.get("x-forwarded-for")?.split(",")[0]?.trim() ||
+    h.get("x-real-ip") ||
+    "unknown"
+  );
+}
 
 export interface RegisterActionResult {
   error?: string;
@@ -14,6 +25,12 @@ export async function registerAction(
   slug: string,
   values: unknown,
 ): Promise<RegisterActionResult> {
+  // Defense-in-depth rate limit (pair with edge/CDN/nginx): 10 registrations/min/IP.
+  const ip = await clientIp();
+  if (!rateLimit(`register:${ip}`, 10, 60_000).allowed) {
+    return { error: "Too many attempts. Please wait a minute and try again." };
+  }
+
   const parsed = registerInputSchema.safeParse({
     ...(values as object),
     eventSlug: slug,
