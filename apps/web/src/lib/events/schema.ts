@@ -23,6 +23,8 @@ export const eventInputSchema = z.object({
 });
 
 export type EventInput = z.infer<typeof eventInputSchema>;
+/** Form-side type: fields with defaults are optional before parsing. */
+export type EventFormValues = z.input<typeof eventInputSchema>;
 
 export const ticketInputSchema = z.object({
   titleEn: z.string().min(1, "Title (EN) is required"),

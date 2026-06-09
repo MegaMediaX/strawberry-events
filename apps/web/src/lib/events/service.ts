@@ -101,6 +101,44 @@ export async function createEvent(
   }
 }
 
+/** Update an event (pretix PATCH + local mapping) the session can access. */
+export async function updateEvent(
+  session: SessionContext,
+  eventId: string,
+  input: EventInput,
+): Promise<EventMapping> {
+  const mapping = await getEventForSession(session, eventId);
+  if (!mapping) throw new Error("Event not found or access denied");
+  const org = await prisma.organization.findUnique({
+    where: { id: mapping.organizationId },
+  });
+  if (!org) throw new Error("Organization not found");
+  const ctx = resolvePretixContext(org);
+
+  await pretixEvents.updateEvent(
+    ctx.organizerSlug,
+    mapping.pretixEventSlug,
+    { titleEn: input.titleEn, titleAr: input.titleAr, date_from: input.dateFrom },
+    ctx.token,
+  );
+
+  const updated = await prisma.eventMapping.update({
+    where: { id: mapping.id },
+    data: {
+      titleEn: input.titleEn,
+      titleAr: input.titleAr ?? null,
+      descriptionEn: input.descriptionEn ?? null,
+      descriptionAr: input.descriptionAr ?? null,
+      visibility: input.visibility,
+      accountMode: input.accountMode,
+      approvalMode: input.approvalMode,
+      comingSoon: input.comingSoon,
+    },
+  });
+  await writeAudit(session, org.id, "event.updated", "event", updated.id);
+  return updated;
+}
+
 /**
  * Create a ticket (pretix item + quota) on an event the session can access.
  * Records the pretix object ids locally and writes an audit entry.
