@@ -80,6 +80,12 @@ enum SmtpEncryption {
   ssl
 }
 
+enum AttendeeOrderStatus {
+  pending
+  paid
+  canceled
+}
+
 // ---------------------------------------------------------------------------
 // Auth.js models
 // ---------------------------------------------------------------------------
@@ -100,6 +106,7 @@ model User {
   memberships OrganizationMember[]
   apiKeys     ApiKey[]             @relation("ApiKeyCreatedBy")
   auditLogs   AuditLog[]
+  attendeeOrders AttendeeOrder[]
 
   @@map("users")
 }
@@ -232,6 +239,7 @@ model EventMapping {
   approvalRules    ApprovalRule[]
   approvalRequests ApprovalRequest[]
   customFormFields CustomFormField[]
+  attendeeOrders   AttendeeOrder[]
 
   @@unique([pretixOrganizerSlug, pretixEventSlug])
   @@index([organizationId])
@@ -564,6 +572,26 @@ model AuditLog {
   @@index([organizationId])
   @@index([entityType, entityId])
   @@map("audit_logs")
+}
+
+model AttendeeOrder {
+  id             String              @id @default(cuid())
+  eventMappingId String
+  orderCode      String
+  email          String
+  userId         String?
+  status         AttendeeOrderStatus @default(pending)
+  magicLinkToken String              @unique
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+
+  eventMapping EventMapping @relation(fields: [eventMappingId], references: [id], onDelete: Cascade)
+  user         User?        @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([eventMappingId])
+  @@index([userId])
+  @@index([email])
+  @@map("attendee_orders")
 }
 
 model ArchiveQueue {
