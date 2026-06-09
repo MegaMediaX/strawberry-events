@@ -73,6 +73,23 @@ export function rejectedEmail(
   };
 }
 
+export function waitlistPromotedEmail(
+  locale: Locale,
+  eventTitle: string,
+  registerUrl: string,
+): RenderedEmail {
+  if (locale === "ar") {
+    return {
+      subject: `توفّر مكان لك — ${eventTitle}`,
+      text: `أصبح هناك مكان متاح في ${eventTitle}!\nأكمل تسجيلك: ${registerUrl}`,
+    };
+  }
+  return {
+    subject: `A spot opened up — ${eventTitle}`,
+    text: `Good news — a spot is now available for ${eventTitle}.\nComplete your registration: ${registerUrl}`,
+  };
+}
+
 export function confirmationEmail(
   locale: Locale,
   eventTitle: string,
