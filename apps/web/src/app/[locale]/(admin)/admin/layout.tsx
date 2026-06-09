@@ -8,12 +8,12 @@ import { LanguageSwitcher } from "@/components/language-switcher";
 import { OrganizerSwitcher } from "./_components/organizer-switcher";
 
 const NAV = [
-  { href: "", label: "Dashboard" },
-  { href: "/events", label: "Events" },
-  { href: "/registrations", label: "Registrations" },
-  { href: "/finance", label: "Finance" },
-  { href: "/staff", label: "Staff" },
-  { href: "/settings", label: "Settings" },
+  { href: "", label: "Dashboard", financeAllowed: true },
+  { href: "/events", label: "Events", financeAllowed: false },
+  { href: "/registrations", label: "Registrations", financeAllowed: false },
+  { href: "/finance", label: "Finance", financeAllowed: true },
+  { href: "/staff", label: "Staff", financeAllowed: false },
+  { href: "/settings", label: "Settings", financeAllowed: false },
 ];
 
 export default async function AdminLayout({
@@ -25,9 +25,18 @@ export default async function AdminLayout({
 }) {
   const { locale } = await params;
   setRequestLocale(locale);
-  await requireRole(["super_admin", "organizer_admin"], `/${locale}/login`);
+  await requireRole(
+    ["super_admin", "organizer_admin", "finance"],
+    `/${locale}/login`,
+  );
 
   const session = await getSessionContext();
+  // Admins (super/org) see all nav; finance-only users see a reduced set.
+  const isAdmin =
+    !!session &&
+    (session.isSuperAdmin ||
+      session.memberships.some((m) => m.role === "organizer_admin"));
+  const nav = NAV.filter((n) => isAdmin || n.financeAllowed);
   const activeOrg = session ? await getActiveOrg(session) : null;
   const orgs =
     session?.isSuperAdmin
@@ -42,7 +51,7 @@ export default async function AdminLayout({
       <aside className="w-56 shrink-0 border-e bg-muted/30 p-4">
         <div className="mb-6 text-lg font-bold">Strawberry</div>
         <nav className="flex flex-col gap-1 text-sm">
-          {NAV.map((n) => (
+          {nav.map((n) => (
             <Link
               key={n.href}
               href={`/${locale}/admin${n.href}`}

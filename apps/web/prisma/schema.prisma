@@ -86,6 +86,11 @@ enum AttendeeOrderStatus {
   canceled
 }
 
+enum AttendeeOrderProvider {
+  free
+  manual_cod
+}
+
 // ---------------------------------------------------------------------------
 // Auth.js models
 // ---------------------------------------------------------------------------
@@ -580,8 +585,10 @@ model AttendeeOrder {
   orderCode      String
   email          String
   userId         String?
-  status         AttendeeOrderStatus @default(pending)
-  magicLinkToken String              @unique
+  status         AttendeeOrderStatus   @default(pending)
+  provider       AttendeeOrderProvider @default(manual_cod)
+  totalCents     Int                   @default(0)
+  magicLinkToken String                @unique
   createdAt      DateTime            @default(now())
   updatedAt      DateTime            @updatedAt
 

@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
 import { setRequestLocale } from "next-intl/server";
-import { getSessionContext } from "@/lib/auth/session";
+import { getSessionContext, requireRole } from "@/lib/auth/session";
 import { getEventForEdit } from "@/lib/events/service";
 import { EventForm } from "../../event-form";
 
@@ -11,6 +11,7 @@ export default async function EditEventPage({
 }) {
   const { locale, id } = await params;
   setRequestLocale(locale);
+  await requireRole(["super_admin", "organizer_admin"], `/${locale}/admin`);
 
   const session = await getSessionContext();
   const detail = session ? await getEventForEdit(session, id) : null;

@@ -16,4 +16,10 @@ export interface SessionContext {
   userId: string;
   isSuperAdmin: boolean;
   memberships: Membership[];
+  /**
+   * True when the user is acting via an (future) admin impersonation session.
+   * Sensitive actions (e.g. marking orders paid) are blocked while true.
+   * Undefined is treated as false.
+   */
+  impersonating?: boolean;
 }

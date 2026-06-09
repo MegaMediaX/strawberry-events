@@ -75,6 +75,8 @@ export async function register(input: RegisterInput): Promise<RegisterResult> {
       email: data.attendee.email,
       userId: data.userId ?? null,
       status,
+      provider,
+      totalCents,
       magicLinkToken,
     },
   });
