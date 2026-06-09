@@ -10,6 +10,7 @@ import { OrganizerSwitcher } from "./_components/organizer-switcher";
 const NAV = [
   { href: "", label: "Dashboard", financeAllowed: true },
   { href: "/events", label: "Events", financeAllowed: false },
+  { href: "/approvals", label: "Approvals", financeAllowed: false },
   { href: "/registrations", label: "Registrations", financeAllowed: false },
   { href: "/finance", label: "Finance", financeAllowed: true },
   { href: "/staff", label: "Staff", financeAllowed: false },

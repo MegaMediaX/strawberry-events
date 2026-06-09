@@ -1,6 +1,12 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { isDevTransport, sendEmail } from "@/lib/email/service";
-import { pendingEmail, confirmationEmail } from "@/lib/email/templates";
+import {
+  pendingEmail,
+  confirmationEmail,
+  pendingApprovalEmail,
+  approvedPaymentEmail,
+  rejectedEmail,
+} from "@/lib/email/templates";
 
 const orig = { ...process.env };
 beforeEach(() => {
@@ -31,5 +37,11 @@ describe("templates", () => {
     expect(
       confirmationEmail("en", "Expo", "ABC12", "https://x/t/abc").text,
     ).toContain("https://x/t/abc");
+  });
+  it("renders approval lifecycle templates (en + ar)", () => {
+    expect(pendingApprovalEmail("en", "Expo", "A1").subject).toMatch(/review/i);
+    expect(pendingApprovalEmail("ar", "Expo", "A1").text).toContain("A1");
+    expect(approvedPaymentEmail("en", "Expo", "A1").subject).toMatch(/payment/i);
+    expect(rejectedEmail("en", "Expo", "A1").subject).toMatch(/not approved/i);
   });
 });
