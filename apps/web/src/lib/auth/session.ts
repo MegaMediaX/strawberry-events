@@ -23,6 +23,7 @@ export async function getSessionContext(): Promise<SessionContext | null> {
     userId,
     isSuperAdmin: memberships.some((m) => m.role === "super_admin"),
     memberships,
+    impersonating: false,
   };
 }
 
