@@ -119,6 +119,19 @@ cd apps/web
 DATABASE_URL=... TEST_DATABASE_URL=... npx vitest run register.integration
 ```
 
+## Finance (Milestone 6)
+
+`/<locale>/admin/finance` — order list filterable by status (pending/paid/canceled)
+and method (free/COD), order detail, and **Mark paid** for COD/manual orders.
+Marking paid syncs pretix, flips `AttendeeOrder` → paid (which enables the ticket QR
+in confirmation / `/t/<token>` / `/my-tickets`), sends the confirmation email, and
+writes an audit log. Org/event isolation enforced; Finance role sees only assigned
+organizations (super admin sees all). Mark-paid is blocked while impersonating
+(`SessionContext.impersonating`).
+
+`npm run smoke` runs the fast core-logic suite. OpenAPI is deferred until the external
+API milestone (finance uses Server Actions, no public HTTP surface yet).
+
 ## Notes / decisions
 
 - **ORM:** Prisma (relational integrity, migration tooling).
