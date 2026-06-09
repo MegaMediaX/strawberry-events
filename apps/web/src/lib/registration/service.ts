@@ -14,6 +14,7 @@ import {
 } from "@/lib/email/templates";
 import { requiresApproval } from "@/lib/approval/state";
 import { tagForItem } from "@/lib/checkin/eligibility";
+import { holdSeats, confirmSeats } from "@/lib/seats/service";
 import { registerInputSchema, type RegisterInput } from "./schema";
 
 export interface RegisterResult {
@@ -67,6 +68,12 @@ export async function register(input: RegisterInput): Promise<RegisterResult> {
     { email: data.attendee.email, locale: data.locale, positions },
     ctx.token,
   );
+
+  // Reserve selected seats for seated events (hold then confirm against the order).
+  if (data.seatIds && data.seatIds.length > 0) {
+    await holdSeats(event.id, data.seatIds, order.code);
+    await confirmSeats(data.seatIds, order.code);
+  }
 
   // Issue immediately only when no approval is needed AND the order is free.
   let status: "pending" | "paid" = "pending";
