@@ -60,10 +60,11 @@ export async function saveIntegration(
   for (const [k, v] of Object.entries(input.secrets ?? {})) {
     if (v) merged[k] = encryptField(v);
   }
+  const config = merged as object;
   const row = await prisma.integrationSetting.upsert({
     where: { organizationId_provider: { organizationId, provider } },
-    create: { organizationId, provider, enabled: input.enabled, config: merged, updatedByUserId: session.userId },
-    update: { enabled: input.enabled, config: merged, updatedByUserId: session.userId },
+    create: { organizationId, provider, enabled: input.enabled, config, updatedByUserId: session.userId },
+    update: { enabled: input.enabled, config, updatedByUserId: session.userId },
   });
   await prisma.auditLog.create({
     data: {
