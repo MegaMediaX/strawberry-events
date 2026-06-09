@@ -5,6 +5,7 @@ import { hasAnyRole, ForbiddenError } from "@/lib/auth/guards";
 import type { SessionContext } from "@/lib/auth/types";
 import { resolvePretixContext } from "@/lib/pretix/context";
 import * as pretixOrders from "@/lib/pretix/orders";
+import { PretixValidationError } from "@/lib/pretix/errors";
 import { sendEmail } from "@/lib/email/service";
 import { confirmationEmail, type Locale } from "@/lib/email/templates";
 import { isTicketIssued } from "./ticket";
@@ -75,12 +76,33 @@ export async function markOrderPaid(session: SessionContext, orderId: string) {
   if (!org) throw new Error("Organization not found");
   const ctx = resolvePretixContext(org);
 
-  await pretixOrders.markOrderPaid(
-    ctx.organizerSlug,
-    order.eventMapping.pretixEventSlug,
-    order.orderCode,
-    ctx.token,
-  );
+  // Sync payment with pretix FIRST. Only flip local status (which exposes the QR)
+  // when pretix sync succeeds — a real sync failure must not partially issue.
+  try {
+    await pretixOrders.markOrderPaid(
+      ctx.organizerSlug,
+      order.eventMapping.pretixEventSlug,
+      order.orderCode,
+      ctx.token,
+    );
+  } catch (err) {
+    // pretix already considers the order paid (e.g. $0 auto-paid, or a prior
+    // partial run) — safe to reconcile the local status.
+    if (!(err instanceof PretixValidationError)) {
+      // A genuine sync failure: audit it and do NOT issue the ticket locally.
+      await prisma.auditLog.create({
+        data: {
+          organizationId: order.eventMapping.organizationId,
+          actorUserId: session.userId,
+          action: "order.mark_paid_failed",
+          entityType: "order",
+          entityId: order.id,
+          success: false,
+        },
+      });
+      throw new Error("Payment sync with pretix failed; order was not marked paid");
+    }
+  }
 
   const updated = await prisma.attendeeOrder.update({
     where: { id: order.id },

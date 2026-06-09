@@ -19,6 +19,7 @@ import {
   getFinanceOrder,
   markOrderPaid,
 } from "@/lib/finance/service";
+import { PretixValidationError } from "@/lib/pretix/errors";
 
 const mock = <T,>(fn: T) => fn as unknown as ReturnType<typeof vi.fn>;
 
@@ -127,5 +128,27 @@ describe("markOrderPaid", () => {
     await markOrderPaid(financeA, "o1");
     expect(pretixOrders.markOrderPaid).not.toHaveBeenCalled();
     expect(email.sendEmail).not.toHaveBeenCalled();
+  });
+
+  it("pretix sync failure does NOT expose the QR and audits the failure (H5)", async () => {
+    mock(prisma.attendeeOrder.findUnique).mockResolvedValue(orderA);
+    mock(pretixOrders.markOrderPaid).mockRejectedValue(new Error("pretix 500"));
+    await expect(markOrderPaid(financeA, "o1")).rejects.toThrow(/payment sync/i);
+    expect(prisma.attendeeOrder.update).not.toHaveBeenCalled(); // never flips to paid → no QR
+    const audited = mock(prisma.auditLog.create).mock.calls.some(
+      (c) => c[0].data.action === "order.mark_paid_failed" && c[0].data.success === false,
+    );
+    expect(audited).toBe(true);
+  });
+
+  it("tolerates pretix 'already paid' and reconciles local status to paid (H5)", async () => {
+    mock(prisma.attendeeOrder.findUnique).mockResolvedValue(orderA);
+    mock(prisma.attendeeOrder.update).mockResolvedValue({ ...orderA, status: "paid" });
+    mock(pretixOrders.markOrderPaid).mockRejectedValue(
+      new PretixValidationError("The order is not pending or expired.", {}),
+    );
+    const res = await markOrderPaid(financeA, "o1");
+    expect(mock(prisma.attendeeOrder.update).mock.calls[0][0].data.status).toBe("paid");
+    expect(res.status).toBe("paid");
   });
 });
