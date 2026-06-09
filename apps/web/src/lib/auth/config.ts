@@ -10,6 +10,8 @@ const credentialsSchema = z.object({
 });
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
+  // Force the __Secure- cookie prefix + Secure attribute in production.
+  useSecureCookies: process.env.NODE_ENV === "production",
   session: {
     // Credentials provider requires JWT sessions (DB sessions are not
     // supported for credentials sign-in in Auth.js).
