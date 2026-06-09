@@ -99,6 +99,26 @@ DATABASE_URL=postgresql://... TEST_DATABASE_URL=postgresql://... npx vitest run 
 The event edit form pre-fills `date_from`/`date_to` by fetching the event from
 pretix (the source of truth) via `getEventForEdit`.
 
+## Public registration (Milestone 5)
+
+Premium public storefront under `/<locale>/events`:
+- Listing (open + coming-soon), event detail (hero, sticky ticket rail / mobile CTA,
+  capacity bar, add-to-calendar), 3-step registration wizard.
+- Theme system: light = editorial, dark = immersive, toggle in the nav (persisted).
+- Checkout: free events issue a QR ticket instantly; COD events create a pending
+  pretix order (ticket withheld until finance marks paid — later milestone).
+- Guest access via signed magic link `/<locale>/t/<token>`; account dashboard at
+  `/<locale>/my-tickets`.
+- Email via SMTP when configured, else a dev transport that logs to the console
+  (set `SMTP_HOST` to enable real delivery). Email failures never block registration.
+
+Gated suites:
+```bash
+cd apps/web
+# integration (real DB, mocked pretix)
+DATABASE_URL=... TEST_DATABASE_URL=... npx vitest run register.integration
+```
+
 ## Notes / decisions
 
 - **ORM:** Prisma (relational integrity, migration tooling).
