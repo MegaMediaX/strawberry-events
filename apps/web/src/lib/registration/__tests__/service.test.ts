@@ -128,6 +128,25 @@ describe("register", () => {
     expect(mock(email.sendEmail).mock.calls[0][0].subject).toMatch(/review/i);
   });
 
+  it("seated event requires seat selection", async () => {
+    mock(prisma.eventMapping.findFirst).mockResolvedValue({
+      id: "e1",
+      titleEn: "Seated",
+      pretixEventSlug: "expo",
+      organizationId: "orgA",
+      visibility: "public",
+      approvalMode: "none",
+      autoApproveItemIds: [],
+      seatSelectionEnabled: true,
+    });
+    mock(pretixProducts.listItems).mockResolvedValue([
+      { id: 7, titleEn: "V", titleAr: null, priceCents: 0, active: true },
+    ]);
+    await expect(
+      register({ ...base, tickets: [{ itemId: 7, quantity: 1 }] }),
+    ).rejects.toThrow(/seat selection/i);
+  });
+
   it("rejects missing consent", async () => {
     await expect(
       register({
