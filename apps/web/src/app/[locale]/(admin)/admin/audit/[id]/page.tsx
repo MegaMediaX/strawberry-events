@@ -5,6 +5,15 @@ import { getEntry } from "@/lib/audit/service";
 
 export const dynamic = "force-dynamic";
 
+function Row({ k, v }: { k: string; v: React.ReactNode }) {
+  return (
+    <div className="flex gap-3 border-b py-2 text-sm">
+      <div className="w-40 text-muted-foreground">{k}</div>
+      <div className="flex-1 break-all">{v}</div>
+    </div>
+  );
+}
+
 export default async function AuditDetail({
   params,
 }: {
@@ -16,13 +25,6 @@ export default async function AuditDetail({
   const session = await getSessionContext();
   const e = session ? await getEntry(session, id) : null;
   if (!e) notFound();
-
-  const Row = ({ k, v }: { k: string; v: React.ReactNode }) => (
-    <div className="flex gap-3 border-b py-2 text-sm">
-      <div className="w-40 text-muted-foreground">{k}</div>
-      <div className="flex-1 break-all">{v}</div>
-    </div>
-  );
 
   return (
     <div className="max-w-2xl">
