@@ -6,6 +6,7 @@ import type { SessionContext } from "@/lib/auth/types";
 import { resolvePretixContext } from "@/lib/pretix/context";
 import * as pretixOrders from "@/lib/pretix/orders";
 import { PretixValidationError } from "@/lib/pretix/errors";
+import { emit } from "@/lib/webhooks/service";
 import { sendEmail } from "@/lib/email/service";
 import {
   confirmationEmail,
@@ -136,6 +137,11 @@ export async function approve(session: SessionContext, orderId: string) {
   }
 
   await audit(session, org.id, "registration.approved", order.id);
+  void emit(org.id, "attendee.approved", { orderCode: order.orderCode }, order.eventMappingId);
+  if (isFree) {
+    void emit(org.id, "order.paid", { orderCode: order.orderCode }, order.eventMappingId);
+    void emit(org.id, "ticket.issued", { orderCode: order.orderCode }, order.eventMappingId);
+  }
   return updated;
 }
 
@@ -169,5 +175,6 @@ export async function reject(session: SessionContext, orderId: string) {
     rejectedEmail(locale, order.eventMapping.titleEn, order.orderCode),
   );
   await audit(session, org.id, "registration.rejected", order.id);
+  void emit(org.id, "attendee.rejected", { orderCode: order.orderCode }, order.eventMappingId);
   return updated;
 }

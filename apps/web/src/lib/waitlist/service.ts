@@ -3,6 +3,7 @@ import { canAccessEvent } from "@/lib/auth/org-scope";
 import { hasAnyRole, ForbiddenError } from "@/lib/auth/guards";
 import type { SessionContext } from "@/lib/auth/types";
 import { sendEmail } from "@/lib/email/service";
+import { emit } from "@/lib/webhooks/service";
 import { waitlistPromotedEmail, type Locale } from "@/lib/email/templates";
 
 /** Join the waitlist for an event (optionally a specific ticket). Idempotent per email. */
@@ -22,9 +23,22 @@ export async function joinWaitlist(
   });
   const position = (last?.position ?? 0) + 1;
 
-  return prisma.waitlistEntry.create({
+  const entry = await prisma.waitlistEntry.create({
     data: { eventMappingId, email, itemId, position, status: "waiting" },
   });
+  // Webhook emit is best-effort and must never break the join.
+  try {
+    const mapping = await prisma.eventMapping.findUnique({
+      where: { id: eventMappingId },
+      select: { organizationId: true },
+    });
+    if (mapping) {
+      void emit(mapping.organizationId, "waitlist.joined", { email, position }, eventMappingId);
+    }
+  } catch {
+    // ignore
+  }
+  return entry;
 }
 
 /** List waitlist entries for an event the session can access. */
@@ -88,6 +102,13 @@ export async function promote(session: SessionContext, entryId: string) {
       entityId: entry.id,
     },
   });
+
+  void emit(
+    entry.eventMapping.organizationId,
+    "waitlist.promoted",
+    { email: entry.email, entryId: entry.id },
+    entry.eventMappingId,
+  );
 
   return updated;
 }
