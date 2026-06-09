@@ -18,6 +18,23 @@ export async function listCheckinLists(
   );
 }
 
+/** Create a check-in list (used when provisioning an event for check-in). */
+export async function createCheckinList(
+  organizerSlug: string,
+  eventSlug: string,
+  input: { name: string; allProducts?: boolean },
+  token?: string,
+): Promise<PretixCheckinList> {
+  return pretixFetch<PretixCheckinList>(
+    `/organizers/${organizerSlug}/events/${eventSlug}/checkinlists/`,
+    {
+      method: "POST",
+      body: JSON.stringify({ name: input.name, all_products: input.allProducts ?? true }),
+    },
+    token,
+  );
+}
+
 export interface RedeemResult {
   status: "ok" | "error";
   reason?: string;
