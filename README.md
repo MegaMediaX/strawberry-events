@@ -227,6 +227,45 @@ Optional per-event reserved seating and a waitlist for full events.
   `/<locale>/admin/events/[id]/waitlist` (sends a "spot opened" email, audited). Promotion is
   manual (auto deferred); organizer/super admin only, impersonating blocked, cross-org denied.
 
+## External API + webhooks (Milestone 10)
+
+Versioned `/api/v1` for organizers/integrations. Full spec: `docs/api/openapi.yaml`.
+
+### Authentication
+`Authorization: Bearer sk_strawberry_xxxx`. Keys are **organization-scoped** (optionally
+event-restricted). Only a SHA-256 **hash** is stored — the raw key is shown **once** at
+creation. Manage at `/<locale>/admin/settings/api-keys` (super/organizer admin only;
+finance, check-in staff, and impersonating users cannot; cross-org denied).
+
+### Scopes
+`events:read, attendees:read, attendees:write, orders:read, checkins:read, checkins:write,
+waitlist:read, waitlist:write, seats:read, webhooks:manage`. Missing scope → `403 forbidden_scope`.
+
+### Rate limits
+Per-key fixed window (default 120/min) → `429 rate_limited` + `Retry-After` / `X-RateLimit-*`.
+(In-memory, single-instance — swap for Redis to scale horizontally.)
+
+### Responses
+`{ data, meta, error: null }` on success; `{ data: null, meta: {}, error: { code, message } }`
+on error. Lists include `meta.pagination`. **DELETE is never supported** (no destructive
+endpoints) → `405 method_not_allowed`.
+
+### Endpoints
+`GET /me`, `GET /events`, `GET /events/:id`, `GET /events/:id/{attendees|orders|checkins|waitlist|seats}`,
+`POST /events/:id/{waitlist|attendees|checkins}`. Never leaks pretix tokens, secrets,
+`pretixSecret`, or magic links.
+
+### Webhooks
+Configure endpoints at `/<locale>/admin/settings/webhooks` (create, enable/disable, rotate
+secret, test, recent deliveries). Events: `attendee.created/approved/rejected`,
+`order.created/paid`, `ticket.issued`, `checkin.created`, `badge.printed`,
+`waitlist.joined/promoted`, `seat.held/confirmed/released`.
+Delivery is **non-blocking** (never breaks the primary action), recorded in
+`WebhookDelivery`, retried with backoff. Each request is signed:
+`X-Strawberry-Signature = HMAC-SHA256(secret, "${timestamp}.${rawBody}")` (hex), plus
+`X-Strawberry-Timestamp`, `X-Strawberry-Delivery`, `X-Strawberry-Event`. Verify by
+recomputing the HMAC and constant-time comparing.
+
 ## Notes / decisions
 
 - **ORM:** Prisma (relational integrity, migration tooling).
