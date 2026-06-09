@@ -29,7 +29,7 @@ export interface ApiContext {
  */
 export async function authenticateRequest(
   request: Request,
-  required: Scope,
+  required: Scope | null,
 ): Promise<ApiContext> {
   const raw = parseBearer(request.headers.get("authorization"));
   if (!raw) throw new ApiError("unauthorized", "Missing or malformed API key", 401);
@@ -39,7 +39,7 @@ export async function authenticateRequest(
   if (isRevoked(key)) throw new ApiError("revoked", "API key has been revoked", 401);
   if (isExpired(key)) throw new ApiError("expired", "API key has expired", 401);
 
-  if (!hasScope(key.scopes, required)) {
+  if (required && !hasScope(key.scopes, required)) {
     throw new ApiError("forbidden_scope", `Missing required scope: ${required}`, 403);
   }
 
