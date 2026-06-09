@@ -2,6 +2,7 @@ import type { EventMapping } from "@prisma/client";
 import { prisma } from "@/lib/db/client";
 import { resolvePretixContext } from "@/lib/pretix/context";
 import * as pretixProducts from "@/lib/pretix/products";
+import * as pretixEvents from "@/lib/pretix/events";
 
 export interface PublicTicket {
   id: number;
@@ -14,6 +15,8 @@ export interface PublicEventDetail {
   event: EventMapping;
   tickets: PublicTicket[];
   capacity: { sold: number; total: number | null };
+  dateFrom: string | null;
+  dateTo: string | null;
 }
 
 /**
@@ -49,9 +52,12 @@ export async function getPublicEvent(
   if (!org) return null;
   const ctx = resolvePretixContext(org);
 
-  const [items, quotas] = await Promise.all([
+  const [items, quotas, detail] = await Promise.all([
     pretixProducts.listItems(ctx.organizerSlug, event.pretixEventSlug, ctx.token),
     pretixProducts.listQuotas(ctx.organizerSlug, event.pretixEventSlug, ctx.token),
+    pretixEvents
+      .getEvent(ctx.organizerSlug, event.pretixEventSlug, ctx.token)
+      .catch(() => null),
   ]);
 
   // Aggregate capacity: unlimited if any quota is unlimited (size null).
@@ -81,5 +87,7 @@ export async function getPublicEvent(
         priceCents: i.priceCents,
       })),
     capacity,
+    dateFrom: detail?.dateFrom ?? null,
+    dateTo: detail?.dateTo ?? null,
   };
 }

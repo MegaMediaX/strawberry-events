@@ -10,6 +10,12 @@ vi.mock("@/lib/pretix/products", () => ({
   listItems: vi.fn(),
   listQuotas: vi.fn(),
 }));
+vi.mock("@/lib/pretix/events", () => ({
+  getEvent: vi.fn().mockResolvedValue({
+    dateFrom: "2026-09-01T09:00:00Z",
+    dateTo: null,
+  }),
+}));
 
 import { prisma } from "@/lib/db/client";
 import * as pretixProducts from "@/lib/pretix/products";
