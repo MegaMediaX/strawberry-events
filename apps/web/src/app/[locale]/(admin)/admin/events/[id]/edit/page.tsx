@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 import { setRequestLocale } from "next-intl/server";
 import { getSessionContext } from "@/lib/auth/session";
-import { getEventForSession } from "@/lib/events/service";
+import { getEventForEdit } from "@/lib/events/service";
 import { EventForm } from "../../event-form";
 
 export default async function EditEventPage({
@@ -13,8 +13,9 @@ export default async function EditEventPage({
   setRequestLocale(locale);
 
   const session = await getSessionContext();
-  const event = session ? await getEventForSession(session, id) : null;
-  if (!event) notFound();
+  const detail = session ? await getEventForEdit(session, id) : null;
+  if (!detail) notFound();
+  const { mapping: event, dateFrom, dateTo } = detail;
 
   return (
     <div>
@@ -28,6 +29,8 @@ export default async function EditEventPage({
           slug: event.pretixEventSlug,
           descriptionEn: event.descriptionEn ?? undefined,
           descriptionAr: event.descriptionAr ?? undefined,
+          dateFrom: dateFrom ?? undefined,
+          dateTo: dateTo ?? undefined,
           visibility: event.visibility,
           accountMode: event.accountMode,
           approvalMode: event.approvalMode,

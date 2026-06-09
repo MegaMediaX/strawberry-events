@@ -103,6 +103,34 @@ export async function createEvent(
   }
 }
 
+/**
+ * Load an event for editing: the local mapping plus its pretix-sourced dates
+ * (pretix is the source of truth for date_from/date_to). Returns null if denied.
+ */
+export async function getEventForEdit(
+  session: SessionContext,
+  id: string,
+): Promise<{ mapping: EventMapping; dateFrom: string | null; dateTo: string | null } | null> {
+  const mapping = await getEventForSession(session, id);
+  if (!mapping) return null;
+  const org = await prisma.organization.findUnique({
+    where: { id: mapping.organizationId },
+  });
+  if (!org) return null;
+  const ctx = resolvePretixContext(org);
+  try {
+    const ev = await pretixEvents.getEvent(
+      ctx.organizerSlug,
+      mapping.pretixEventSlug,
+      ctx.token,
+    );
+    return { mapping, dateFrom: ev.dateFrom, dateTo: ev.dateTo };
+  } catch {
+    // If pretix is unreachable, still allow editing local fields.
+    return { mapping, dateFrom: null, dateTo: null };
+  }
+}
+
 /** List ticket items for an event the session can access. */
 export async function listTickets(session: SessionContext, eventId: string) {
   const mapping = await getEventForSession(session, eventId);

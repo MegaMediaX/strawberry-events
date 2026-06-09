@@ -96,9 +96,8 @@ cd apps/web
 DATABASE_URL=postgresql://... TEST_DATABASE_URL=postgresql://... npx vitest run service.integration
 ```
 
-> Known M4 limitation: the event edit form does not pre-fill `date_from`
-> (not stored locally); re-enter it when saving edits. To be addressed when
-> event detail is fetched from pretix on edit.
+The event edit form pre-fills `date_from`/`date_to` by fetching the event from
+pretix (the source of truth) via `getEventForEdit`.
 
 ## Notes / decisions
 
