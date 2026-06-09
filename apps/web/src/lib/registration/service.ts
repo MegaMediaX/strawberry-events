@@ -15,6 +15,7 @@ import {
 import { requiresApproval } from "@/lib/approval/state";
 import { tagForItem } from "@/lib/checkin/eligibility";
 import { holdSeats, confirmSeats } from "@/lib/seats/service";
+import { emit } from "@/lib/webhooks/service";
 import { registerInputSchema, type RegisterInput } from "./schema";
 
 export interface RegisterResult {
@@ -78,6 +79,8 @@ export async function register(input: RegisterInput): Promise<RegisterResult> {
   if (data.seatIds && data.seatIds.length > 0) {
     await holdSeats(event.id, data.seatIds, order.code);
     await confirmSeats(data.seatIds, order.code);
+    void emit(event.organizationId, "seat.held", { orderCode: order.code, seatIds: data.seatIds }, event.id);
+    void emit(event.organizationId, "seat.confirmed", { orderCode: order.code, seatIds: data.seatIds }, event.id);
   }
 
   // Issue immediately only when no approval is needed AND the order is free.
@@ -122,6 +125,12 @@ export async function register(input: RegisterInput): Promise<RegisterResult> {
       magicLinkToken,
     },
   });
+
+  void emit(event.organizationId, "order.created", { orderCode: order.code, status }, event.id);
+  if (status === "paid") {
+    void emit(event.organizationId, "order.paid", { orderCode: order.code }, event.id);
+    void emit(event.organizationId, "ticket.issued", { orderCode: order.code }, event.id);
+  }
 
   // Email is best-effort: never fail the registration on send errors.
   try {

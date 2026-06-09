@@ -5,6 +5,7 @@ import { hasAnyRole, ForbiddenError } from "@/lib/auth/guards";
 import type { SessionContext } from "@/lib/auth/types";
 import { resolvePretixContext } from "@/lib/pretix/context";
 import * as pretixCheckin from "@/lib/pretix/checkin";
+import { emit } from "@/lib/webhooks/service";
 import { checkinEligibility } from "./eligibility";
 
 export interface CheckInResult {
@@ -114,6 +115,9 @@ export async function checkInOrder(
       entityId: order.id,
     },
   });
+
+  void emit(mapping.organizationId, "checkin.created", { orderCode: order.orderCode }, mapping.id);
+  void emit(mapping.organizationId, "badge.printed", { orderCode: order.orderCode }, mapping.id);
 
   return {
     ok: true,

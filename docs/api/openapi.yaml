@@ -1,0 +1,139 @@
+openapi: 3.1.0
+info:
+  title: Strawberry Events External API
+  version: "1.0.0"
+  description: |
+    Versioned external API for organizers and integrations.
+
+    ## Authentication
+    Send your API key as a Bearer token:
+    `Authorization: Bearer sk_strawberry_xxxxxxxx`
+    Keys are organization-scoped and may be further restricted to specific events.
+    The raw key is shown only once at creation; only a SHA-256 hash is stored.
+
+    ## Scopes
+    events:read, attendees:read, attendees:write, orders:read, checkins:read,
+    checkins:write, waitlist:read, waitlist:write, seats:read, webhooks:manage.
+    A request without the required scope returns 403 `forbidden_scope`.
+
+    ## Rate limits
+    Per-key fixed window (default 120/min). Exceeding returns 429 `rate_limited`
+    with `Retry-After` and `X-RateLimit-*` headers.
+
+    ## Response shape
+    Success: `{ "data": ..., "meta": {...}, "error": null }`
+    Error:   `{ "data": null, "meta": {}, "error": { "code": "...", "message": "..." } }`
+    List endpoints include `meta.pagination { page, perPage, total }`.
+
+    ## Methods
+    DELETE is never supported (no destructive endpoints) → 405 `method_not_allowed`.
+servers:
+  - url: /api/v1
+security:
+  - bearerAuth: []
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: sk_strawberry_*
+  schemas:
+    Error:
+      type: object
+      properties:
+        data: { type: "null" }
+        meta: { type: object }
+        error:
+          type: object
+          properties:
+            code: { type: string }
+            message: { type: string }
+    Envelope:
+      type: object
+      properties:
+        data: {}
+        meta: { type: object }
+        error: { type: "null" }
+paths:
+  /me:
+    get:
+      summary: Current key context (organization, scopes, event restrictions)
+      responses:
+        "200": { description: OK }
+        "401": { description: Unauthorized (missing/invalid/revoked/expired key) }
+  /events:
+    get:
+      summary: List events (events:read)
+      parameters:
+        - { name: page, in: query, schema: { type: integer } }
+        - { name: perPage, in: query, schema: { type: integer } }
+      responses: { "200": { description: OK } }
+    delete:
+      summary: Not supported
+      responses: { "405": { description: Method not allowed } }
+  /events/{id}:
+    get:
+      summary: Get an event (events:read)
+      parameters: [{ name: id, in: path, required: true, schema: { type: string } }]
+      responses: { "200": { description: OK }, "404": { description: Not found } }
+  /events/{id}/attendees:
+    get: { summary: "List attendees (attendees:read)", responses: { "200": { description: OK } } }
+    post:
+      summary: Register an attendee (attendees:write)
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, firstName, lastName, itemId]
+              properties:
+                email: { type: string }
+                firstName: { type: string }
+                lastName: { type: string }
+                itemId: { type: integer }
+                quantity: { type: integer }
+      responses: { "201": { description: Created }, "403": { description: forbidden_scope } }
+  /events/{id}/orders:
+    get: { summary: "List orders (orders:read)", responses: { "200": { description: OK } } }
+  /events/{id}/checkins:
+    get: { summary: "List check-ins (checkins:read)", responses: { "200": { description: OK } } }
+    post:
+      summary: Check in an attendee (checkins:write)
+      requestBody:
+        content: { application/json: { schema: { type: object, required: [orderCode], properties: { orderCode: { type: string } } } } }
+      responses: { "201": { description: Created }, "409": { description: not eligible / failed } }
+  /events/{id}/waitlist:
+    get: { summary: "List waitlist (waitlist:read)", responses: { "200": { description: OK } } }
+    post:
+      summary: Join the waitlist (waitlist:write)
+      requestBody:
+        content: { application/json: { schema: { type: object, required: [email], properties: { email: { type: string }, itemId: { type: integer } } } } }
+      responses: { "201": { description: Created } }
+  /events/{id}/seats:
+    get: { summary: "List seats (seats:read)", responses: { "200": { description: OK } } }
+webhooks:
+  event:
+    post:
+      summary: Outbound event delivery
+      description: |
+        Strawberry POSTs signed JSON to your configured endpoint(s).
+        Headers:
+        - `X-Strawberry-Event`: event name (e.g. order.paid)
+        - `X-Strawberry-Delivery`: unique delivery id
+        - `X-Strawberry-Timestamp`: unix seconds
+        - `X-Strawberry-Signature`: hex HMAC-SHA256 of `${timestamp}.${rawBody}` using your signing secret
+
+        Verify: recompute the HMAC and constant-time compare. Events:
+        attendee.created, attendee.approved, attendee.rejected, order.created,
+        order.paid, ticket.issued, checkin.created, badge.printed, waitlist.joined,
+        waitlist.promoted, seat.held, seat.confirmed, seat.released.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                id: { type: string }
+                event: { type: string }
+                data: { type: object }
+      responses: { "200": { description: Acknowledged } }

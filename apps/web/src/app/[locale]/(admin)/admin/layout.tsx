@@ -15,6 +15,8 @@ const NAV = [
   { href: "/finance", label: "Finance", financeAllowed: true },
   { href: "/staff", label: "Staff", financeAllowed: false },
   { href: "/settings", label: "Settings", financeAllowed: false },
+  { href: "/settings/api-keys", label: "API keys", financeAllowed: false },
+  { href: "/settings/webhooks", label: "Webhooks", financeAllowed: false },
 ];
 
 export default async function AdminLayout({
