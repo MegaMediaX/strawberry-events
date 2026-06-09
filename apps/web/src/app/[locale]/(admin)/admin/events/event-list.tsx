@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 
@@ -30,12 +30,11 @@ export function EventList({
   events: EventRow[];
   locale: string;
 }) {
-  const [view, setView] = useState<View>("table");
-
-  useEffect(() => {
-    const saved = localStorage.getItem(STORAGE_KEY) as View | null;
-    if (saved === "table" || saved === "cards") setView(saved);
-  }, []);
+  const [view, setView] = useState<View>(() => {
+    if (typeof window === "undefined") return "table";
+    const saved = localStorage.getItem(STORAGE_KEY);
+    return saved === "cards" ? "cards" : "table";
+  });
 
   function choose(v: View) {
     setView(v);

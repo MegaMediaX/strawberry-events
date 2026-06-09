@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -25,6 +26,7 @@ type FormValues = z.infer<typeof schema>;
 
 export function LoginForm({ locale }: { locale: string }) {
   const t = useTranslations("auth");
+  const router = useRouter();
   const [error, setError] = useState<string | null>(null);
   const {
     register,
@@ -42,7 +44,8 @@ export function LoginForm({ locale }: { locale: string }) {
       setError("Invalid email or password.");
       return;
     }
-    window.location.href = `/${locale}/admin`;
+    router.push(`/${locale}/admin`);
+    router.refresh();
   }
 
   return (
