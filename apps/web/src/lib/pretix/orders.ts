@@ -2,11 +2,17 @@ import { pretixFetch } from "./client";
 
 export type PretixOrderStatus = "n" | "p" | "e" | "c" | "r"; // pending|paid|expired|canceled|refunded
 
+export interface PretixOrderPosition {
+  id: number;
+  secret: string;
+}
+
 export interface PretixOrder {
   code: string;
   status: PretixOrderStatus;
   email: string | null;
   total: string;
+  positions?: PretixOrderPosition[];
 }
 
 export interface CreateOrderPosition {
