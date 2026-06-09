@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { setRequestLocale } from "next-intl/server";
-import { getSessionContext } from "@/lib/auth/session";
+import { getSessionContext, requireRole } from "@/lib/auth/session";
 import { listEventsForSession } from "@/lib/events/service";
 import { Button } from "@/components/ui/button";
 import { EventList } from "./event-list";
@@ -12,6 +12,7 @@ export default async function EventsPage({
 }) {
   const { locale } = await params;
   setRequestLocale(locale);
+  await requireRole(["super_admin", "organizer_admin"], `/${locale}/admin`);
 
   const session = await getSessionContext();
   const events = session ? await listEventsForSession(session) : [];

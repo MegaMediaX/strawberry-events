@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
 import { setRequestLocale } from "next-intl/server";
-import { getSessionContext } from "@/lib/auth/session";
+import { getSessionContext, requireRole } from "@/lib/auth/session";
 import { getEventForSession, listTickets } from "@/lib/events/service";
 import { centsToPrice } from "@/lib/pretix/mappers";
 import { TicketBuilder } from "./ticket-builder";
@@ -12,6 +12,7 @@ export default async function TicketsPage({
 }) {
   const { locale, id } = await params;
   setRequestLocale(locale);
+  await requireRole(["super_admin", "organizer_admin"], `/${locale}/admin`);
 
   const session = await getSessionContext();
   const event = session ? await getEventForSession(session, id) : null;
