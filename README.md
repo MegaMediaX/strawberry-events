@@ -132,6 +132,42 @@ organizations (super admin sees all). Mark-paid is blocked while impersonating
 `npm run smoke` runs the fast core-logic suite. OpenAPI is deferred until the external
 API milestone (finance uses Server Actions, no public HTTP surface yet).
 
+## Approval + attendee flow (Milestone 7)
+
+Approval is decided per event (`EventMapping.approvalMode`): `none`, `manual`,
+`automatic`, `manual_and_automatic`. Per-ticket auto-approval via
+`EventMapping.autoApproveItemIds` (e.g. Visitor auto, Media/Partner manual).
+`payBeforeApproval` opt-in flag exists; default is approve-first-then-pay.
+
+**State model.** `AttendeeOrder.status` (pending/paid/canceled) is the payment
+lifecycle; `approvalStatus` (not_required/pending/approved/rejected) is separate.
+The attendee-facing state is **derived** (`lib/approval/state.ts → registrationState`):
+
+| approvalStatus | status | state |
+|---|---|---|
+| pending | * | pending_approval |
+| rejected | * | rejected |
+| approved/not_required | canceled | canceled |
+| approved/not_required | pending | pending_payment |
+| approved/not_required | paid | issued |
+
+Tickets issue only when `status === "paid"`; an order is never marked paid until
+approved (or approval not required), so the QR gating is unchanged from M6.
+
+**Flow.** No approval + free → issued instantly. No approval + COD → pending_payment.
+Approval required → `pending_approval` (no QR, pending email). On approve: free → issued
++ ticket email; COD → pending_payment + payment-required email. On reject → rejected +
+canceled + rejected email. All decisions audited.
+
+**Admin queue** `/admin/approvals` (filter pending/approved/rejected) + detail (attendee +
+submitted modular fields) + approve/reject.
+
+**Permissions.** super_admin: all. organizer_admin: assigned org/events. finance &
+check-in staff: **cannot** approve/reject. Impersonating sessions are blocked.
+
+**Attendee access.** confirmation / `/t/<token>` / `/my-tickets` all render the derived
+state — pending review, rejected, payment instructions, or QR.
+
 ## Notes / decisions
 
 - **ORM:** Prisma (relational integrity, migration tooling).
