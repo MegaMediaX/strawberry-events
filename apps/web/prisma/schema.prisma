@@ -481,13 +481,16 @@ model CustomFormAnswer {
 // ---------------------------------------------------------------------------
 
 model IntegrationSetting {
-  id             String   @id @default(cuid())
-  organizationId String
-  provider       String
-  enabled        Boolean  @default(false)
-  config         Json     @default("{}")
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  id              String    @id @default(cuid())
+  organizationId  String
+  provider        String
+  enabled         Boolean   @default(false)
+  config          Json      @default("{}")
+  lastTestedAt    DateTime?
+  lastError       String?
+  updatedByUserId String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
@@ -496,21 +499,40 @@ model IntegrationSetting {
 }
 
 model SmtpSetting {
-  id             String         @id @default(cuid())
-  organizationId String         @unique
-  host           String
-  port           Int            @default(587)
-  username       String?
-  passwordEnc    String?
-  fromName       String
-  fromEmail      String
-  encryption     SmtpEncryption @default(tls)
-  createdAt      DateTime       @default(now())
-  updatedAt      DateTime       @updatedAt
+  id              String         @id @default(cuid())
+  organizationId  String         @unique
+  host            String
+  port            Int            @default(587)
+  username        String?
+  passwordEnc     String?
+  fromName        String
+  fromEmail       String
+  replyTo         String?
+  encryption      SmtpEncryption @default(tls)
+  lastTestedAt    DateTime?
+  lastError       String?
+  updatedByUserId String?
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
   @@map("smtp_settings")
+}
+
+model ReminderSetting {
+  id              String   @id @default(cuid())
+  organizationId  String
+  eventMappingId  String?
+  emailEnabled    Boolean  @default(true)
+  whatsappEnabled Boolean  @default(false)
+  smsEnabled      Boolean  @default(false)
+  offsetsMinutes  Int[]    @default([1440, 60])
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([organizationId, eventMappingId])
+  @@map("reminder_settings")
 }
 
 // ---------------------------------------------------------------------------
@@ -582,24 +604,27 @@ model WebhookDelivery {
 // ---------------------------------------------------------------------------
 
 model AuditLog {
-  id             String   @id @default(cuid())
-  organizationId String?
-  eventMappingId String?
-  actorUserId    String?
-  action         String
-  entityType     String
-  entityId       String
-  before         Json?
-  after          Json?
-  ipAddress      String?
-  userAgent      String?
-  createdAt      DateTime @default(now())
+  id                 String   @id @default(cuid())
+  organizationId     String?
+  eventMappingId     String?
+  actorUserId        String?
+  impersonatedUserId String?
+  action             String
+  entityType         String
+  entityId           String
+  success            Boolean  @default(true)
+  before             Json?
+  after              Json?
+  ipAddress          String?
+  userAgent          String?
+  createdAt          DateTime @default(now())
 
   organization Organization? @relation(fields: [organizationId], references: [id], onDelete: SetNull)
   actor        User?         @relation(fields: [actorUserId], references: [id], onDelete: SetNull)
 
   @@index([organizationId])
   @@index([entityType, entityId])
+  @@index([action])
   @@map("audit_logs")
 }
 
@@ -648,15 +673,31 @@ model WaitlistEntry {
   @@map("waitlist_entries")
 }
 
+enum ArchiveStatus {
+  queued
+  restored
+  purged
+  canceled
+}
+
 model ArchiveQueue {
-  id         String    @id @default(cuid())
-  entityType String
-  entityId   String
-  payload    Json
-  archivedAt DateTime  @default(now())
-  purgeAfter DateTime
-  purgedAt   DateTime?
+  id                String        @id @default(cuid())
+  entityType        String
+  entityId          String
+  targetName        String?
+  organizationId    String?
+  eventMappingId    String?
+  payload           Json
+  reason            String?
+  status            ArchiveStatus @default(queued)
+  requestedByUserId String?
+  archivedAt        DateTime      @default(now())
+  purgeAfter        DateTime
+  restoredAt        DateTime?
+  canceledAt        DateTime?
+  purgedAt          DateTime?
 
   @@index([purgeAfter])
+  @@index([organizationId, status])
   @@map("archive_queue")
 }
