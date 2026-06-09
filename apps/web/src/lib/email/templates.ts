@@ -22,6 +22,57 @@ export function pendingEmail(
   };
 }
 
+export function pendingApprovalEmail(
+  locale: Locale,
+  eventTitle: string,
+  orderCode: string,
+): RenderedEmail {
+  if (locale === "ar") {
+    return {
+      subject: `طلبك قيد المراجعة — ${eventTitle}`,
+      text: `استلمنا تسجيلك في ${eventTitle} وهو قيد مراجعة المنظّم.\nرمز الطلب: ${orderCode}\nسنعلمك عند الموافقة.`,
+    };
+  }
+  return {
+    subject: `Your registration is under review — ${eventTitle}`,
+    text: `We received your registration for ${eventTitle}; it's awaiting organizer approval.\nOrder code: ${orderCode}\nWe'll email you once it's reviewed.`,
+  };
+}
+
+export function approvedPaymentEmail(
+  locale: Locale,
+  eventTitle: string,
+  orderCode: string,
+): RenderedEmail {
+  if (locale === "ar") {
+    return {
+      subject: `تمت الموافقة — الدفع مطلوب — ${eventTitle}`,
+      text: `تمت الموافقة على تسجيلك في ${eventTitle}.\nرمز الطلب: ${orderCode}\nيرجى إكمال الدفع لإصدار التذكرة.`,
+    };
+  }
+  return {
+    subject: `Approved — payment required — ${eventTitle}`,
+    text: `Your registration for ${eventTitle} is approved.\nOrder code: ${orderCode}\nPlease complete payment to receive your ticket.`,
+  };
+}
+
+export function rejectedEmail(
+  locale: Locale,
+  eventTitle: string,
+  orderCode: string,
+): RenderedEmail {
+  if (locale === "ar") {
+    return {
+      subject: `تعذّر قبول تسجيلك — ${eventTitle}`,
+      text: `نأسف، لم تتم الموافقة على تسجيلك في ${eventTitle}.\nرمز الطلب: ${orderCode}`,
+    };
+  }
+  return {
+    subject: `Your registration was not approved — ${eventTitle}`,
+    text: `We're sorry — your registration for ${eventTitle} was not approved.\nOrder code: ${orderCode}`,
+  };
+}
+
 export function confirmationEmail(
   locale: Locale,
   eventTitle: string,

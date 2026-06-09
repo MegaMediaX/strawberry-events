@@ -6,12 +6,18 @@ import { centsToPrice } from "@/lib/pretix/mappers";
 import { selectProvider } from "@/lib/payments/provider";
 import { signMagicLink } from "@/lib/tokens/magic-link";
 import { sendEmail } from "@/lib/email/service";
-import { pendingEmail, confirmationEmail } from "@/lib/email/templates";
+import {
+  pendingEmail,
+  confirmationEmail,
+  pendingApprovalEmail,
+} from "@/lib/email/templates";
+import { requiresApproval } from "@/lib/approval/state";
 import { registerInputSchema, type RegisterInput } from "./schema";
 
 export interface RegisterResult {
   orderCode: string;
   status: "pending" | "paid";
+  approvalStatus: "not_required" | "pending";
   magicLinkToken: string;
 }
 
@@ -47,6 +53,11 @@ export async function register(input: RegisterInput): Promise<RegisterResult> {
   }
 
   const provider = selectProvider(totalCents);
+  const needsApproval = requiresApproval(
+    event.approvalMode,
+    data.tickets.map((t) => t.itemId),
+    event.autoApproveItemIds,
+  );
 
   const order = await pretixOrders.createOrder(
     ctx.organizerSlug,
@@ -55,8 +66,9 @@ export async function register(input: RegisterInput): Promise<RegisterResult> {
     ctx.token,
   );
 
+  // Issue immediately only when no approval is needed AND the order is free.
   let status: "pending" | "paid" = "pending";
-  if (provider === "free") {
+  if (!needsApproval && provider === "free") {
     await pretixOrders.markOrderPaid(
       ctx.organizerSlug,
       event.pretixEventSlug,
@@ -65,6 +77,7 @@ export async function register(input: RegisterInput): Promise<RegisterResult> {
     );
     status = "paid";
   }
+  const approvalStatus = needsApproval ? "pending" : "not_required";
 
   const magicLinkToken = signMagicLink(order.code);
 
@@ -75,6 +88,7 @@ export async function register(input: RegisterInput): Promise<RegisterResult> {
       email: data.attendee.email,
       userId: data.userId ?? null,
       status,
+      approvalStatus,
       provider,
       totalCents,
       magicLinkToken,
@@ -85,8 +99,9 @@ export async function register(input: RegisterInput): Promise<RegisterResult> {
   try {
     const appUrl = process.env.APP_URL ?? "";
     const ticketUrl = `${appUrl}/${data.locale}/t/${magicLinkToken}`;
-    const msg =
-      status === "paid"
+    const msg = needsApproval
+      ? pendingApprovalEmail(data.locale, event.titleEn, order.code)
+      : status === "paid"
         ? confirmationEmail(data.locale, event.titleEn, order.code, ticketUrl)
         : pendingEmail(data.locale, event.titleEn, order.code);
     await sendEmail({ to: data.attendee.email, ...msg });
@@ -94,5 +109,5 @@ export async function register(input: RegisterInput): Promise<RegisterResult> {
     // swallow
   }
 
-  return { orderCode: order.code, status, magicLinkToken };
+  return { orderCode: order.code, status, approvalStatus, magicLinkToken };
 }
