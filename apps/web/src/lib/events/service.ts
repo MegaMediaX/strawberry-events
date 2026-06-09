@@ -101,6 +101,18 @@ export async function createEvent(
   }
 }
 
+/** List ticket items for an event the session can access. */
+export async function listTickets(session: SessionContext, eventId: string) {
+  const mapping = await getEventForSession(session, eventId);
+  if (!mapping) throw new Error("Event not found or access denied");
+  const org = await prisma.organization.findUnique({
+    where: { id: mapping.organizationId },
+  });
+  if (!org) throw new Error("Organization not found");
+  const ctx = resolvePretixContext(org);
+  return pretixProducts.listItems(ctx.organizerSlug, mapping.pretixEventSlug, ctx.token);
+}
+
 /** Update an event (pretix PATCH + local mapping) the session can access. */
 export async function updateEvent(
   session: SessionContext,
