@@ -5,6 +5,7 @@ import { hasAnyRole, ForbiddenError } from "@/lib/auth/guards";
 import type { SessionContext } from "@/lib/auth/types";
 import { resolvePretixContext } from "@/lib/pretix/context";
 import * as pretixOrders from "@/lib/pretix/orders";
+import { PretixValidationError } from "@/lib/pretix/errors";
 import { sendEmail } from "@/lib/email/service";
 import {
   confirmationEmail,
@@ -101,12 +102,17 @@ export async function approve(session: SessionContext, orderId: string) {
   let newStatus: "pending" | "paid" = "pending";
 
   if (isFree) {
-    await pretixOrders.markOrderPaid(
-      ctx.organizerSlug,
-      order.eventMapping.pretixEventSlug,
-      order.orderCode,
-      ctx.token,
-    );
+    // pretix may already have auto-paid the zero-total order; tolerate that.
+    try {
+      await pretixOrders.markOrderPaid(
+        ctx.organizerSlug,
+        order.eventMapping.pretixEventSlug,
+        order.orderCode,
+        ctx.token,
+      );
+    } catch (err) {
+      if (!(err instanceof PretixValidationError)) throw err;
+    }
     newStatus = "paid";
   }
 

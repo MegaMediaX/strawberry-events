@@ -2,6 +2,7 @@ import { prisma } from "@/lib/db/client";
 import { resolvePretixContext } from "@/lib/pretix/context";
 import * as pretixProducts from "@/lib/pretix/products";
 import * as pretixOrders from "@/lib/pretix/orders";
+import { PretixValidationError } from "@/lib/pretix/errors";
 import { centsToPrice } from "@/lib/pretix/mappers";
 import { selectProvider } from "@/lib/payments/provider";
 import { signMagicLink } from "@/lib/tokens/magic-link";
@@ -69,12 +70,19 @@ export async function register(input: RegisterInput): Promise<RegisterResult> {
   // Issue immediately only when no approval is needed AND the order is free.
   let status: "pending" | "paid" = "pending";
   if (!needsApproval && provider === "free") {
-    await pretixOrders.markOrderPaid(
-      ctx.organizerSlug,
-      event.pretixEventSlug,
-      order.code,
-      ctx.token,
-    );
+    // pretix auto-marks zero-total orders as paid on creation; tolerate that.
+    if (order.status !== "p") {
+      try {
+        await pretixOrders.markOrderPaid(
+          ctx.organizerSlug,
+          event.pretixEventSlug,
+          order.code,
+          ctx.token,
+        );
+      } catch (err) {
+        if (!(err instanceof PretixValidationError)) throw err;
+      }
+    }
     status = "paid";
   }
   const approvalStatus = needsApproval ? "pending" : "not_required";
