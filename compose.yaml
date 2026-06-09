@@ -1,0 +1,116 @@
+name: strawberry-events
+
+services:
+  postgres-app:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_APP_USER:-app}
+      POSTGRES_PASSWORD: ${POSTGRES_APP_PASSWORD:-password}
+      POSTGRES_DB: ${POSTGRES_APP_DB:-strawberry_platform}
+    volumes:
+      - postgres-app-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_APP_USER:-app}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  postgres-pretix:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_PRETIX_USER:-pretix}
+      POSTGRES_PASSWORD: ${POSTGRES_PRETIX_PASSWORD:-pretix_password}
+      POSTGRES_DB: ${POSTGRES_PRETIX_DB:-pretix}
+    volumes:
+      - postgres-pretix-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_PRETIX_USER:-pretix}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  pretix:
+    image: pretix/standalone:stable
+    restart: unless-stopped
+    depends_on:
+      postgres-pretix:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      PRETIX_DATABASE_BACKEND: postgresql
+      PRETIX_DATABASE_NAME: ${POSTGRES_PRETIX_DB:-pretix}
+      PRETIX_DATABASE_USER: ${POSTGRES_PRETIX_USER:-pretix}
+      PRETIX_DATABASE_PASSWORD: ${POSTGRES_PRETIX_PASSWORD:-pretix_password}
+      PRETIX_DATABASE_HOST: postgres-pretix
+      PRETIX_REDIS_LOCATION: redis://redis:6379/0
+      PRETIX_REDIS_SESSIONS: "true"
+      PRETIX_PRETIX_URL: ${PRETIX_BASE_URL:-http://localhost:8081}
+      PRETIX_PRETIX_INSTANCE_NAME: Strawberry Events
+    volumes:
+      - pretix-data:/data
+    command: ["all"]
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:80/healthcheck/').status==200 else 1)"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 90s
+
+  next-app:
+    build:
+      context: ./apps/web
+    restart: unless-stopped
+    depends_on:
+      postgres-app:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://${POSTGRES_APP_USER:-app}:${POSTGRES_APP_PASSWORD:-password}@postgres-app:5432/${POSTGRES_APP_DB:-strawberry_platform}?schema=public
+      AUTH_SECRET: ${AUTH_SECRET:-change_me}
+      NEXTAUTH_URL: ${NEXTAUTH_URL:-http://localhost:3000}
+      PRETIX_BASE_URL: ${PRETIX_BASE_URL:-http://pretix:80}
+      PRETIX_API_TOKEN: ${PRETIX_API_TOKEN:-change_me}
+      PRETIX_DEFAULT_ORGANIZER: ${PRETIX_DEFAULT_ORGANIZER:-strawberry}
+      REDIS_URL: redis://redis:6379
+      SEED_ADMIN_EMAIL: ${SEED_ADMIN_EMAIL:-admin@strawberry.local}
+      SEED_ADMIN_PASSWORD: ${SEED_ADMIN_PASSWORD:-ChangeMe!123}
+    command: ["sh", "-c", "npx prisma migrate deploy && node server.js"]
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"fetch('http://localhost:3000/en').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 40s
+
+  nginx:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    depends_on:
+      - next-app
+      - pretix
+    ports:
+      - "8080:80"
+    volumes:
+      - ./docker/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+
+volumes:
+  postgres-app-data:
+  postgres-pretix-data:
+  redis-data:
+  pretix-data:
