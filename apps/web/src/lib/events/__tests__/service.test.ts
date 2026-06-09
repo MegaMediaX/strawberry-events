@@ -30,6 +30,7 @@ import {
   listEventsForSession,
   getEventForSession,
   createEvent,
+  updateEvent,
   createTicket,
 } from "@/lib/events/service";
 
@@ -44,6 +45,16 @@ const orgAdmin: SessionContext = {
   memberships: [
     { organizationId: "orgA", role: "organizer_admin", assignedEventIds: [] },
   ],
+};
+const finance: SessionContext = {
+  userId: "u3",
+  isSuperAdmin: false,
+  memberships: [{ organizationId: "orgA", role: "finance", assignedEventIds: [] }],
+};
+const checkinStaff: SessionContext = {
+  userId: "u4",
+  isSuperAdmin: false,
+  memberships: [{ organizationId: "orgA", role: "checkin_staff", assignedEventIds: [] }],
 };
 
 const org = {
@@ -203,5 +214,39 @@ describe("createTicket", () => {
       }),
     ).rejects.toThrow();
     expect(pretixProducts.createItem).not.toHaveBeenCalled();
+  });
+});
+
+describe("role gate — finance/check-in cannot manage events (H3)", () => {
+  const input = {
+    slug: "x", titleEn: "X", titleAr: null, descriptionEn: null, descriptionAr: null,
+    dateFrom: "2026-09-01T09:00:00Z", dateTo: null,
+    visibility: "public", accountMode: "optional", approvalMode: "none",
+    comingSoon: false, live: false,
+  } as never;
+  const ticket = { titleEn: "T", titleAr: null, priceCents: 0, quotaSize: null } as never;
+
+  it("finance cannot create an event", async () => {
+    await expect(createEvent(finance, org, input)).rejects.toThrow();
+    expect(pretixEvents.createEvent).not.toHaveBeenCalled();
+  });
+  it("finance cannot update an event", async () => {
+    await expect(updateEvent(finance, "e1", input)).rejects.toThrow();
+  });
+  it("finance cannot create a ticket/quota", async () => {
+    await expect(createTicket(finance, "e1", ticket)).rejects.toThrow();
+    expect(pretixProducts.createItem).not.toHaveBeenCalled();
+  });
+  it("check-in staff cannot create an event", async () => {
+    await expect(createEvent(checkinStaff, org, input)).rejects.toThrow();
+  });
+  it("impersonating organizer admin cannot create an event", async () => {
+    await expect(createEvent({ ...orgAdmin, impersonating: true }, org, input)).rejects.toThrow(/impersonat/i);
+  });
+  it("organizer admin CAN manage (guard passes; reaches pretix call)", async () => {
+    (pretixEvents.createEvent as ReturnType<typeof vi.fn>).mockResolvedValue({ slug: "x" });
+    (prisma.eventMapping.create as ReturnType<typeof vi.fn>).mockResolvedValue({ id: "e9" });
+    await createEvent(orgAdmin, org, input);
+    expect(pretixEvents.createEvent).toHaveBeenCalled();
   });
 });
