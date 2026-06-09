@@ -266,6 +266,40 @@ Delivery is **non-blocking** (never breaks the primary action), recorded in
 `X-Strawberry-Timestamp`, `X-Strawberry-Delivery`, `X-Strawberry-Event`. Verify by
 recomputing the HMAC and constant-time comparing.
 
+## Integrations, audit & archive (Milestone 11)
+
+### Integration settings
+`/<locale>/admin/settings/integrations` hub + sub-pages: `smtp`, `whatsapp`, `sms`,
+`whish-placeholder`, `pretix`. All secrets (SMTP password, WhatsApp/SMS/Whish tokens,
+pretix token) are **encrypted at rest (AES-256-GCM)** and **never returned/displayed**
+after saving — the UI shows only a `configured` flag, last-tested time, and last error.
+- **SMTP**: host/port/username/password/from/reply-to/encryption + test send. In
+  non-production, missing SMTP falls back to the dev-log transport.
+- **WhatsApp / SMS / Whish**: clean provider interfaces (`lib/notify/*`, `lib/payments/whish.ts`)
+  as placeholders — config + secrets stored encrypted; live sending/charging is deferred.
+- **pretix**: per-org base URL / organizer slug / encrypted token (env `PRETIX_API_TOKEN`
+  is the fallback; raw token never shown).
+- **Permissions**: super + organizer_admin edit; finance may **view** status but not edit
+  secrets; check-in staff cannot; impersonating users cannot modify. Cross-org denied.
+
+### Audit log
+`/<locale>/admin/audit` — filter by action, entity type, success/failure, impersonation;
+detail view shows actor, impersonated user, org/event, before/after, IP/UA, result. All
+audit access is org-isolated (super sees all). Central writer: `lib/audit/service.record`.
+
+### Archive / delete queue (14-day retention)
+No user-facing hard delete; **HTTP DELETE stays 405**. Records are soft-archived
+(`ArchiveQueue`, snapshot + `purgeAfter = now + 14d`), recoverable via
+`/<locale>/admin/delete-queue` (restore / cancel purge / purge now). After 14 days the
+`cleanup()` service marks them purged and clears the **local snapshot only** — pretix
+orders are **never destructively deleted** (prefer cancel/status changes). Finance cannot
+purge; check-in staff cannot archive/delete; impersonating users cannot; cross-org denied.
+Cleanup is an admin-invoked service today; schedule via cron (no self-scheduling runner yet).
+
+### Reminders (foundation)
+`ReminderSetting` models per-org/event channel toggles (email/WhatsApp/SMS) and offsets
+(default 24h + 1h before). Scheduling/sending is wired in a later milestone.
+
 ## Notes / decisions
 
 - **ORM:** Prisma (relational integrity, migration tooling).

@@ -4,6 +4,7 @@ import { hasAnyRole, ForbiddenError } from "@/lib/auth/guards";
 import type { SessionContext } from "@/lib/auth/types";
 import { sendEmail } from "@/lib/email/service";
 import { emit } from "@/lib/webhooks/service";
+import { record } from "@/lib/audit/service";
 import { waitlistPromotedEmail, type Locale } from "@/lib/email/templates";
 
 /** Join the waitlist for an event (optionally a specific ticket). Idempotent per email. */
@@ -34,6 +35,10 @@ export async function joinWaitlist(
     });
     if (mapping) {
       void emit(mapping.organizationId, "waitlist.joined", { email, position }, eventMappingId);
+      void record({
+        organizationId: mapping.organizationId, eventMappingId,
+        action: "waitlist.joined", entityType: "waitlist", entityId: entry.id,
+      });
     }
   } catch {
     // ignore
