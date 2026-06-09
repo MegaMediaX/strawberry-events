@@ -53,6 +53,9 @@ export function RegistrationWizard({
     0,
   );
   const hasTickets = Object.values(qty).some((q) => q > 0);
+  const totalQty = Object.values(qty).reduce((sum, q) => sum + (q ?? 0), 0);
+  const seatsRequired = !!seatSections && seatSections.length > 0;
+  const seatsSatisfied = !seatsRequired || seatIds.length === totalQty;
 
   function next() {
     setErr(null);
@@ -62,9 +65,15 @@ export function RegistrationWizard({
         return;
       }
     }
-    if (step === 1 && !hasTickets) {
-      setErr("Select at least one ticket.");
-      return;
+    if (step === 1) {
+      if (!hasTickets) {
+        setErr("Select at least one ticket.");
+        return;
+      }
+      if (!seatsSatisfied) {
+        setErr(`Please select a seat for each ticket (${seatIds.length}/${totalQty}).`);
+        return;
+      }
     }
     setStep((s) => Math.min(2, s + 1));
   }
@@ -73,6 +82,10 @@ export function RegistrationWizard({
     setErr(null);
     if (!terms || !privacy) {
       setErr("You must accept the Terms and Privacy Policy.");
+      return;
+    }
+    if (!seatsSatisfied) {
+      setErr("Please select a seat for each ticket.");
       return;
     }
     setBusy(true);

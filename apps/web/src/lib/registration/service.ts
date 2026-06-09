@@ -62,6 +62,11 @@ export async function register(input: RegisterInput): Promise<RegisterResult> {
     event.autoApproveItemIds,
   );
 
+  // Seated events require a seat selection.
+  if (event.seatSelectionEnabled && (!data.seatIds || data.seatIds.length === 0)) {
+    throw new Error("Seat selection is required for this event");
+  }
+
   const order = await pretixOrders.createOrder(
     ctx.organizerSlug,
     event.pretixEventSlug,
