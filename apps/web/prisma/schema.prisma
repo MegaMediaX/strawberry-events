@@ -600,6 +600,7 @@ model AttendeeOrder {
   provider       AttendeeOrderProvider  @default(manual_cod)
   roleTag        AttendeeTag            @default(visitor)
   totalCents     Int                    @default(0)
+  pretixSecret   String? // pretix position secret (QR payload, used for check-in redeem)
   magicLinkToken String                 @unique
   createdAt      DateTime            @default(now())
   updatedAt      DateTime            @updatedAt

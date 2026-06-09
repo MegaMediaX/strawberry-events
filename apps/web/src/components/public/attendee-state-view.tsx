@@ -5,6 +5,7 @@ interface OrderLike {
   orderCode: string;
   status: "pending" | "paid" | "canceled";
   approvalStatus: "not_required" | "pending" | "approved" | "rejected";
+  pretixSecret?: string | null;
   eventMapping: { titleEn: string };
 }
 
@@ -29,7 +30,7 @@ export function AttendeeStateView({ order }: { order: OrderLike }) {
       {state === "issued" && (
         <div className="mt-6 flex flex-col items-center gap-3">
           <div className="rounded-[var(--radius-lg)] border border-border bg-card p-4">
-            <QrCodeDisplay value={order.orderCode} />
+            <QrCodeDisplay value={order.pretixSecret ?? order.orderCode} />
           </div>
           <p className="text-sm text-muted-foreground">Present this QR at the entrance.</p>
         </div>
