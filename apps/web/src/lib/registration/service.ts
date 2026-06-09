@@ -13,6 +13,7 @@ import {
   pendingApprovalEmail,
 } from "@/lib/email/templates";
 import { requiresApproval } from "@/lib/approval/state";
+import { tagForItem } from "@/lib/checkin/eligibility";
 import { registerInputSchema, type RegisterInput } from "./schema";
 
 export interface RegisterResult {
@@ -99,6 +100,10 @@ export async function register(input: RegisterInput): Promise<RegisterResult> {
       approvalStatus,
       provider,
       totalCents,
+      roleTag: tagForItem(
+        (event.itemTagMap ?? {}) as Record<string, unknown>,
+        data.tickets[0]?.itemId ?? -1,
+      ),
       magicLinkToken,
     },
   });

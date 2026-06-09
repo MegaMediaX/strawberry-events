@@ -241,6 +241,7 @@ model EventMapping {
   approvalMode        ApprovalMode @default(none)
   autoApproveItemIds  Int[]        @default([])
   payBeforeApproval   Boolean      @default(false)
+  itemTagMap          Json         @default("{}")
   badgeAutoPrint      Boolean      @default(false)
   comingSoon          Boolean      @default(false)
   createdAt           DateTime     @default(now())
@@ -597,6 +598,7 @@ model AttendeeOrder {
   status         AttendeeOrderStatus    @default(pending)
   approvalStatus AttendeeApprovalStatus @default(not_required)
   provider       AttendeeOrderProvider  @default(manual_cod)
+  roleTag        AttendeeTag            @default(visitor)
   totalCents     Int                    @default(0)
   magicLinkToken String                 @unique
   createdAt      DateTime            @default(now())
