@@ -94,9 +94,11 @@ export async function createEvent(
     return mapping;
   } catch (err) {
     // Roll back the orphaned pretix event (best-effort).
-    await pretixEvents
-      .deleteEvent(ctx.organizerSlug, input.slug, ctx.token)
-      .catch(() => {});
+    try {
+      await pretixEvents.deleteEvent(ctx.organizerSlug, input.slug, ctx.token);
+    } catch {
+      // ignore rollback failures
+    }
     throw err;
   }
 }

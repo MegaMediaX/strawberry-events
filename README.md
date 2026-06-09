@@ -80,6 +80,26 @@ npm run typecheck
 npm run build
 ```
 
+## Admin (Milestone 4)
+
+Admin events/tickets live under `/<locale>/admin/events`. Multi-organizer
+isolation is enforced in `lib/events/service.ts` (every query scoped via
+`scopeWhere`/`canAccessEvent`). Super admins switch org via the header dropdown;
+others are locked to their org. Per-org pretix tokens are stored encrypted on
+`Organization.pretixApiToken` (set `ENCRYPTION_KEY`); the env `PRETIX_API_TOKEN`
+is the dev fallback.
+
+Run the events integration test (real DB, mocked pretix):
+
+```bash
+cd apps/web
+DATABASE_URL=postgresql://... TEST_DATABASE_URL=postgresql://... npx vitest run service.integration
+```
+
+> Known M4 limitation: the event edit form does not pre-fill `date_from`
+> (not stored locally); re-enter it when saving edits. To be addressed when
+> event detail is fetched from pretix on edit.
+
 ## Notes / decisions
 
 - **ORM:** Prisma (relational integrity, migration tooling).
