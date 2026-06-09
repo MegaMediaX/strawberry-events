@@ -61,6 +61,27 @@ cd apps/web
 PRETIX_BASE_URL=http://localhost:8081 PRETIX_API_TOKEN=... npx vitest run adapter.live
 ```
 
+### Local dev database (port 5433)
+
+The dev override publishes the app Postgres on host port **5433** (to avoid clashing
+with a local 5432 install). `apps/web/.env` must use it:
+`DATABASE_URL=postgresql://app:password@localhost:5433/strawberry_platform`.
+
+Start just the dev DB:
+
+```bash
+docker compose -f compose.yaml -f compose.dev.yaml up -d postgres-app
+# then, from apps/web, apply migrations + seed:
+DATABASE_URL=postgresql://app:password@localhost:5433/strawberry_platform npx prisma migrate deploy
+DATABASE_URL=postgresql://app:password@localhost:5433/strawberry_platform npx prisma db seed
+```
+
+### Theme
+
+Theme (light/dark) is resolved **server-side from the `strawberry.theme` cookie** in the
+locale layout — no client init script (avoids the React "script tag while rendering"
+warning and FOUC). The toggle writes the cookie + localStorage + `documentElement` class.
+
 ### Running the app outside Docker
 
 ```bash

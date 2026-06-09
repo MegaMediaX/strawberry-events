@@ -1,11 +1,12 @@
 import type { Metadata } from "next";
-import Script from "next/script";
+import { cookies } from "next/headers";
 import { notFound } from "next/navigation";
 import { Inter, IBM_Plex_Sans_Arabic } from "next/font/google";
 import { NextIntlClientProvider, hasLocale } from "next-intl";
 import { setRequestLocale } from "next-intl/server";
 import { routing } from "@/i18n/routing";
 import { dirForLocale } from "@/lib/i18n/dir";
+import { THEME_COOKIE } from "@/lib/theme/theme";
 import "../globals.css";
 
 const inter = Inter({ subsets: ["latin"], variable: "--font-sans" });
@@ -37,19 +38,18 @@ export default async function LocaleLayout({
   }
   setRequestLocale(locale);
 
+  // Theme is resolved server-side from a cookie — no client script, no FOUC.
+  const themeCookie = (await cookies()).get(THEME_COOKIE)?.value;
+  const isDark = themeCookie === "dark";
+
   return (
     <html
       lang={locale}
       dir={dirForLocale(locale)}
-      className={`${inter.variable} ${plexArabic.variable}`}
+      className={`${inter.variable} ${plexArabic.variable}${isDark ? " dark" : ""}`}
       suppressHydrationWarning
     >
       <body className="min-h-screen bg-background text-foreground antialiased">
-        {/* Set the theme class before paint to avoid a flash (next/script avoids the
-            raw-<script>-in-component warning and runs before hydration). */}
-        <Script id="theme-init" strategy="beforeInteractive">
-          {`(function(){try{var t=localStorage.getItem('strawberry.theme');var d=t==='dark'||((!t||t==='system')&&window.matchMedia('(prefers-color-scheme: dark)').matches);document.documentElement.classList.toggle('dark',d);}catch(e){}})();`}
-        </Script>
         <NextIntlClientProvider>{children}</NextIntlClientProvider>
       </body>
     </html>
