@@ -594,6 +594,8 @@ model AttendeeOrder {
   eventMappingId String
   orderCode      String
   email          String
+  attendeeName   String?
+  company        String?
   userId         String?
   status         AttendeeOrderStatus    @default(pending)
   approvalStatus AttendeeApprovalStatus @default(not_required)

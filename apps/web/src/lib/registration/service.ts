@@ -95,6 +95,8 @@ export async function register(input: RegisterInput): Promise<RegisterResult> {
       eventMappingId: event.id,
       orderCode: order.code,
       email: data.attendee.email,
+      attendeeName: `${data.attendee.firstName} ${data.attendee.lastName}`.trim(),
+      company: data.attendee.company ?? null,
       userId: data.userId ?? null,
       status,
       approvalStatus,

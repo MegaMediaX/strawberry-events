@@ -10,7 +10,13 @@ import { checkinEligibility } from "./eligibility";
 export interface CheckInResult {
   ok: boolean;
   reason?: string;
-  badge?: { orderCode: string; tag: AttendeeTag; secret: string | null };
+  badge?: {
+    orderCode: string;
+    tag: AttendeeTag;
+    secret: string | null;
+    fullName: string;
+    company: string | null;
+  };
 }
 
 function assertCanCheckin(session: SessionContext) {
@@ -111,7 +117,13 @@ export async function checkInOrder(
 
   return {
     ok: true,
-    badge: { orderCode: order.orderCode, tag: order.roleTag, secret: order.pretixSecret },
+    badge: {
+      orderCode: order.orderCode,
+      tag: order.roleTag,
+      secret: order.pretixSecret,
+      fullName: order.attendeeName ?? order.email,
+      company: order.company,
+    },
   };
 }
 
