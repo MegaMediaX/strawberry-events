@@ -1,28 +1,90 @@
-import { NotImplemented } from "./errors";
+import { pretixFetch, pretixFetchAll } from "./client";
+import {
+  fromI18n,
+  toI18n,
+  priceToCents,
+  centsToPrice,
+  type PretixI18n,
+} from "./mappers";
 
-export interface PretixItem {
+interface PretixItemRaw {
   id: number;
-  name: Record<string, string>;
+  name: PretixI18n;
   default_price: string;
   active: boolean;
 }
 
-export function listItems(
+export interface PretixItem {
+  id: number;
+  titleEn: string;
+  titleAr: string | null;
+  priceCents: number;
+  active: boolean;
+}
+
+export interface CreateItemInput {
+  titleEn: string;
+  titleAr?: string | null;
+  priceCents: number;
+  active?: boolean;
+}
+
+function mapItem(raw: PretixItemRaw): PretixItem {
+  const { titleEn, titleAr } = fromI18n(raw.name);
+  return {
+    id: raw.id,
+    titleEn,
+    titleAr,
+    priceCents: priceToCents(raw.default_price),
+    active: raw.active,
+  };
+}
+
+const base = (org: string, ev: string) =>
+  `/organizers/${org}/events/${ev}/items/`;
+
+export async function listItems(
   organizerSlug: string,
   eventSlug: string,
 ): Promise<PretixItem[]> {
-  void organizerSlug;
-  void eventSlug;
-  throw new NotImplemented("products.listItems");
+  const raw = await pretixFetchAll<PretixItemRaw>(base(organizerSlug, eventSlug));
+  return raw.map(mapItem);
 }
 
-export function createItem(
+export async function createItem(
   organizerSlug: string,
   eventSlug: string,
-  payload: Partial<PretixItem>,
+  input: CreateItemInput,
 ): Promise<PretixItem> {
-  void organizerSlug;
-  void eventSlug;
-  void payload;
-  throw new NotImplemented("products.createItem");
+  const raw = await pretixFetch<PretixItemRaw>(base(organizerSlug, eventSlug), {
+    method: "POST",
+    body: JSON.stringify({
+      name: toI18n(input.titleEn, input.titleAr),
+      default_price: centsToPrice(input.priceCents),
+      active: input.active ?? true,
+    }),
+  });
+  return mapItem(raw);
+}
+
+export interface PretixQuota {
+  id: number;
+  name: string;
+  size: number | null;
+  items: number[];
+}
+
+/**
+ * Create a quota. pretix requires every sellable item to belong to a quota,
+ * otherwise orders for it are rejected. `size: null` means unlimited.
+ */
+export async function createQuota(
+  organizerSlug: string,
+  eventSlug: string,
+  input: { name: string; size: number | null; items: number[] },
+): Promise<PretixQuota> {
+  return pretixFetch<PretixQuota>(
+    `/organizers/${organizerSlug}/events/${eventSlug}/quotas/`,
+    { method: "POST", body: JSON.stringify(input) },
+  );
 }

@@ -1,3 +1,4 @@
+import { pretixFetchAll } from "./client";
 import { NotImplemented } from "./errors";
 
 export interface PretixCheckinList {
@@ -6,13 +7,13 @@ export interface PretixCheckinList {
   all_products: boolean;
 }
 
-export function listCheckinLists(
+export async function listCheckinLists(
   organizerSlug: string,
   eventSlug: string,
 ): Promise<PretixCheckinList[]> {
-  void organizerSlug;
-  void eventSlug;
-  throw new NotImplemented("checkin.listCheckinLists");
+  return pretixFetchAll<PretixCheckinList>(
+    `/organizers/${organizerSlug}/events/${eventSlug}/checkinlists/`,
+  );
 }
 
 export function performCheckin(

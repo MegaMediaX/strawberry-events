@@ -1,4 +1,4 @@
-import { PretixError } from "./errors";
+import { PretixError, PretixValidationError } from "./errors";
 
 export { PretixError };
 
@@ -20,17 +20,18 @@ function getConfig(): PretixConfig {
   return { baseUrl: baseUrl.replace(/\/$/, ""), token };
 }
 
-/**
- * Low-level authenticated request to the pretix REST API. All adapter modules
- * must route through this — do not call pretix directly elsewhere.
- */
-export async function pretixFetch<T = unknown>(
-  path: string,
+interface Paginated<T> {
+  count: number;
+  next: string | null;
+  results: T[];
+}
+
+/** Fetch an absolute URL with auth + error mapping. */
+async function rawFetch<T>(
+  url: string,
+  token: string,
   init: RequestInit = {},
 ): Promise<T> {
-  const { baseUrl, token } = getConfig();
-  const url = `${baseUrl}${API_PREFIX}${path}`;
-
   const res = await fetch(url, {
     ...init,
     headers: {
@@ -48,8 +49,19 @@ export async function pretixFetch<T = unknown>(
     } catch {
       detail = await res.text().catch(() => undefined);
     }
+    if (
+      res.status === 400 &&
+      detail &&
+      typeof detail === "object" &&
+      !Array.isArray(detail)
+    ) {
+      throw new PretixValidationError(
+        `pretix validation error for ${url}`,
+        detail as Record<string, string[]>,
+      );
+    }
     throw new PretixError(
-      `pretix API error ${res.status} for ${path}`,
+      `pretix API error ${res.status} for ${url}`,
       res.status,
       detail,
     );
@@ -57,6 +69,35 @@ export async function pretixFetch<T = unknown>(
 
   if (res.status === 204) return undefined as T;
   return (await res.json()) as T;
+}
+
+/**
+ * Low-level authenticated request to the pretix REST API. All adapter modules
+ * must route through this — do not call pretix directly elsewhere.
+ */
+export async function pretixFetch<T = unknown>(
+  path: string,
+  init: RequestInit = {},
+): Promise<T> {
+  const { baseUrl, token } = getConfig();
+  return rawFetch<T>(`${baseUrl}${API_PREFIX}${path}`, token, init);
+}
+
+/**
+ * Fetch every page of a paginated pretix list endpoint, following `next` URLs,
+ * and return the concatenated `results`.
+ */
+export async function pretixFetchAll<T = unknown>(path: string): Promise<T[]> {
+  const { baseUrl, token } = getConfig();
+  let url: string | null = `${baseUrl}${API_PREFIX}${path}`;
+  const out: T[] = [];
+
+  while (url) {
+    const page: Paginated<T> = await rawFetch<Paginated<T>>(url, token);
+    out.push(...page.results);
+    url = page.next;
+  }
+  return out;
 }
 
 /** Smoke check used at startup/verification: hits the organizers list. */

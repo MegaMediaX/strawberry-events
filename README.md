@@ -44,6 +44,23 @@ docker compose exec next-app npx prisma db seed
 App: http://localhost:8080 (via nginx) or http://localhost:3000 (direct, if published).
 pretix control panel: http://localhost:8080/pretix/
 
+### pretix API token (one-time, dev)
+
+After pretix is up, provision an organizer + API token:
+
+```bash
+bash scripts/pretix-bootstrap.sh   # prints PRETIX_API_TOKEN=...
+```
+
+Paste the printed value into `.env` as `PRETIX_API_TOKEN`. The adapter's opt-in
+live integration suite runs only when `PRETIX_BASE_URL` + `PRETIX_API_TOKEN` are
+set:
+
+```bash
+cd apps/web
+PRETIX_BASE_URL=http://localhost:8081 PRETIX_API_TOKEN=... npx vitest run adapter.live
+```
+
 ### Running the app outside Docker
 
 ```bash
