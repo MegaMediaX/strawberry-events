@@ -189,6 +189,30 @@ check-in staff: **cannot** approve/reject. Impersonating sessions are blocked.
 **Attendee access.** confirmation / `/t/<token>` / `/my-tickets` all render the derived
 state — pending review, rejected, payment instructions, or QR.
 
+## Staff check-in + badges (Milestone 8)
+
+Hybrid model: a **custom browser print-station** at `/<locale>/staff/checkin` plus
+**pretixSCAN** (same QR) — pretix check-in lists are the **source of truth**.
+
+- **Eligibility**: only `registrationState === "issued"` (paid + approved/not-required) can
+  check in. Pending-payment / pending-approval / rejected / canceled are rejected with a reason.
+- **Flow**: staff pick an assigned event → search (name/email/code) → Check in → redeems the
+  pretix position `secret` (the badge QR payload, stored on `AttendeeOrder.pretixSecret`) →
+  **auto-prints a 4×6 badge** → reprint button. Duplicate check-ins are surfaced. Live counters
+  come from pretix.
+- **Badge (4×6 thermal)**: role TAG on top (color per `media/partner/staff/speaker/visitor`),
+  Full Name, Company, QR. `@page { size: 4in 6in }` print CSS. Role tag derived at registration
+  from `EventMapping.itemTagMap` (pretix item → tag).
+- **Permissions**: check-in staff limited to `assignedEventIds`; organizer/super admin wider;
+  finance/other roles cannot; impersonating blocked; cross-org denied.
+- **pretixSCAN**: configure a device against the organizer + check-in list using the API token;
+  it scans the same QR. **Webhook**: pretix → `POST /api/webhooks/pretix?secret=$PRETIX_WEBHOOK_SECRET`
+  (shared-secret verified). Browser auto-print can't be server-triggered — printing happens in
+  pretixSCAN or the staff station.
+
+> Note: `/staff/badges` standalone reprint page deferred — reprint is available inline in the
+> check-in station.
+
 ## Notes / decisions
 
 - **ORM:** Prisma (relational integrity, migration tooling).
