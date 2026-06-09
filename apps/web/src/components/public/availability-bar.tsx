@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { capacityState } from "@/lib/events/capacity";
 
 const COLOR: Record<string, string> = {
@@ -29,12 +29,13 @@ export function AvailabilityBar({
   const left = total ? Math.max(0, total - sold) : 0;
 
   // Fill-on-mount animation, guarded for reduced motion.
-  const [w, setW] = useState(0);
-  const reduce = useRef(false);
-  useEffect(() => {
-    reduce.current =
+  const [reduced] = useState(
+    () =>
       typeof window !== "undefined" &&
-      window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches,
+  );
+  const [w, setW] = useState(0);
+  useEffect(() => {
     const id = requestAnimationFrame(() => setW(pct));
     return () => cancelAnimationFrame(id);
   }, [pct]);
@@ -52,11 +53,11 @@ export function AvailabilityBar({
         <div
           className={state === "almost_full" ? "animate-pulse" : ""}
           style={{
-            width: `${reduce.current ? pct : w}%`,
+            width: `${reduced ? pct : w}%`,
             height: "100%",
             background: COLOR[state],
             borderRadius: "9999px",
-            transition: reduce.current
+            transition: reduced
               ? undefined
               : "width 800ms cubic-bezier(0.16,1,0.30,1)",
           }}
