@@ -1,5 +1,11 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { listEvents, getEvent, createEvent, updateEvent } from "@/lib/pretix/events";
+import {
+  listEvents,
+  getEvent,
+  createEvent,
+  updateEvent,
+  deleteEvent,
+} from "@/lib/pretix/events";
 import { installFetchMock, jsonResponse, setPretixEnv } from "./helpers";
 
 const originalEnv = { ...process.env };
@@ -60,6 +66,18 @@ describe("createEvent", () => {
     const body = JSON.parse(init?.body as string);
     expect(body.name).toEqual({ en: "Expo", ar: "إكسبو" });
     expect(body.slug).toBe("expo");
+  });
+});
+
+describe("deleteEvent", () => {
+  it("DELETEs the event", async () => {
+    const spy = installFetchMock(jsonResponse({}, 200));
+    await deleteEvent("strawberry", "expo");
+    const [url, init] = spy.mock.calls[0];
+    expect(url).toBe(
+      "https://pretix.example.com/api/v1/organizers/strawberry/events/expo/",
+    );
+    expect(init?.method).toBe("DELETE");
   });
 });
 

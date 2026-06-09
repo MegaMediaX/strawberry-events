@@ -88,6 +88,19 @@ export async function createEvent(
   return mapEvent(raw);
 }
 
+/** Delete an event (best-effort rollback). Only works on non-live events. */
+export async function deleteEvent(
+  organizerSlug: string,
+  eventSlug: string,
+  token?: string,
+): Promise<void> {
+  await pretixFetch(
+    `${base(organizerSlug)}${eventSlug}/`,
+    { method: "DELETE" },
+    token,
+  );
+}
+
 export async function updateEvent(
   organizerSlug: string,
   eventSlug: string,
