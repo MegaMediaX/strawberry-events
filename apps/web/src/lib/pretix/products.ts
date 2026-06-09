@@ -83,6 +83,24 @@ export interface PretixQuota {
   items: number[];
 }
 
+export interface PretixQuotaAvailability {
+  id: number;
+  size: number | null;
+  available_number: number | null;
+}
+
+/** List quotas with live availability (pretix `?with_availability=true`). */
+export async function listQuotas(
+  organizerSlug: string,
+  eventSlug: string,
+  token?: string,
+): Promise<PretixQuotaAvailability[]> {
+  return pretixFetchAll<PretixQuotaAvailability>(
+    `/organizers/${organizerSlug}/events/${eventSlug}/quotas/?with_availability=true`,
+    token,
+  );
+}
+
 /**
  * Create a quota. pretix requires every sellable item to belong to a quota,
  * otherwise orders for it are rejected. `size: null` means unlimited.

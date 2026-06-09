@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { listItems, createItem, createQuota } from "@/lib/pretix/products";
+import { listItems, createItem, createQuota, listQuotas } from "@/lib/pretix/products";
 import { installFetchMock, jsonResponse, setPretixEnv } from "./helpers";
 
 const originalEnv = { ...process.env };
@@ -73,5 +73,22 @@ describe("createQuota", () => {
       size: 100,
       items: [7],
     });
+  });
+});
+
+describe("listQuotas", () => {
+  it("GETs quotas with availability", async () => {
+    const spy = installFetchMock(
+      jsonResponse({
+        count: 1,
+        next: null,
+        results: [{ id: 1, size: 100, available_number: 80 }],
+      }),
+    );
+    const quotas = await listQuotas("strawberry", "expo");
+    expect(spy.mock.calls[0][0]).toBe(
+      "https://pretix.example.com/api/v1/organizers/strawberry/events/expo/quotas/?with_availability=true",
+    );
+    expect(quotas[0].available_number).toBe(80);
   });
 });
