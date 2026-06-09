@@ -46,8 +46,12 @@ const base = (org: string, ev: string) =>
 export async function listItems(
   organizerSlug: string,
   eventSlug: string,
+  token?: string,
 ): Promise<PretixItem[]> {
-  const raw = await pretixFetchAll<PretixItemRaw>(base(organizerSlug, eventSlug));
+  const raw = await pretixFetchAll<PretixItemRaw>(
+    base(organizerSlug, eventSlug),
+    token,
+  );
   return raw.map(mapItem);
 }
 
@@ -55,15 +59,20 @@ export async function createItem(
   organizerSlug: string,
   eventSlug: string,
   input: CreateItemInput,
+  token?: string,
 ): Promise<PretixItem> {
-  const raw = await pretixFetch<PretixItemRaw>(base(organizerSlug, eventSlug), {
-    method: "POST",
-    body: JSON.stringify({
-      name: toI18n(input.titleEn, input.titleAr),
-      default_price: centsToPrice(input.priceCents),
-      active: input.active ?? true,
-    }),
-  });
+  const raw = await pretixFetch<PretixItemRaw>(
+    base(organizerSlug, eventSlug),
+    {
+      method: "POST",
+      body: JSON.stringify({
+        name: toI18n(input.titleEn, input.titleAr),
+        default_price: centsToPrice(input.priceCents),
+        active: input.active ?? true,
+      }),
+    },
+    token,
+  );
   return mapItem(raw);
 }
 
@@ -82,9 +91,11 @@ export async function createQuota(
   organizerSlug: string,
   eventSlug: string,
   input: { name: string; size: number | null; items: number[] },
+  token?: string,
 ): Promise<PretixQuota> {
   return pretixFetch<PretixQuota>(
     `/organizers/${organizerSlug}/events/${eventSlug}/quotas/`,
     { method: "POST", body: JSON.stringify(input) },
+    token,
   );
 }

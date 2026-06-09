@@ -153,6 +153,7 @@ model Organization {
   name                String
   slug                String    @unique
   pretixOrganizerSlug String    @unique
+  pretixApiToken      String? // encrypted at rest (AES-256-GCM); env token is fallback
   status              OrgStatus @default(active)
   createdAt           DateTime  @default(now())
   updatedAt           DateTime  @updatedAt

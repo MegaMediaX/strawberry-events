@@ -1,6 +1,7 @@
 import { setRequestLocale } from "next-intl/server";
+import { EventForm } from "../event-form";
 
-export default async function AdminDashboardPage({
+export default async function NewEventPage({
   params,
 }: {
   params: Promise<{ locale: string }>;
@@ -9,10 +10,8 @@ export default async function AdminDashboardPage({
   setRequestLocale(locale);
   return (
     <div>
-      <h1 className="text-2xl font-bold">Dashboard</h1>
-      <p className="mt-2 text-muted-foreground">
-        Welcome to the Strawberry admin panel.
-      </p>
+      <h1 className="mb-4 text-2xl font-bold">New event</h1>
+      <EventForm locale={locale} />
     </div>
   );
 }

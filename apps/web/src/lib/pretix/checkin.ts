@@ -10,9 +10,11 @@ export interface PretixCheckinList {
 export async function listCheckinLists(
   organizerSlug: string,
   eventSlug: string,
+  token?: string,
 ): Promise<PretixCheckinList[]> {
   return pretixFetchAll<PretixCheckinList>(
     `/organizers/${organizerSlug}/events/${eventSlug}/checkinlists/`,
+    token,
   );
 }
 

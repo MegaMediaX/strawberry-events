@@ -23,6 +23,15 @@ describe("pretixFetch", () => {
     );
   });
 
+  it("uses an explicit token over the env token when provided", async () => {
+    const fetchMock = installFetchMock(jsonResponse({ ok: true }));
+    await pretixFetch("/organizers/", {}, "explicit_tok");
+    const [, init] = fetchMock.mock.calls[0];
+    expect((init?.headers as Record<string, string>).Authorization).toBe(
+      "Token explicit_tok",
+    );
+  });
+
   it("throws PretixError on non-2xx responses", async () => {
     installFetchMock(jsonResponse({ detail: "nope" }, 404));
     await expect(pretixFetch("/missing/")).rejects.toBeInstanceOf(PretixError);

@@ -9,9 +9,13 @@ interface PretixConfig {
   token: string;
 }
 
-function getConfig(): PretixConfig {
+/**
+ * Resolve base URL (always env) and token. An explicit token (per-organizer,
+ * resolved by the caller) takes precedence; otherwise the env token is used.
+ */
+function getConfig(explicitToken?: string): PretixConfig {
   const baseUrl = process.env.PRETIX_BASE_URL;
-  const token = process.env.PRETIX_API_TOKEN;
+  const token = explicitToken ?? process.env.PRETIX_API_TOKEN;
   if (!baseUrl || !token) {
     throw new PretixError(
       "pretix is not configured (PRETIX_BASE_URL / PRETIX_API_TOKEN missing)",
@@ -78,17 +82,23 @@ async function rawFetch<T>(
 export async function pretixFetch<T = unknown>(
   path: string,
   init: RequestInit = {},
+  token?: string,
 ): Promise<T> {
-  const { baseUrl, token } = getConfig();
-  return rawFetch<T>(`${baseUrl}${API_PREFIX}${path}`, token, init);
+  const cfg = getConfig(token);
+  return rawFetch<T>(`${cfg.baseUrl}${API_PREFIX}${path}`, cfg.token, init);
 }
 
 /**
  * Fetch every page of a paginated pretix list endpoint, following `next` URLs,
  * and return the concatenated `results`.
  */
-export async function pretixFetchAll<T = unknown>(path: string): Promise<T[]> {
-  const { baseUrl, token } = getConfig();
+export async function pretixFetchAll<T = unknown>(
+  path: string,
+  token?: string,
+): Promise<T[]> {
+  const cfg = getConfig(token);
+  const { baseUrl } = cfg;
+  token = cfg.token;
   let url: string | null = `${baseUrl}${API_PREFIX}${path}`;
   const out: T[] = [];
 
