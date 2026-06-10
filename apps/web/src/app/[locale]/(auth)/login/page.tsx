@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { setRequestLocale } from "next-intl/server";
 import { LoginForm } from "./login-form";
 
@@ -9,8 +10,19 @@ export default async function LoginPage({
   const { locale } = await params;
   setRequestLocale(locale);
   return (
-    <main className="mx-auto flex min-h-screen max-w-sm flex-col justify-center px-6">
-      <LoginForm locale={locale} />
+    <main className="flex min-h-screen flex-col items-center justify-center px-4">
+      <div className="w-full max-w-sm">
+        <div className="mb-8 text-center">
+          <Link
+            href={`/${locale}/events`}
+            className="bg-[image:var(--gradient-hero)] bg-clip-text text-2xl font-extrabold tracking-tight text-transparent"
+          >
+            Strawberry Events
+          </Link>
+          <p className="mt-1 text-sm text-muted-foreground">Sign in to continue</p>
+        </div>
+        <LoginForm locale={locale} />
+      </div>
     </main>
   );
 }

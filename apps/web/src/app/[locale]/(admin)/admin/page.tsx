@@ -1,19 +1,21 @@
 import Link from "next/link";
 import { setRequestLocale } from "next-intl/server";
+import {
+  CalendarDays,
+  Users,
+  Ticket,
+  Clock,
+  CheckSquare,
+  DollarSign,
+  List,
+  TrendingUp,
+} from "lucide-react";
 import { requireRole, getSessionContext } from "@/lib/auth/session";
 import { getDashboard } from "@/lib/admin/dashboard";
 import { centsToPrice } from "@/lib/pretix/mappers";
+import { StatCard } from "@/components/admin/stat-card";
 
 export const dynamic = "force-dynamic";
-
-function Kpi({ label, value }: { label: string; value: string | number }) {
-  return (
-    <div className="rounded-[var(--radius-lg)] border border-border p-4">
-      <div className="text-2xl font-bold">{value}</div>
-      <div className="mt-1 text-xs text-muted-foreground">{label}</div>
-    </div>
-  );
-}
 
 export default async function AdminDashboardPage({
   params,
@@ -22,7 +24,10 @@ export default async function AdminDashboardPage({
 }) {
   const { locale } = await params;
   setRequestLocale(locale);
-  await requireRole(["super_admin", "organizer_admin", "finance"], `/${locale}/login`);
+  await requireRole(
+    ["super_admin", "organizer_admin", "finance"],
+    `/${locale}/login`,
+  );
   const session = await getSessionContext();
   if (!session) return null;
 
@@ -31,44 +36,113 @@ export default async function AdminDashboardPage({
   const L = (p: string) => `/${locale}/admin${p}`;
 
   return (
-    <div>
-      <h1 className="text-2xl font-bold">Dashboard</h1>
-
-      <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-        <Kpi label="Total events" value={k.totalEvents} />
-        <Kpi label="Open events" value={k.openEvents} />
-        <Kpi label="Upcoming" value={k.upcomingEvents} />
-        <Kpi label="Registrations" value={k.totalRegistrations} />
-        <Kpi label="Issued tickets" value={k.issuedTickets} />
-        <Kpi label="Pending approval" value={k.pendingApproval} />
-        {d.sections.financial && <Kpi label="Pending payment" value={k.pendingPayment} />}
-        {d.sections.checkins && <Kpi label="Checked in" value={k.checkedIn} />}
-        {d.sections.waitlist && <Kpi label="Waitlist" value={k.waitlist} />}
-        {d.sections.financial && <Kpi label="COD pending" value={`$${centsToPrice(k.codPendingCents)}`} />}
-        <Kpi label="Today's registrations" value={k.todayRegistrations} />
+    <div className="space-y-8">
+      <div>
+        <h1 className="text-2xl font-bold tracking-tight">Dashboard</h1>
+        <p className="mt-0.5 text-sm text-muted-foreground">
+          Overview of your events and registrations.
+        </p>
       </div>
 
-      <div className="mt-6 flex flex-wrap gap-2 text-sm">
-        <Link className="rounded-md border border-border px-3 py-1.5 hover:bg-muted" href={L("/events/new")}>+ Create event</Link>
-        <Link className="rounded-md border border-border px-3 py-1.5 hover:bg-muted" href={L("/approvals")}>Approvals</Link>
-        <Link className="rounded-md border border-border px-3 py-1.5 hover:bg-muted" href={L("/finance")}>Finance</Link>
-        <Link className="rounded-md border border-border px-3 py-1.5 hover:bg-muted" href={L("/registrations")}>Registrations</Link>
-        <Link className="rounded-md border border-border px-3 py-1.5 hover:bg-muted" href={`/${locale}/staff/events`}>Check-in</Link>
-        <Link className="rounded-md border border-border px-3 py-1.5 hover:bg-muted" href={L("/audit")}>Audit</Link>
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+        <StatCard label="Total events" value={k.totalEvents} Icon={CalendarDays} />
+        <StatCard
+          label="Open events"
+          value={k.openEvents}
+          Icon={CalendarDays}
+          accent="green"
+        />
+        <StatCard label="Upcoming" value={k.upcomingEvents} Icon={CalendarDays} />
+        <StatCard label="Registrations" value={k.totalRegistrations} Icon={Users} />
+        <StatCard
+          label="Issued tickets"
+          value={k.issuedTickets}
+          Icon={Ticket}
+          accent="green"
+        />
+        <StatCard
+          label="Pending approval"
+          value={k.pendingApproval}
+          Icon={Clock}
+          accent={k.pendingApproval > 0 ? "amber" : "default"}
+        />
+        {d.sections.financial && (
+          <StatCard
+            label="Pending payment"
+            value={k.pendingPayment}
+            Icon={DollarSign}
+            accent={k.pendingPayment > 0 ? "blue" : "default"}
+          />
+        )}
+        {d.sections.checkins && (
+          <StatCard
+            label="Checked in"
+            value={k.checkedIn}
+            Icon={CheckSquare}
+            accent="green"
+          />
+        )}
+        {d.sections.waitlist && (
+          <StatCard label="Waitlist" value={k.waitlist} Icon={List} />
+        )}
+        {d.sections.financial && (
+          <StatCard
+            label="COD pending"
+            value={`$${centsToPrice(k.codPendingCents)}`}
+            Icon={DollarSign}
+          />
+        )}
+        <StatCard
+          label="Today's registrations"
+          value={k.todayRegistrations}
+          Icon={TrendingUp}
+          accent={k.todayRegistrations > 0 ? "green" : "default"}
+        />
       </div>
 
-      <div className="mt-8 grid gap-6 lg:grid-cols-2">
-        <section>
-          <h2 className="font-semibold">Events</h2>
+      <div className="flex flex-wrap gap-2">
+        <Link
+          className="rounded-md bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground transition hover:opacity-90"
+          href={L("/events/new")}
+        >
+          + Create event
+        </Link>
+        {[
+          { href: L("/approvals"), label: "Approvals" },
+          { href: L("/finance"), label: "Finance" },
+          { href: L("/registrations"), label: "Registrations" },
+          { href: `/${locale}/staff/events`, label: "Check-in" },
+          { href: L("/audit"), label: "Audit" },
+        ].map((a) => (
+          <Link
+            key={a.href}
+            className="rounded-md border border-border px-4 py-2 text-sm font-medium text-muted-foreground transition hover:bg-muted hover:text-foreground"
+            href={a.href}
+          >
+            {a.label}
+          </Link>
+        ))}
+      </div>
+
+      <div className="grid gap-6 lg:grid-cols-2">
+        <section className="rounded-[var(--radius-lg)] border border-border bg-card p-4">
+          <h2 className="text-sm font-semibold">Upcoming events</h2>
           {d.upcomingEventsList.length === 0 ? (
-            <p className="mt-2 text-sm text-muted-foreground">No events yet.</p>
+            <p className="mt-3 text-sm text-muted-foreground">No events yet.</p>
           ) : (
-            <ul className="mt-2 flex flex-col gap-1 text-sm">
+            <ul className="mt-3 flex flex-col divide-y divide-border">
               {d.upcomingEventsList.map((e) => (
-                <li key={e.id} className="flex items-center justify-between border-b border-border py-1.5">
-                  <span>{e.titleEn}</span>
-                  <span className="text-xs text-muted-foreground">
-                    {e.comingSoon ? "Coming soon" : e.liveOnPretix && e.visibility === "public" ? "Open" : "Draft"}
+                <li
+                  key={e.id}
+                  className="flex items-center justify-between py-2 text-sm"
+                >
+                  <span className="font-medium">{e.titleEn}</span>
+                  <span className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">
+                    {e.comingSoon
+                      ? "Coming soon"
+                      : e.liveOnPretix && e.visibility === "public"
+                        ? "Open"
+                        : "Draft"}
                   </span>
                 </li>
               ))}
@@ -76,16 +150,24 @@ export default async function AdminDashboardPage({
           )}
         </section>
 
-        <section>
-          <h2 className="font-semibold">Recent registrations</h2>
+        <section className="rounded-[var(--radius-lg)] border border-border bg-card p-4">
+          <h2 className="text-sm font-semibold">Recent registrations</h2>
           {d.recentRegistrations.length === 0 ? (
-            <p className="mt-2 text-sm text-muted-foreground">None yet.</p>
+            <p className="mt-3 text-sm text-muted-foreground">None yet.</p>
           ) : (
-            <ul className="mt-2 flex flex-col gap-1 text-sm">
+            <ul className="mt-3 flex flex-col divide-y divide-border">
               {d.recentRegistrations.map((r) => (
-                <li key={r.id} className="flex items-center justify-between border-b border-border py-1.5">
-                  <span>{r.attendee} · <span className="text-muted-foreground">{r.event}</span></span>
-                  <span className="font-mono text-xs">{r.orderCode}</span>
+                <li
+                  key={r.id}
+                  className="flex items-center justify-between py-2 text-sm"
+                >
+                  <span>
+                    {r.attendee}
+                    <span className="ms-1 text-muted-foreground">· {r.event}</span>
+                  </span>
+                  <span className="font-mono text-xs text-muted-foreground">
+                    {r.orderCode}
+                  </span>
                 </li>
               ))}
             </ul>
@@ -93,14 +175,17 @@ export default async function AdminDashboardPage({
         </section>
 
         {d.sections.checkins && (
-          <section>
-            <h2 className="font-semibold">Recent check-ins</h2>
+          <section className="rounded-[var(--radius-lg)] border border-border bg-card p-4">
+            <h2 className="text-sm font-semibold">Recent check-ins</h2>
             {d.recentCheckins.length === 0 ? (
-              <p className="mt-2 text-sm text-muted-foreground">None yet.</p>
+              <p className="mt-3 text-sm text-muted-foreground">None yet.</p>
             ) : (
-              <ul className="mt-2 flex flex-col gap-1 text-sm">
+              <ul className="mt-3 flex flex-col divide-y divide-border">
                 {d.recentCheckins.map((c) => (
-                  <li key={c.id} className="flex items-center justify-between border-b border-border py-1.5">
+                  <li
+                    key={c.id}
+                    className="flex items-center justify-between py-2 text-sm"
+                  >
                     <span className="font-mono text-xs">{c.attendeeRef}</span>
                     <span className="text-muted-foreground">{c.event}</span>
                   </li>
@@ -111,16 +196,21 @@ export default async function AdminDashboardPage({
         )}
 
         {d.sections.audit && (
-          <section>
-            <h2 className="font-semibold">Recent activity</h2>
+          <section className="rounded-[var(--radius-lg)] border border-border bg-card p-4">
+            <h2 className="text-sm font-semibold">Recent activity</h2>
             {d.recentAudit.length === 0 ? (
-              <p className="mt-2 text-sm text-muted-foreground">No activity.</p>
+              <p className="mt-3 text-sm text-muted-foreground">No activity.</p>
             ) : (
-              <ul className="mt-2 flex flex-col gap-1 text-sm">
+              <ul className="mt-3 flex flex-col divide-y divide-border">
                 {d.recentAudit.map((a) => (
-                  <li key={a.id} className="flex items-center justify-between border-b border-border py-1.5">
+                  <li
+                    key={a.id}
+                    className="flex items-center justify-between py-2 text-sm"
+                  >
                     <span>{a.action}</span>
-                    <span className="text-xs text-muted-foreground">{new Date(a.createdAt).toLocaleString()}</span>
+                    <span className="text-xs text-muted-foreground">
+                      {new Date(a.createdAt).toLocaleString()}
+                    </span>
                   </li>
                 ))}
               </ul>
@@ -128,23 +218,25 @@ export default async function AdminDashboardPage({
           </section>
         )}
 
-        <section className="lg:col-span-2">
-          <h2 className="font-semibold">Event capacity overview</h2>
+        <section className="rounded-[var(--radius-lg)] border border-border bg-card p-4 lg:col-span-2">
+          <h2 className="text-sm font-semibold">Event capacity overview</h2>
           {d.capacity.length === 0 ? (
-            <p className="mt-2 text-sm text-muted-foreground">No registrations yet.</p>
+            <p className="mt-3 text-sm text-muted-foreground">No registrations yet.</p>
           ) : (
-            <table className="mt-2 w-full text-sm">
+            <table className="mt-3 w-full text-sm">
               <thead>
-                <tr className="border-b text-left text-muted-foreground">
-                  <th className="py-1.5">Event</th><th>Registrations</th><th>Issued</th>
+                <tr className="border-b border-border text-left text-xs text-muted-foreground">
+                  <th className="pb-2 font-medium">Event</th>
+                  <th className="pb-2 font-medium">Registrations</th>
+                  <th className="pb-2 font-medium">Issued</th>
                 </tr>
               </thead>
-              <tbody>
+              <tbody className="divide-y divide-border">
                 {d.capacity.map((c) => (
-                  <tr key={c.eventId} className="border-b border-border">
-                    <td className="py-1.5">{c.titleEn}</td>
-                    <td>{c.registrations}</td>
-                    <td>{c.issued}</td>
+                  <tr key={c.eventId}>
+                    <td className="py-2">{c.titleEn}</td>
+                    <td className="py-2">{c.registrations}</td>
+                    <td className="py-2">{c.issued}</td>
                   </tr>
                 ))}
               </tbody>

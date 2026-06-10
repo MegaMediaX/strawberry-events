@@ -28,27 +28,36 @@ export function TicketRail({
   soldOut: boolean;
 }) {
   return (
-    <div className="rounded-[var(--radius-lg)] border border-border bg-card p-4 shadow-sm lg:sticky lg:top-20">
-      <h2 className="text-sm font-semibold">Tickets</h2>
-      <ul className="mt-2 divide-y divide-border">
+    <div className="rounded-[var(--radius-lg)] border border-border bg-card p-5 shadow-sm lg:sticky lg:top-20">
+      <h2 className="text-base font-semibold">Tickets</h2>
+      <ul className="mt-3 flex flex-col gap-2">
         {tickets.map((t) => (
-          <li key={t.id} className="flex items-center justify-between py-2 text-sm">
-            <span>{locale === "ar" && t.titleAr ? t.titleAr : t.titleEn}</span>
-            <span className="text-muted-foreground">
-              {t.priceCents === 0 ? "Free" : `$${centsToPrice(t.priceCents)}`}
+          <li
+            key={t.id}
+            className="flex items-start justify-between rounded-md bg-muted/40 px-3 py-2.5 text-sm"
+          >
+            <span className="font-medium leading-tight">
+              {locale === "ar" && t.titleAr ? t.titleAr : t.titleEn}
+            </span>
+            <span className="ms-4 shrink-0 font-semibold text-foreground">
+              {t.priceCents === 0 ? (
+                <span className="text-emerald-600 dark:text-emerald-400">Free</span>
+              ) : (
+                `$${centsToPrice(t.priceCents)}`
+              )}
             </span>
           </li>
         ))}
       </ul>
-      <div className="mt-3">
+      <div className="mt-4">
         <AvailabilityBar sold={capacity.sold} total={capacity.total} />
       </div>
       <Link href={`/${locale}/events/${slug}/register`} className="mt-4 block">
-        <Button className="w-full" disabled={soldOut}>
-          {soldOut ? "Sold out" : "Register"}
+        <Button className="w-full" size="lg" disabled={soldOut}>
+          {soldOut ? "Sold out" : "Register now"}
         </Button>
       </Link>
-      <AddToCalendar event={calendar} />
+      <AddToCalendar event={calendar} icsHref={`/${locale}/events/${slug}/calendar.ics`} />
     </div>
   );
 }

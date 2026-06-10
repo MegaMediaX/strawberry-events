@@ -1,29 +1,27 @@
 import Link from "next/link";
 import { setRequestLocale } from "next-intl/server";
+import {
+  LayoutDashboard,
+  CalendarDays,
+  CheckSquare,
+  Users,
+  DollarSign,
+  UserCog,
+  Mail,
+  Shield,
+  Trash2,
+  Settings,
+  Key,
+  Webhook,
+  Puzzle,
+} from "lucide-react";
 import { requireRole } from "@/lib/auth/session";
 import { getActiveOrg } from "@/lib/auth/active-org.server";
 import { getSessionContext } from "@/lib/auth/session";
 import { prisma } from "@/lib/db/client";
 import { LanguageSwitcher } from "@/components/language-switcher";
 import { OrganizerSwitcher } from "./_components/organizer-switcher";
-
-const NAV = [
-  { href: "", label: "Dashboard", financeAllowed: true },
-  { href: "/events", label: "Events", financeAllowed: false },
-  { href: "/approvals", label: "Approvals", financeAllowed: false },
-  { href: "/registrations", label: "Registrations", financeAllowed: false },
-  { href: "/users", label: "Users", financeAllowed: false },
-  { href: "/finance", label: "Finance", financeAllowed: true },
-  // Staff check-in station lives outside the (admin) route group, at /<locale>/staff.
-  { href: "/staff", label: "Staff", financeAllowed: false, abs: true },
-  { href: "/settings", label: "Settings", financeAllowed: false },
-  { href: "/settings/api-keys", label: "API keys", financeAllowed: false },
-  { href: "/settings/webhooks", label: "Webhooks", financeAllowed: false },
-  { href: "/settings/integrations", label: "Integrations", financeAllowed: true },
-  { href: "/emails", label: "Emails", financeAllowed: true },
-  { href: "/audit", label: "Audit", financeAllowed: false },
-  { href: "/delete-queue", label: "Delete queue", financeAllowed: false },
-];
+import { NavItem } from "@/components/admin/nav-item";
 
 export default async function AdminLayout({
   children,
@@ -40,12 +38,10 @@ export default async function AdminLayout({
   );
 
   const session = await getSessionContext();
-  // Admins (super/org) see all nav; finance-only users see a reduced set.
   const isAdmin =
     !!session &&
     (session.isSuperAdmin ||
       session.memberships.some((m) => m.role === "organizer_admin"));
-  const nav = NAV.filter((n) => isAdmin || n.financeAllowed);
   const activeOrg = session ? await getActiveOrg(session) : null;
   const orgs =
     session?.isSuperAdmin
@@ -55,27 +51,79 @@ export default async function AdminLayout({
         })
       : [];
 
+  const base = `/${locale}/admin`;
+
   return (
     <div className="flex min-h-screen">
-      <aside className="w-56 shrink-0 border-e bg-muted/30 p-4">
-        <div className="mb-6 text-lg font-bold">Strawberry</div>
-        <nav className="flex flex-col gap-1 text-sm">
-          {nav.map((n) => (
-            <Link
-              key={n.label}
-              href={n.abs ? `/${locale}${n.href}` : `/${locale}/admin${n.href}`}
-              className="rounded-md px-3 py-2 hover:bg-muted"
-            >
-              {n.label}
-            </Link>
-          ))}
-        </nav>
-      </aside>
-      <div className="flex flex-1 flex-col">
-        <header className="flex items-center justify-between border-b px-6 py-3">
-          <div className="text-sm text-muted-foreground">
-            {activeOrg?.name ?? "No organization"}
+      <aside className="flex w-60 shrink-0 flex-col border-e border-border bg-muted/20">
+        <div className="px-4 py-5">
+          <Link
+            href={`/${locale}/events`}
+            className="bg-[image:var(--gradient-hero)] bg-clip-text text-lg font-extrabold tracking-tight text-transparent"
+          >
+            Strawberry
+          </Link>
+        </div>
+
+        <nav className="flex-1 overflow-y-auto px-3 pb-4">
+          <div className="mb-1">
+            <NavItem href={base} label="Dashboard" Icon={LayoutDashboard} />
+            {isAdmin && (
+              <NavItem href={`${base}/events`} label="Events" Icon={CalendarDays} />
+            )}
+            {isAdmin && (
+              <NavItem href={`${base}/approvals`} label="Approvals" Icon={CheckSquare} />
+            )}
+            <NavItem href={`${base}/registrations`} label="Registrations" Icon={Users} />
+            {isAdmin && (
+              <NavItem href={`${base}/users`} label="Users" Icon={UserCog} />
+            )}
+            <NavItem href={`${base}/finance`} label="Finance" Icon={DollarSign} />
           </div>
+
+          <div className="mt-4">
+            <p className="mb-1 px-3 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60">
+              Operations
+            </p>
+            <NavItem
+              href={`/${locale}/staff/events`}
+              label="Staff check-in"
+              Icon={CheckSquare}
+            />
+            <NavItem href={`${base}/emails`} label="Emails" Icon={Mail} />
+            {isAdmin && (
+              <NavItem href={`${base}/audit`} label="Audit log" Icon={Shield} />
+            )}
+            {isAdmin && (
+              <NavItem href={`${base}/delete-queue`} label="Delete queue" Icon={Trash2} />
+            )}
+          </div>
+
+          {isAdmin && (
+            <div className="mt-4">
+              <p className="mb-1 px-3 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60">
+                Settings
+              </p>
+              <NavItem href={`${base}/settings`} label="General" Icon={Settings} />
+              <NavItem href={`${base}/settings/api-keys`} label="API keys" Icon={Key} />
+              <NavItem href={`${base}/settings/webhooks`} label="Webhooks" Icon={Webhook} />
+              <NavItem
+                href={`${base}/settings/integrations`}
+                label="Integrations"
+                Icon={Puzzle}
+              />
+            </div>
+          )}
+        </nav>
+
+        <div className="border-t border-border px-4 py-3 text-xs text-muted-foreground">
+          {activeOrg?.name ?? "No organization"}
+        </div>
+      </aside>
+
+      <div className="flex flex-1 flex-col overflow-hidden">
+        <header className="flex shrink-0 items-center justify-between border-b border-border px-6 py-3">
+          <div />
           <div className="flex items-center gap-3">
             {session?.isSuperAdmin && orgs.length > 0 && (
               <OrganizerSwitcher orgs={orgs} activeOrgId={activeOrg?.id ?? null} />
@@ -83,7 +131,7 @@ export default async function AdminLayout({
             <LanguageSwitcher />
           </div>
         </header>
-        <main className="flex-1 p-6">{children}</main>
+        <main className="flex-1 overflow-y-auto p-6">{children}</main>
       </div>
     </div>
   );
