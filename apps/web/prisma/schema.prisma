@@ -145,6 +145,7 @@ model User {
   apiKeys     ApiKey[]             @relation("ApiKeyCreatedBy")
   auditLogs   AuditLog[]
   attendeeOrders AttendeeOrder[]
+  passwordResetTokens PasswordResetToken[]
 
   @@map("users")
 }
@@ -187,6 +188,22 @@ model VerificationToken {
 
   @@unique([identifier, token])
   @@map("verification_tokens")
+}
+
+model PasswordResetToken {
+  id        String    @id @default(cuid())
+  userId    String
+  // SHA-256 of the random token (deterministic → unique-index lookup). A DB
+  // breach yields no usable reset link; the plaintext exists only in transit.
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([expiresAt])
+  @@map("password_reset_tokens")
 }
 
 // ---------------------------------------------------------------------------

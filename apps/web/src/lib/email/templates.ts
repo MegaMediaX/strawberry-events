@@ -107,3 +107,16 @@ export function confirmationEmail(
     text: `Your registration for ${eventTitle} is confirmed.\nOrder code: ${orderCode}\nYour ticket: ${ticketUrl}`,
   };
 }
+
+export function passwordResetEmail(locale: Locale, resetUrl: string): RenderedEmail {
+  if (locale === "ar") {
+    return {
+      subject: "إعادة تعيين كلمة المرور",
+      text: `لإعادة تعيين كلمة المرور، افتح الرابط التالي (صالح لمدة ساعة واحدة):\n${resetUrl}\nإذا لم تطلب ذلك، تجاهل هذه الرسالة.`,
+    };
+  }
+  return {
+    subject: "Reset your password",
+    text: `To reset your password, open this link (valid for 1 hour):\n${resetUrl}\nIf you didn't request this, you can ignore this email.`,
+  };
+}
