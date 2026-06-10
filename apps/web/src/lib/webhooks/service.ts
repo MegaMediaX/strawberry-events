@@ -1,6 +1,7 @@
 import { createHmac } from "node:crypto";
 import { prisma } from "@/lib/db/client";
 import type { WebhookEvent } from "./events";
+import { assertSafeWebhookUrl } from "./ssrf-guard";
 
 const MAX_ATTEMPTS = 5;
 const RETRY_BACKOFF_MS = 60_000;
@@ -24,6 +25,10 @@ export async function deliver(d: DeliveryRow, now: Date = new Date()): Promise<b
   const body = JSON.stringify({ id: d.id, event: d.event, data: d.payload });
   const signature = signPayload(d.webhook.secret, timestamp, body);
   try {
+    // Re-validate at delivery time too: a URL safe at creation can later rebind
+    // to a private address. On violation this falls through to the catch below,
+    // recording a delivery failure rather than contacting the internal host.
+    await assertSafeWebhookUrl(d.webhook.url);
     const res = await fetch(d.webhook.url, {
       method: "POST",
       headers: {

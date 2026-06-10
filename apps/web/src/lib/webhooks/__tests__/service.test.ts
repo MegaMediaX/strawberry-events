@@ -7,8 +7,13 @@ vi.mock("@/lib/db/client", () => ({
     webhookDelivery: { create: vi.fn(), update: vi.fn().mockResolvedValue({}) },
   },
 }));
+vi.mock("@/lib/webhooks/ssrf-guard", () => ({
+  assertSafeWebhookUrl: vi.fn().mockResolvedValue(undefined),
+  SsrfViolationError: class SsrfViolationError extends Error {},
+}));
 
 import { prisma } from "@/lib/db/client";
+import { assertSafeWebhookUrl, SsrfViolationError } from "@/lib/webhooks/ssrf-guard";
 import { signPayload, deliver, emit } from "@/lib/webhooks/service";
 
 const mock = <T,>(fn: T) => fn as unknown as ReturnType<typeof vi.fn>;
@@ -50,6 +55,20 @@ describe("deliver", () => {
     });
     expect(res).toBe(false);
     expect(mock(prisma.webhookDelivery.update).mock.calls[0][0].data.error).toMatch(/network/i);
+  });
+
+  it("blocks an SSRF-flagged target before fetching and records the failure", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    mock(assertSafeWebhookUrl).mockRejectedValueOnce(
+      new SsrfViolationError("Webhook URL points to a private or local address"),
+    );
+    const res = await deliver({
+      id: "d3", event: "order.paid", payload: {}, attempts: 0,
+      webhook: { url: "https://192.168.1.1/hook", secret: "s" },
+    });
+    expect(res).toBe(false);
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(mock(prisma.webhookDelivery.update).mock.calls[0][0].data.error).toMatch(/private/i);
   });
 });
 
