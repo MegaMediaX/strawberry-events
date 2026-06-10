@@ -46,10 +46,13 @@ export async function handleOrderPaid(ctx: ReconcileCtx): Promise<void> {
   emit(ctx.organizationId, "ticket.issued", { orderCode: ctx.orderCode }, ctx.eventMappingId);
   try {
     const ticketUrl = `${process.env.APP_URL ?? ""}/en/t/${order.magicLinkToken}`;
-    await sendEmail({
-      to: order.email,
-      ...confirmationEmail("en", ctx.pretixEventSlug, ctx.orderCode, ticketUrl),
-    });
+    await sendEmail(
+      {
+        to: order.email,
+        ...confirmationEmail("en", ctx.pretixEventSlug, ctx.orderCode, ticketUrl),
+      },
+      { templateType: "ticket_issued", organizationId: ctx.organizationId, eventMappingId: ctx.eventMappingId, attendeeRef: ctx.orderCode },
+    );
   } catch {
     // best-effort: never fail reconciliation on email
   }

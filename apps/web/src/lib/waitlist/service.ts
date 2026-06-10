@@ -94,10 +94,13 @@ export async function promote(session: SessionContext, entryId: string) {
   const locale: Locale = "en";
   const registerUrl = `${process.env.APP_URL ?? ""}/${locale}/events/${entry.eventMapping.pretixEventSlug ?? ""}/register`;
   try {
-    await sendEmail({
-      to: entry.email,
-      ...waitlistPromotedEmail(locale, entry.eventMapping.titleEn, registerUrl),
-    });
+    await sendEmail(
+      {
+        to: entry.email,
+        ...waitlistPromotedEmail(locale, entry.eventMapping.titleEn, registerUrl),
+      },
+      { templateType: "waitlist_promoted", organizationId: entry.eventMapping.organizationId, eventMappingId: entry.eventMappingId, attendeeRef: entry.email },
+    );
   } catch {
     // best-effort
   }

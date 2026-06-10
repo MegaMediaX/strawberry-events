@@ -184,7 +184,15 @@ export async function register(input: RegisterInput): Promise<RegisterResult> {
       : status === "paid"
         ? confirmationEmail(data.locale, event.titleEn, order.code, ticketUrl)
         : pendingEmail(data.locale, event.titleEn, order.code);
-    await sendEmail({ to: data.attendee.email, ...msg });
+    const templateType = needsApproval
+      ? "pending_approval"
+      : status === "paid"
+        ? "ticket_issued"
+        : "payment_required";
+    await sendEmail(
+      { to: data.attendee.email, ...msg },
+      { templateType, organizationId: event.organizationId, eventMappingId: event.id, attendeeRef: order.code },
+    );
   } catch {
     // swallow
   }

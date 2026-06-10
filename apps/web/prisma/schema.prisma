@@ -32,6 +32,19 @@ enum UserStatus {
   suspended
 }
 
+enum EmailStatus {
+  queued
+  sent
+  failed
+  skipped
+  disabled
+}
+
+enum EmailProvider {
+  smtp
+  dev_log
+}
+
 enum Visibility {
   public
   private
@@ -639,6 +652,26 @@ model AuditLog {
   @@index([entityType, entityId])
   @@index([action])
   @@map("audit_logs")
+}
+
+model EmailLog {
+  id             String        @id @default(cuid())
+  recipient      String
+  subject        String
+  bodyText       String        @db.Text
+  templateType   String?
+  organizationId String?
+  eventMappingId String?
+  attendeeRef    String?
+  status         EmailStatus
+  provider       EmailProvider
+  lastError      String?
+  createdAt      DateTime      @default(now())
+
+  @@index([organizationId])
+  @@index([status])
+  @@index([createdAt])
+  @@map("email_logs")
 }
 
 model AttendeeOrder {
