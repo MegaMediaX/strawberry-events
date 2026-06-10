@@ -6,7 +6,7 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_APP_USER:-app}
-      POSTGRES_PASSWORD: ${POSTGRES_APP_PASSWORD:?set POSTGRES_APP_PASSWORD}
+      POSTGRES_PASSWORD: ${POSTGRES_APP_PASSWORD:-password}
       POSTGRES_DB: ${POSTGRES_APP_DB:-strawberry_platform}
     volumes:
       - postgres-app-data:/var/lib/postgresql/data
@@ -81,19 +81,21 @@ services:
         condition: service_healthy
     environment:
       NODE_ENV: production
-      # Secrets MUST be provided (no insecure defaults). `:?` makes compose fail if unset.
-      # The app additionally fail-fasts on weak/placeholder values at startup
-      # (apps/web/src/lib/config/env.ts). See .env.production.example.
-      DATABASE_URL: postgresql://${POSTGRES_APP_USER:-app}:${POSTGRES_APP_PASSWORD:?set POSTGRES_APP_PASSWORD}@postgres-app:5432/${POSTGRES_APP_DB:-strawberry_platform}?schema=public
-      AUTH_SECRET: ${AUTH_SECRET:?set AUTH_SECRET}
-      MAGIC_LINK_SECRET: ${MAGIC_LINK_SECRET:?set MAGIC_LINK_SECRET}
-      ENCRYPTION_KEY: ${ENCRYPTION_KEY:?set ENCRYPTION_KEY (base64 32 bytes)}
-      APP_URL: ${APP_URL:?set APP_URL (https:// in production)}
-      NEXTAUTH_URL: ${NEXTAUTH_URL:-${APP_URL}}
+      # Production fail-fast on missing/weak/placeholder secrets is enforced at APP
+      # STARTUP (apps/web/src/lib/config/env.ts via instrumentation.ts) — it refuses
+      # to boot on change_me/dev-secret/empty values. Compose keeps dev-friendly
+      # fallbacks here so `docker compose` parses without a root .env in development;
+      # production operators MUST supply strong values via .env (see .env.production.example).
+      DATABASE_URL: postgresql://${POSTGRES_APP_USER:-app}:${POSTGRES_APP_PASSWORD:-password}@postgres-app:5432/${POSTGRES_APP_DB:-strawberry_platform}?schema=public
+      AUTH_SECRET: ${AUTH_SECRET:-change_me}
+      MAGIC_LINK_SECRET: ${MAGIC_LINK_SECRET:-change_me}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:-change_me}
+      APP_URL: ${APP_URL:-http://localhost:3000}
+      NEXTAUTH_URL: ${NEXTAUTH_URL:-${APP_URL:-http://localhost:3000}}
       PRETIX_BASE_URL: ${PRETIX_BASE_URL:-http://pretix:80}
-      PRETIX_API_TOKEN: ${PRETIX_API_TOKEN:?set PRETIX_API_TOKEN}
+      PRETIX_API_TOKEN: ${PRETIX_API_TOKEN:-change_me}
       PRETIX_DEFAULT_ORGANIZER: ${PRETIX_DEFAULT_ORGANIZER:-strawberry}
-      PRETIX_WEBHOOK_SECRET: ${PRETIX_WEBHOOK_SECRET:?set PRETIX_WEBHOOK_SECRET}
+      PRETIX_WEBHOOK_SECRET: ${PRETIX_WEBHOOK_SECRET:-change_me}
       REDIS_URL: redis://redis:6379
       SMTP_HOST: ${SMTP_HOST:-}
       SMTP_PORT: ${SMTP_PORT:-587}
@@ -103,7 +105,7 @@ services:
       SMTP_FROM_NAME: ${SMTP_FROM_NAME:-Strawberry Events}
       ALLOW_EMAIL_DISABLED_IN_PRODUCTION: ${ALLOW_EMAIL_DISABLED_IN_PRODUCTION:-false}
       SEED_ADMIN_EMAIL: ${SEED_ADMIN_EMAIL:-admin@strawberry.local}
-      SEED_ADMIN_PASSWORD: ${SEED_ADMIN_PASSWORD:?set SEED_ADMIN_PASSWORD}
+      SEED_ADMIN_PASSWORD: ${SEED_ADMIN_PASSWORD:-ChangeMe!123}
     command: ["sh", "-c", "npx prisma migrate deploy && node server.js"]
     healthcheck:
       test: ["CMD-SHELL", "node -e \"fetch('http://localhost:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]

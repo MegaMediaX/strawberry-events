@@ -336,9 +336,11 @@ horizontally**:
 > termination. Local development may remain HTTP. The bundled `docker/nginx.conf` listens
 > on **port 80 only** — you must terminate TLS using one of the two options below.
 
-**Startup safety:** in production the app **fails fast** if required secrets are missing,
-empty, weak, or placeholders (`apps/web/src/lib/config/env.ts`), and `docker compose` refuses
-to start if a required secret env var is unset (`:?` in `compose.yaml`). Copy
+**Startup safety:** in production the app **fails fast at startup** if required secrets are
+missing, empty, weak, or placeholders (`apps/web/src/lib/config/env.ts`, wired via
+`instrumentation.ts`) — it refuses to boot on `change_me`/`dev-secret`/empty values. (Compose
+keeps dev-friendly fallbacks so `docker compose` parses without a root `.env` in development;
+the app-level validator is the authoritative production guard.) Copy
 `.env.production.example` → `.env` and fill strong values; **rotate any dev pretix token /
 `ENCRYPTION_KEY`** before go-live (see that file's rotation notes — losing `ENCRYPTION_KEY`
 makes stored integration secrets unrecoverable).
