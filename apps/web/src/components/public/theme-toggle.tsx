@@ -5,13 +5,13 @@ import { Moon, Sun } from "lucide-react";
 import { THEME_STORAGE_KEY } from "@/lib/theme/theme";
 import { Button } from "@/components/ui/button";
 
-function currentIsDark(): boolean {
-  if (typeof document === "undefined") return false;
-  return document.documentElement.classList.contains("dark");
-}
-
-export function ThemeToggle() {
-  const [dark, setDark] = useState<boolean>(() => currentIsDark());
+/**
+ * `initialDark` is resolved on the server from the theme cookie (the same value
+ * the root layout uses to set `<html class="dark">`), so the first client render
+ * matches the server HTML — no hydration mismatch.
+ */
+export function ThemeToggle({ initialDark = false }: { initialDark?: boolean }) {
+  const [dark, setDark] = useState<boolean>(initialDark);
 
   function toggle() {
     const next = !dark;
