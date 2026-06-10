@@ -43,6 +43,7 @@ export default async function EventDetailPage({
     title: event.titleEn,
     start: dateFrom ?? new Date().toISOString(),
     end: dateTo,
+    location: locationLine(event) || null,
     description: event.descriptionEn,
   };
 
