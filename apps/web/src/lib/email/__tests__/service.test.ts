@@ -1,5 +1,5 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { isDevTransport, sendEmail } from "@/lib/email/service";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { isDevTransport, sendEmail, emailMode } from "@/lib/email/service";
 import {
   pendingEmail,
   confirmationEmail,
@@ -13,6 +13,7 @@ beforeEach(() => {
   delete process.env.SMTP_HOST;
 });
 afterEach(() => {
+  vi.unstubAllEnvs();
   process.env = { ...orig };
 });
 
@@ -25,6 +26,25 @@ describe("email service", () => {
     await expect(
       sendEmail({ to: "a@b.com", subject: "Hi", text: "Body" }),
     ).resolves.toBe(true);
+  });
+
+  it("dev-log mode only outside production", () => {
+    expect(emailMode()).toBe("dev-log");
+  });
+
+  it("production with SMTP configured uses smtp mode", () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("SMTP_HOST", "smtp.example.com");
+    expect(emailMode()).toBe("smtp");
+  });
+
+  it("production without SMTP is 'disabled' and does NOT report a false success", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    delete process.env.SMTP_HOST;
+    expect(emailMode()).toBe("disabled");
+    await expect(
+      sendEmail({ to: "a@b.com", subject: "Hi", text: "Body" }),
+    ).resolves.toBe(false);
   });
 });
 

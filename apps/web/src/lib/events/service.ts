@@ -2,11 +2,25 @@ import { randomUUID } from "node:crypto";
 import type { Organization, EventMapping } from "@prisma/client";
 import { prisma } from "@/lib/db/client";
 import { scopeWhere, canAccessEvent } from "@/lib/auth/org-scope";
+import { assertRole, ForbiddenError } from "@/lib/auth/guards";
 import type { SessionContext } from "@/lib/auth/types";
 import { resolvePretixContext } from "@/lib/pretix/context";
 import * as pretixEvents from "@/lib/pretix/events";
 import * as pretixProducts from "@/lib/pretix/products";
 import type { EventInput, TicketInput } from "./schema";
+
+/**
+ * Event/ticket/quota configuration is restricted to organizer admins and super
+ * admins — enforced at the SERVICE layer (not just the admin UI), because server
+ * actions are independently callable. Finance and check-in staff are excluded,
+ * and impersonating sessions cannot mutate configuration.
+ */
+function assertCanManageEvents(session: SessionContext) {
+  if (session.impersonating) {
+    throw new ForbiddenError("Cannot modify events while impersonating");
+  }
+  assertRole(session, ["super_admin", "organizer_admin"]);
+}
 
 /** List events visible to the session (org-scoped; super admin sees all). */
 export function listEventsForSession(
@@ -58,6 +72,7 @@ export async function createEvent(
   org: Organization,
   input: EventInput,
 ): Promise<EventMapping> {
+  assertCanManageEvents(session);
   const ctx = resolvePretixContext(org);
 
   await pretixEvents.createEvent(
@@ -149,6 +164,7 @@ export async function updateEvent(
   eventId: string,
   input: EventInput,
 ): Promise<EventMapping> {
+  assertCanManageEvents(session);
   const mapping = await getEventForSession(session, eventId);
   if (!mapping) throw new Error("Event not found or access denied");
   const org = await prisma.organization.findUnique({
@@ -190,6 +206,7 @@ export async function createTicket(
   eventId: string,
   input: TicketInput,
 ): Promise<{ itemId: number; quotaId: number }> {
+  assertCanManageEvents(session);
   const mapping = await getEventForSession(session, eventId);
   if (!mapping) {
     throw new Error("Event not found or access denied");

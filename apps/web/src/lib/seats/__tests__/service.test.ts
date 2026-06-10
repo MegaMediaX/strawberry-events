@@ -26,33 +26,44 @@ describe("releaseExpiredHolds", () => {
 });
 
 describe("holdSeats", () => {
-  it("holds all requested seats when available", async () => {
-    // first call = releaseExpiredHolds, second = the hold updateMany
+  it("holds available/accessible seats scoped to the event", async () => {
     mock(prisma.seatAssignment.updateMany)
-      .mockResolvedValueOnce({ count: 0 })
-      .mockResolvedValueOnce({ count: 2 });
+      .mockResolvedValueOnce({ count: 0 }) // releaseExpiredHolds
+      .mockResolvedValueOnce({ count: 2 }); // hold
     const res = await holdSeats("e1", ["s1", "s2"], "holderX");
     expect(res.heldUntil).toBeInstanceOf(Date);
     const holdArg = mock(prisma.seatAssignment.updateMany).mock.calls[1][0];
+    expect(holdArg.where.state).toEqual({ in: ["available", "accessible"] });
+    // seat ids must belong to this event
+    expect(holdArg.where.row.section.seatMap.eventMappingId).toBe("e1");
     expect(holdArg.data.state).toBe("temporarily_held");
     expect(holdArg.data.attendeeRef).toBe("holderX");
   });
 
-  it("throws when a seat is already taken (count < requested)", async () => {
+  it("throws when a seat is already taken (count < requested) and rolls back by holder", async () => {
     mock(prisma.seatAssignment.updateMany)
-      .mockResolvedValueOnce({ count: 0 })
-      .mockResolvedValueOnce({ count: 1 });
+      .mockResolvedValueOnce({ count: 0 }) // release expired
+      .mockResolvedValueOnce({ count: 1 }) // hold (only 1 of 2)
+      .mockResolvedValueOnce({ count: 1 }); // rollback
     await expect(holdSeats("e1", ["s1", "s2"], "holderX")).rejects.toThrow(/unavailable/i);
+    const rollback = mock(prisma.seatAssignment.updateMany).mock.calls[2][0];
+    expect(rollback.where.attendeeRef).toBe("holderX");
   });
 });
 
-describe("confirmSeats", () => {
-  it("marks held seats sold with the order ref", async () => {
+describe("confirmSeats (holder-scoped)", () => {
+  it("confirms only seats held by this order", async () => {
     mock(prisma.seatAssignment.updateMany).mockResolvedValue({ count: 2 });
     await confirmSeats(["s1", "s2"], "ABC12");
     const arg = mock(prisma.seatAssignment.updateMany).mock.calls[0][0];
+    expect(arg.where.state).toBe("temporarily_held");
+    expect(arg.where.attendeeRef).toBe("ABC12"); // wrong holder cannot confirm
     expect(arg.data.state).toBe("sold_or_reserved");
-    expect(arg.data.attendeeRef).toBe("ABC12");
+  });
+
+  it("throws when the seats are not held by this order (e.g. hold expired / different holder)", async () => {
+    mock(prisma.seatAssignment.updateMany).mockResolvedValue({ count: 0 });
+    await expect(confirmSeats(["s1", "s2"], "ABC12")).rejects.toThrow(/not held|expired/i);
   });
 });
 

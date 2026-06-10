@@ -329,6 +329,44 @@ horizontally**:
   account enumeration).
 - **External API**: per-key limits (Milestone 10).
 
+## Production deployment & TLS (required)
+
+> **Do not run public production over plain HTTP.** Secure cookies require HTTPS at the
+> browser, and the HSTS header the app emits in production is meaningless without HTTPS
+> termination. Local development may remain HTTP. The bundled `docker/nginx.conf` listens
+> on **port 80 only** — you must terminate TLS using one of the two options below.
+
+**Startup safety:** in production the app **fails fast** if required secrets are missing,
+empty, weak, or placeholders (`apps/web/src/lib/config/env.ts`), and `docker compose` refuses
+to start if a required secret env var is unset (`:?` in `compose.yaml`). Copy
+`.env.production.example` → `.env` and fill strong values; **rotate any dev pretix token /
+`ENCRYPTION_KEY`** before go-live (see that file's rotation notes — losing `ENCRYPTION_KEY`
+makes stored integration secrets unrecoverable).
+
+**Health checks:** `GET /api/health` (liveness), `/api/health/db` (DB), `/api/health/ready`
+(config + DB → 200/503). Point your uptime monitor at `/api/health/ready`.
+
+### Option A — Cloudflare terminates TLS (recommended)
+- Proxy the DNS record through Cloudflare (orange cloud); SSL/TLS mode **Full (strict)**.
+- Restrict the origin so it only accepts Cloudflare (firewall to Cloudflare IP ranges, or
+  Cloudflare Tunnel / Authenticated Origin Pulls).
+- Browser-facing traffic is HTTPS, so secure cookies + HSTS work. Origin may speak HTTP to
+  Cloudflare **only** because the public hop is HTTPS and the origin is locked down.
+- Configure nginx `set_real_ip_from` for Cloudflare ranges so the IP-keyed rate limits and
+  audit IPs reflect the real client, not Cloudflare.
+
+### Option B — nginx terminates TLS directly
+- Add a `listen 443 ssl;` server block with a valid certificate (e.g. certbot / Let's Encrypt).
+- Redirect all HTTP → HTTPS (`return 301 https://$host$request_uri;` on the port-80 server).
+- Secure cookies and HSTS then work end-to-end.
+- Consider nginx `limit_req` zones for `/api/auth` and registration as edge defense-in-depth
+  (the app limiter is in-memory/single-instance).
+
+### Cron (manual today)
+Archive purge (`cleanup()`, 14-day retention) and webhook retry (`retryDue()`) are
+admin-invoked services — schedule them via host cron / systemd timer / container sidecar.
+Waitlist promotion is manual.
+
 ## Notes / decisions
 
 - **ORM:** Prisma (relational integrity, migration tooling).

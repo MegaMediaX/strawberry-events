@@ -1,7 +1,15 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 
 function secret(): string {
-  return process.env.MAGIC_LINK_SECRET || process.env.WEBHOOK_SECRET || "dev-secret";
+  const s = process.env.MAGIC_LINK_SECRET || process.env.WEBHOOK_SECRET;
+  if (!s) {
+    if (process.env.NODE_ENV === "production") {
+      // Never sign with a public constant in production (forgeable ticket links).
+      throw new Error("MAGIC_LINK_SECRET is required in production");
+    }
+    return "dev-secret";
+  }
+  return s;
 }
 
 function b64url(input: Buffer | string): string {

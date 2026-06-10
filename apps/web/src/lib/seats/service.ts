@@ -33,9 +33,14 @@ export async function getSeatMap(eventMappingId: string) {
 }
 
 /**
- * Hold the requested seats for `holderRef` (10-min expiry). Atomically transitions
- * only seats that are available or whose previous hold has expired. Throws if any
- * requested seat could not be held (already taken).
+ * Hold the requested seats for `holderRef` (10-min expiry). Atomic compare-and-set:
+ * only seats that belong to THIS event and are currently available/accessible are
+ * transitioned, so two concurrent holders cannot both claim the same seat. Throws
+ * if any requested seat could not be held (taken, blocked, or not in this event).
+ *
+ * Note: `accessible` seats are bookable; a released/expired hold returns the seat
+ * to `available` (the accessible designation is not preserved across a hold cycle —
+ * a documented limitation of the single-state enum).
  */
 export async function holdSeats(
   eventMappingId: string,
@@ -46,13 +51,17 @@ export async function holdSeats(
   await releaseExpiredHolds(eventMappingId, now);
   const heldUntil = new Date(now.getTime() + HOLD_MS);
   const res = await prisma.seatAssignment.updateMany({
-    where: { id: { in: seatIds }, state: "available" },
+    where: {
+      id: { in: seatIds },
+      state: { in: ["available", "accessible"] },
+      row: { section: { seatMap: { eventMappingId } } },
+    },
     data: { state: "temporarily_held", heldUntil, attendeeRef: holderRef },
   });
   if (res.count !== seatIds.length) {
-    // Roll back our partial hold and report.
+    // Roll back only OUR partial hold (scoped by holder, not by exact timestamp).
     await prisma.seatAssignment.updateMany({
-      where: { id: { in: seatIds }, state: "temporarily_held", attendeeRef: holderRef, heldUntil },
+      where: { attendeeRef: holderRef, state: "temporarily_held", heldUntil },
       data: { state: "available", heldUntil: null, attendeeRef: null },
     });
     throw new Error("One or more selected seats are unavailable");
@@ -60,15 +69,23 @@ export async function holdSeats(
   return { seatIds, heldUntil };
 }
 
-/** Confirm held seats as sold/reserved against an order. */
+/**
+ * Confirm seats as sold/reserved against an order — HOLDER-SCOPED: only seats
+ * currently held by this order (`attendeeRef === orderCode`) are confirmed, so an
+ * order can never confirm another holder's seat. Throws if any aren't held by it
+ * (e.g. the hold expired meanwhile).
+ */
 export async function confirmSeats(seatIds: string[], orderCode: string) {
-  await prisma.seatAssignment.updateMany({
-    where: { id: { in: seatIds }, state: "temporarily_held" },
-    data: { state: "sold_or_reserved", attendeeRef: orderCode, heldUntil: null },
+  const res = await prisma.seatAssignment.updateMany({
+    where: { id: { in: seatIds }, state: "temporarily_held", attendeeRef: orderCode },
+    data: { state: "sold_or_reserved", heldUntil: null },
   });
+  if (res.count !== seatIds.length) {
+    throw new Error("Seat hold expired or seats are not held by this order");
+  }
 }
 
-/** Release all seats held/sold under an order ref back to available. */
+/** Release all seats held/sold under an order ref back to available (on cancel/reject). */
 export async function releaseSeats(orderCode: string) {
   await prisma.seatAssignment.updateMany({
     where: { attendeeRef: orderCode },

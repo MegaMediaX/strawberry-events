@@ -6,6 +6,7 @@ import type { SessionContext } from "@/lib/auth/types";
 import { resolvePretixContext } from "@/lib/pretix/context";
 import * as pretixOrders from "@/lib/pretix/orders";
 import { PretixValidationError } from "@/lib/pretix/errors";
+import { releaseSeats } from "@/lib/seats/service";
 import { emit } from "@/lib/webhooks/service";
 import { sendEmail } from "@/lib/email/service";
 import {
@@ -92,6 +93,14 @@ async function bestEffortEmail(to: string, msg: { subject: string; text: string 
 
 export async function approve(session: SessionContext, orderId: string) {
   const order = await loadDecidable(session, orderId);
+
+  // Idempotent: approving an already-approved registration returns current state.
+  if (order.approvalStatus === "approved") return order;
+  // Only pending registrations can be approved (never resurrect a rejected one).
+  if (order.approvalStatus !== "pending") {
+    throw new ForbiddenError(`Cannot approve a registration in '${order.approvalStatus}' state`);
+  }
+
   const org = await prisma.organization.findUnique({
     where: { id: order.eventMapping.organizationId },
   });
@@ -100,7 +109,18 @@ export async function approve(session: SessionContext, orderId: string) {
   const locale: Locale = "en";
 
   const isFree = order.provider === "free" || order.totalCents === 0;
-  let newStatus: "pending" | "paid" = "pending";
+  const newStatus: "pending" | "paid" = isFree ? "paid" : "pending";
+
+  // Claim the transition atomically (closes the double-decision TOCTOU race).
+  const claim = await prisma.attendeeOrder.updateMany({
+    where: { id: order.id, approvalStatus: "pending" },
+    data: { approvalStatus: "approved", status: newStatus },
+  });
+  if (claim.count === 0) {
+    // Lost the race to a concurrent decision — return whatever state won.
+    const current = await getApproval(session, orderId);
+    return current ?? order;
+  }
 
   if (isFree) {
     // pretix may already have auto-paid the zero-total order; tolerate that.
@@ -114,13 +134,9 @@ export async function approve(session: SessionContext, orderId: string) {
     } catch (err) {
       if (!(err instanceof PretixValidationError)) throw err;
     }
-    newStatus = "paid";
   }
 
-  const updated = await prisma.attendeeOrder.update({
-    where: { id: order.id },
-    data: { approvalStatus: "approved", status: newStatus },
-  });
+  const updated = { ...order, approvalStatus: "approved" as const, status: newStatus };
 
   const appUrl = process.env.APP_URL ?? "";
   if (isFree) {
@@ -147,12 +163,36 @@ export async function approve(session: SessionContext, orderId: string) {
 
 export async function reject(session: SessionContext, orderId: string) {
   const order = await loadDecidable(session, orderId);
+
+  // Idempotent: rejecting an already-rejected registration returns current state.
+  if (order.approvalStatus === "rejected") return order;
+  // Never silently revoke a live ticket: block rejecting an issued/approved order.
+  // (An explicit cancel/revoke flow would be required to invalidate a valid QR.)
+  if (order.status === "paid" || order.approvalStatus === "approved") {
+    throw new ForbiddenError(
+      "Cannot reject an issued or approved registration; use a cancel/revoke flow",
+    );
+  }
+  if (order.approvalStatus !== "pending") {
+    throw new ForbiddenError(`Cannot reject a registration in '${order.approvalStatus}' state`);
+  }
+
   const org = await prisma.organization.findUnique({
     where: { id: order.eventMapping.organizationId },
   });
   if (!org) throw new Error("Organization not found");
   const ctx = resolvePretixContext(org);
   const locale: Locale = "en";
+
+  // Claim the transition atomically.
+  const claim = await prisma.attendeeOrder.updateMany({
+    where: { id: order.id, approvalStatus: "pending" },
+    data: { approvalStatus: "rejected", status: "canceled" },
+  });
+  if (claim.count === 0) {
+    const current = await getApproval(session, orderId);
+    return current ?? order;
+  }
 
   try {
     await pretixOrders.cancelOrder(
@@ -165,10 +205,10 @@ export async function reject(session: SessionContext, orderId: string) {
     // best-effort pretix cancel
   }
 
-  const updated = await prisma.attendeeOrder.update({
-    where: { id: order.id },
-    data: { approvalStatus: "rejected", status: "canceled" },
-  });
+  // Free any seats reserved by this order so they return to the pool.
+  await releaseSeats(order.orderCode).catch(() => {});
+
+  const updated = { ...order, approvalStatus: "rejected" as const, status: "canceled" as const };
 
   await bestEffortEmail(
     order.email,
