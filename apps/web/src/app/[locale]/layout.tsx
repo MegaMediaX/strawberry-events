@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { cookies } from "next/headers";
 import { notFound } from "next/navigation";
-import { Inter, IBM_Plex_Sans_Arabic } from "next/font/google";
+import { Space_Grotesk, Instrument_Serif, IBM_Plex_Sans_Arabic } from "next/font/google";
 import { NextIntlClientProvider, hasLocale } from "next-intl";
 import { setRequestLocale } from "next-intl/server";
 import { routing } from "@/i18n/routing";
@@ -9,7 +9,12 @@ import { dirForLocale } from "@/lib/i18n/dir";
 import { THEME_COOKIE } from "@/lib/theme/theme";
 import "../globals.css";
 
-const inter = Inter({ subsets: ["latin"], variable: "--font-sans" });
+const spaceGrotesk = Space_Grotesk({ subsets: ["latin"], variable: "--font-sans" });
+const instrumentSerif = Instrument_Serif({
+  subsets: ["latin"],
+  weight: "400",
+  variable: "--font-heading",
+});
 const plexArabic = IBM_Plex_Sans_Arabic({
   subsets: ["arabic"],
   weight: ["400", "500", "600", "700"],
@@ -46,7 +51,7 @@ export default async function LocaleLayout({
     <html
       lang={locale}
       dir={dirForLocale(locale)}
-      className={`${inter.variable} ${plexArabic.variable}${isDark ? " dark" : ""}`}
+      className={`${spaceGrotesk.variable} ${instrumentSerif.variable} ${plexArabic.variable}${isDark ? " dark" : ""}`}
       suppressHydrationWarning
     >
       <body className="min-h-screen bg-background text-foreground antialiased">

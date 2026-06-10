@@ -2,22 +2,56 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import type { LucideIcon } from "lucide-react";
+import {
+  LayoutDashboard,
+  CalendarDays,
+  CheckSquare,
+  Users,
+  DollarSign,
+  UserCog,
+  Mail,
+  Shield,
+  Trash2,
+  Settings,
+  Key,
+  Webhook,
+  Puzzle,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
+
+const ICONS = {
+  LayoutDashboard,
+  CalendarDays,
+  CheckSquare,
+  Users,
+  DollarSign,
+  UserCog,
+  Mail,
+  Shield,
+  Trash2,
+  Settings,
+  Key,
+  Webhook,
+  Puzzle,
+} as const;
+
+export type NavIconName = keyof typeof ICONS;
 
 export function NavItem({
   href,
   label,
-  Icon,
+  icon,
 }: {
   href: string;
   label: string;
-  Icon?: LucideIcon;
+  icon?: NavIconName;
 }) {
   const pathname = usePathname();
   const isActive = href.endsWith("/admin")
     ? pathname === href || pathname === href + "/"
     : pathname.startsWith(href);
+
+  const Icon = icon ? ICONS[icon] : null;
 
   return (
     <Link

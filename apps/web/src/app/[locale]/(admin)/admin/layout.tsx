@@ -1,20 +1,5 @@
 import Link from "next/link";
 import { setRequestLocale } from "next-intl/server";
-import {
-  LayoutDashboard,
-  CalendarDays,
-  CheckSquare,
-  Users,
-  DollarSign,
-  UserCog,
-  Mail,
-  Shield,
-  Trash2,
-  Settings,
-  Key,
-  Webhook,
-  Puzzle,
-} from "lucide-react";
 import { requireRole } from "@/lib/auth/session";
 import { getActiveOrg } from "@/lib/auth/active-org.server";
 import { getSessionContext } from "@/lib/auth/session";
@@ -67,18 +52,18 @@ export default async function AdminLayout({
 
         <nav className="flex-1 overflow-y-auto px-3 pb-4">
           <div className="mb-1">
-            <NavItem href={base} label="Dashboard" Icon={LayoutDashboard} />
+            <NavItem href={base} label="Dashboard" icon="LayoutDashboard" />
             {isAdmin && (
-              <NavItem href={`${base}/events`} label="Events" Icon={CalendarDays} />
+              <NavItem href={`${base}/events`} label="Events" icon="CalendarDays" />
             )}
             {isAdmin && (
-              <NavItem href={`${base}/approvals`} label="Approvals" Icon={CheckSquare} />
+              <NavItem href={`${base}/approvals`} label="Approvals" icon="CheckSquare" />
             )}
-            <NavItem href={`${base}/registrations`} label="Registrations" Icon={Users} />
+            <NavItem href={`${base}/registrations`} label="Registrations" icon="Users" />
             {isAdmin && (
-              <NavItem href={`${base}/users`} label="Users" Icon={UserCog} />
+              <NavItem href={`${base}/users`} label="Users" icon="UserCog" />
             )}
-            <NavItem href={`${base}/finance`} label="Finance" Icon={DollarSign} />
+            <NavItem href={`${base}/finance`} label="Finance" icon="DollarSign" />
           </div>
 
           <div className="mt-4">
@@ -88,14 +73,14 @@ export default async function AdminLayout({
             <NavItem
               href={`/${locale}/staff/events`}
               label="Staff check-in"
-              Icon={CheckSquare}
+              icon="CheckSquare"
             />
-            <NavItem href={`${base}/emails`} label="Emails" Icon={Mail} />
+            <NavItem href={`${base}/emails`} label="Emails" icon="Mail" />
             {isAdmin && (
-              <NavItem href={`${base}/audit`} label="Audit log" Icon={Shield} />
+              <NavItem href={`${base}/audit`} label="Audit log" icon="Shield" />
             )}
             {isAdmin && (
-              <NavItem href={`${base}/delete-queue`} label="Delete queue" Icon={Trash2} />
+              <NavItem href={`${base}/delete-queue`} label="Delete queue" icon="Trash2" />
             )}
           </div>
 
@@ -104,13 +89,13 @@ export default async function AdminLayout({
               <p className="mb-1 px-3 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60">
                 Settings
               </p>
-              <NavItem href={`${base}/settings`} label="General" Icon={Settings} />
-              <NavItem href={`${base}/settings/api-keys`} label="API keys" Icon={Key} />
-              <NavItem href={`${base}/settings/webhooks`} label="Webhooks" Icon={Webhook} />
+              <NavItem href={`${base}/settings`} label="General" icon="Settings" />
+              <NavItem href={`${base}/settings/api-keys`} label="API keys" icon="Key" />
+              <NavItem href={`${base}/settings/webhooks`} label="Webhooks" icon="Webhook" />
               <NavItem
                 href={`${base}/settings/integrations`}
                 label="Integrations"
-                Icon={Puzzle}
+                icon="Puzzle"
               />
             </div>
           )}
