@@ -2,6 +2,7 @@ import { setRequestLocale } from "next-intl/server";
 import { listPublicEvents } from "@/lib/events/public";
 import { EventCard } from "@/components/public/event-card";
 import { EventsHeroBanner } from "@/components/public/events-hero-banner";
+import { coverImageUrl } from "@/lib/events/cover-image";
 
 export const dynamic = "force-dynamic";
 
@@ -33,6 +34,7 @@ export default async function EventsPage({
                 titleAr: e.titleAr,
                 visibility: e.visibility,
                 comingSoon: e.comingSoon,
+                coverUrl: e.coverImagePath ? coverImageUrl(e.coverImagePath) : null,
               }}
             />
           ))}
@@ -55,6 +57,7 @@ export default async function EventsPage({
                   titleAr: e.titleAr,
                   visibility: e.visibility,
                   comingSoon: e.comingSoon,
+                  coverUrl: e.coverImagePath ? coverImageUrl(e.coverImagePath) : null,
                 }}
               />
             ))}

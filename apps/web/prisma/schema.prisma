@@ -303,6 +303,10 @@ model EventMapping {
   mapEmbedUrl         String?
   latitude            Float?
   longitude           Float?
+  // Cover photo: stored filename only (e.g. "<id>-<uuid>.webp"); the file lives
+  // under the server uploads dir and is served via /media/event-cover/<file>.
+  // Never a user-supplied path — generated server-side to prevent traversal.
+  coverImagePath      String?
   createdAt           DateTime     @default(now())
   updatedAt           DateTime     @updatedAt
 

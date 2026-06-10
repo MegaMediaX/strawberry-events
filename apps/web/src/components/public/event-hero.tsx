@@ -8,11 +8,13 @@ export function EventHero({
   dateLabel,
   locationLabel,
   statusLabel,
+  coverUrl,
 }: {
   title: string;
   dateLabel: string | null;
   locationLabel: string | null;
   statusLabel: string;
+  coverUrl?: string | null;
 }) {
   const isOpen = statusLabel === "Open";
   const isSoldOut = statusLabel === "Sold out";
@@ -23,7 +25,15 @@ export function EventHero({
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.4, ease: "easeOut" }}
       className="relative overflow-hidden rounded-[var(--radius-xl)] p-6 sm:p-10"
-      style={{ backgroundImage: "var(--gradient-hero-strong)" }}
+      style={
+        coverUrl
+          ? {
+              backgroundImage: `linear-gradient(to top, rgba(0,0,0,0.7), rgba(0,0,0,0.25)), url("${coverUrl}")`,
+              backgroundSize: "cover",
+              backgroundPosition: "center",
+            }
+          : { backgroundImage: "var(--gradient-hero-strong)" }
+      }
     >
       <span
         className={[

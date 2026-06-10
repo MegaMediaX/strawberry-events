@@ -7,6 +7,7 @@ import type { SessionContext } from "@/lib/auth/types";
 import { resolvePretixContext } from "@/lib/pretix/context";
 import * as pretixEvents from "@/lib/pretix/events";
 import * as pretixProducts from "@/lib/pretix/products";
+import { saveCoverImage, deleteCoverImage } from "./cover-image";
 import type { EventInput, TicketInput } from "./schema";
 
 /**
@@ -216,6 +217,51 @@ export async function updateEvent(
     },
   });
   await writeAudit(session, org.id, "event.updated", "event", updated.id);
+  return updated;
+}
+
+/**
+ * Set (replace) an event's cover photo. Validates + persists the bytes, swaps
+ * the stored filename on the mapping, and deletes the previous file. Restricted
+ * to org admins / super admins; org-scoped so one org cannot touch another's event.
+ */
+export async function setEventCover(
+  session: SessionContext,
+  eventId: string,
+  bytes: Uint8Array,
+): Promise<EventMapping> {
+  assertCanManageEvents(session);
+  const mapping = await getEventForSession(session, eventId);
+  if (!mapping) throw new Error("Event not found or access denied");
+
+  const filename = await saveCoverImage(mapping.id, bytes);
+  const updated = await prisma.eventMapping.update({
+    where: { id: mapping.id },
+    data: { coverImagePath: filename },
+  });
+  // Remove the superseded file after the DB points at the new one.
+  if (mapping.coverImagePath && mapping.coverImagePath !== filename) {
+    await deleteCoverImage(mapping.coverImagePath);
+  }
+  await writeAudit(session, mapping.organizationId, "event.cover_updated", "event", mapping.id);
+  return updated;
+}
+
+/** Remove an event's cover photo (clears the column and deletes the file). */
+export async function removeEventCover(
+  session: SessionContext,
+  eventId: string,
+): Promise<EventMapping> {
+  assertCanManageEvents(session);
+  const mapping = await getEventForSession(session, eventId);
+  if (!mapping) throw new Error("Event not found or access denied");
+
+  const updated = await prisma.eventMapping.update({
+    where: { id: mapping.id },
+    data: { coverImagePath: null },
+  });
+  await deleteCoverImage(mapping.coverImagePath);
+  await writeAudit(session, mapping.organizationId, "event.cover_removed", "event", mapping.id);
   return updated;
 }
 
