@@ -13,7 +13,8 @@ const NAV = [
   { href: "/approvals", label: "Approvals", financeAllowed: false },
   { href: "/registrations", label: "Registrations", financeAllowed: false },
   { href: "/finance", label: "Finance", financeAllowed: true },
-  { href: "/staff", label: "Staff", financeAllowed: false },
+  // Staff check-in station lives outside the (admin) route group, at /<locale>/staff.
+  { href: "/staff", label: "Staff", financeAllowed: false, abs: true },
   { href: "/settings", label: "Settings", financeAllowed: false },
   { href: "/settings/api-keys", label: "API keys", financeAllowed: false },
   { href: "/settings/webhooks", label: "Webhooks", financeAllowed: false },
@@ -59,8 +60,8 @@ export default async function AdminLayout({
         <nav className="flex flex-col gap-1 text-sm">
           {nav.map((n) => (
             <Link
-              key={n.href}
-              href={`/${locale}/admin${n.href}`}
+              key={n.label}
+              href={n.abs ? `/${locale}${n.href}` : `/${locale}/admin${n.href}`}
               className="rounded-md px-3 py-2 hover:bg-muted"
             >
               {n.label}
