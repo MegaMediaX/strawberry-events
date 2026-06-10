@@ -12,6 +12,7 @@ const NAV = [
   { href: "/events", label: "Events", financeAllowed: false },
   { href: "/approvals", label: "Approvals", financeAllowed: false },
   { href: "/registrations", label: "Registrations", financeAllowed: false },
+  { href: "/users", label: "Users", financeAllowed: false },
   { href: "/finance", label: "Finance", financeAllowed: true },
   // Staff check-in station lives outside the (admin) route group, at /<locale>/staff.
   { href: "/staff", label: "Staff", financeAllowed: false, abs: true },
