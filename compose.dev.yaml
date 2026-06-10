@@ -1,10 +1,12 @@
 # Local-dev overrides. Use explicitly:
 #   docker compose -f compose.yaml -f compose.dev.yaml up -d
 # Publishes service ports for direct host access (not used in production).
+# Host ports are configurable to avoid clashes with other local stacks, e.g.
+#   PRETIX_PORT=18081 docker compose -f compose.yaml -f compose.dev.yaml up -d
 services:
   pretix:
     ports:
-      - "8081:80"
+      - "${PRETIX_PORT:-8081}:80"
   next-app:
     ports:
       - "3000:3000"
