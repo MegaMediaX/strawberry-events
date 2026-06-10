@@ -120,16 +120,23 @@ export async function listRegistrations(
   }));
 }
 
-/** CSV escape + serialize. Scope is the caller's responsibility (pass scoped rows). */
-export function buildCsv(rows: RegistrationRow[]): string {
-  const headers = ["Event", "Order", "Attendee", "Email", "Phone", "Company", "Role", "Method", "State", "Created"];
+/**
+ * CSV escape + serialize. Scope is the caller's responsibility (pass scoped rows).
+ * When `answersByOrder` is supplied, a "Custom fields" column is appended with the
+ * order's modular answers (label=value; joined).
+ */
+export function buildCsv(rows: RegistrationRow[], answersByOrder?: Map<string, string>): string {
+  const withCustom = !!answersByOrder;
+  const headers = ["Event", "Order", "Attendee", "Email", "Phone", "Company", "Role", "Method", "State", "Created", ...(withCustom ? ["Custom fields"] : [])];
   const esc = (v: unknown) => {
     const s = v == null ? "" : String(v);
     return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
   };
   const lines = [headers.join(",")];
   for (const r of rows) {
-    lines.push([r.event, r.orderCode, r.attendee, r.email, r.phone, r.company, r.roleTag, r.method, r.state, r.createdAt.toISOString()].map(esc).join(","));
+    const cells: unknown[] = [r.event, r.orderCode, r.attendee, r.email, r.phone, r.company, r.roleTag, r.method, r.state, r.createdAt.toISOString()];
+    if (withCustom) cells.push(answersByOrder!.get(r.orderCode) ?? "");
+    lines.push(cells.map(esc).join(","));
   }
   return lines.join("\n");
 }

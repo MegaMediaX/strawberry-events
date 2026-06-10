@@ -467,6 +467,8 @@ model CustomFormField {
   ticketId       String?
   labelEn        String
   labelAr        String?
+  placeholderEn  String?
+  placeholderAr  String?
   helpTextEn     String?
   helpTextAr     String?
   type           String

@@ -19,6 +19,8 @@ export const registerInputSchema = z.object({
   // Staff walk-in only: an explicit role/tag overriding the item→tag mapping.
   // The public wizard never sets this, so behavior there is unchanged.
   roleTag: z.enum(["media", "partner", "staff", "speaker", "visitor"]).optional(),
+  // Modular per-ticket custom field answers.
+  answers: z.array(z.object({ fieldId: z.string(), value: z.string() })).optional(),
   consentTerms: z.literal(true, { message: "You must accept the Terms" }),
   consentPrivacy: z.literal(true, { message: "You must accept the Privacy Policy" }),
 });

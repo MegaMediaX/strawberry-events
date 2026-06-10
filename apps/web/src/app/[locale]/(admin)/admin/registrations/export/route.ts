@@ -1,5 +1,6 @@
 import { getSessionContext } from "@/lib/auth/session";
 import { hasAnyRole } from "@/lib/auth/guards";
+import { prisma } from "@/lib/db/client";
 import { listRegistrations, buildCsv, type RegistrationFilters } from "@/lib/admin/registrations";
 
 export const dynamic = "force-dynamic";
@@ -30,7 +31,21 @@ export async function GET(request: Request) {
   };
 
   const rows = await listRegistrations(session, filters, { take: 5000 });
-  const csv = buildCsv(rows);
+
+  // Bulk-fetch modular answers for the scoped rows and fold into one column.
+  const codes = rows.map((r) => r.orderCode);
+  const byOrder = new Map<string, string>();
+  if (codes.length) {
+    const answers = await prisma.customFormAnswer.findMany({
+      where: { attendeeRef: { in: codes } },
+      include: { field: { select: { labelEn: true } } },
+    });
+    for (const a of answers) {
+      const prev = byOrder.get(a.attendeeRef) ?? "";
+      byOrder.set(a.attendeeRef, (prev ? `${prev}; ` : "") + `${a.field.labelEn}=${a.value}`);
+    }
+  }
+  const csv = buildCsv(rows, byOrder);
 
   return new Response(csv, {
     headers: {

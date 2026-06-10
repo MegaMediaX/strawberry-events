@@ -6,6 +6,8 @@ vi.mock("@/lib/db/client", () => ({
     organization: { findUnique: vi.fn() },
     attendeeOrder: { create: vi.fn() },
     userProfile: { upsert: vi.fn() },
+    customFormField: { findMany: vi.fn() },
+    customFormAnswer: { createMany: vi.fn() },
   },
 }));
 vi.mock("@/lib/pretix/products", () => ({ listItems: vi.fn() }));
@@ -47,6 +49,8 @@ beforeEach(() => {
     id: "ao1",
   }));
   mock(email.sendEmail).mockResolvedValue(true);
+  mock(prisma.customFormField.findMany).mockResolvedValue([]);
+  mock(prisma.customFormAnswer.createMany).mockResolvedValue({ count: 0 });
 });
 
 const base = {
@@ -156,6 +160,36 @@ describe("register", () => {
         consentTerms: false as never,
       }),
     ).rejects.toThrow();
+  });
+
+  it("rejects when a required custom field has no answer (before any side effects)", async () => {
+    mock(pretixProducts.listItems).mockResolvedValue([
+      { id: 7, titleEn: "V", titleAr: null, priceCents: 0, active: true },
+    ]);
+    mock(prisma.customFormField.findMany).mockResolvedValue([
+      { id: "f1", ticketId: null, labelEn: "Company", labelAr: null, type: "text", required: true, options: null },
+    ]);
+    await expect(
+      register({ ...base, tickets: [{ itemId: 7, quantity: 1 }] }),
+    ).rejects.toThrow(/required field/i);
+    expect(pretixOrders.createOrder).not.toHaveBeenCalled();
+  });
+
+  it("persists provided custom field answers against the order code", async () => {
+    mock(pretixProducts.listItems).mockResolvedValue([
+      { id: 7, titleEn: "V", titleAr: null, priceCents: 0, active: true },
+    ]);
+    mock(pretixOrders.createOrder).mockResolvedValue({ code: "CF1", status: "n" });
+    mock(prisma.customFormField.findMany).mockResolvedValue([
+      { id: "f1", ticketId: null, labelEn: "Company", labelAr: null, type: "text", required: true, options: null },
+    ]);
+    await register({
+      ...base,
+      tickets: [{ itemId: 7, quantity: 1 }],
+      answers: [{ fieldId: "f1", value: "Acme Corp" }],
+    });
+    const arg = mock(prisma.customFormAnswer.createMany).mock.calls[0][0];
+    expect(arg.data).toEqual([{ fieldId: "f1", attendeeRef: "CF1", value: "Acme Corp" }]);
   });
 
   it("persists phone, phoneCC and a server-side consent timestamp", async () => {

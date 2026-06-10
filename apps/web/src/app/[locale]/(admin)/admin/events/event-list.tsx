@@ -84,6 +84,9 @@ export function EventList({
                   <Link className="text-primary underline" href={editHref(e.id)}>
                     Edit
                   </Link>
+                  <Link className="ms-3 text-primary underline" href={`/${locale}/admin/events/${e.id}/fields`}>
+                    Fields
+                  </Link>
                 </td>
               </tr>
             ))}

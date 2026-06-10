@@ -9,6 +9,7 @@ import { centsToPrice } from "@/lib/pretix/mappers";
 import { Stepper } from "./stepper";
 import { PhoneCountryField } from "./phone-country-field";
 import { SeatSelector } from "@/components/seats/seat-selector";
+import { getFieldsForTicket, validateRequiredAnswers, fieldOptions, type FieldDef } from "@/lib/forms/fields";
 import { registerAction } from "@/app/[locale]/(public)/events/[slug]/register/actions";
 
 interface WizardTicket {
@@ -24,11 +25,13 @@ export function RegistrationWizard({
   slug,
   tickets,
   seatSections,
+  customFields = [],
 }: {
   locale: string;
   slug: string;
   tickets: WizardTicket[];
   seatSections?: import("@/components/seats/seat-selector").SectionNode[];
+  customFields?: FieldDef[];
 }) {
   const reduce = useReducedMotion();
   const [step, setStep] = useState(0);
@@ -47,6 +50,18 @@ export function RegistrationWizard({
   const [qty, setQty] = useState<Record<number, number>>({});
   const [terms, setTerms] = useState(false);
   const [privacy, setPrivacy] = useState(false);
+  const [answers, setAnswers] = useState<Record<string, string>>({});
+
+  // Custom fields that apply to the currently-selected tickets (deduped).
+  const scopedFields = (() => {
+    const byId = new Map<string, FieldDef>();
+    for (const t of tickets) {
+      if ((qty[t.id] ?? 0) > 0) {
+        for (const f of getFieldsForTicket(customFields, t.id)) byId.set(f.id, f);
+      }
+    }
+    return [...byId.values()];
+  })();
 
   const totalCents = tickets.reduce(
     (sum, t) => sum + (qty[t.id] ?? 0) * t.priceCents,
@@ -88,13 +103,22 @@ export function RegistrationWizard({
       setErr("Please select a seat for each ticket.");
       return;
     }
+    const missing = validateRequiredAnswers(scopedFields, Object.entries(answers).map(([fieldId, value]) => ({ fieldId, value })));
+    if (missing.length) {
+      setErr(`Please complete: ${missing.join(", ")}`);
+      return;
+    }
     setBusy(true);
+    const scopedAnswers = scopedFields
+      .map((f) => ({ fieldId: f.id, value: answers[f.id] ?? "" }))
+      .filter((x) => x.value.trim());
     const res = await registerAction(locale, slug, {
       attendee: { ...a, company: a.company || null },
       tickets: tickets
         .filter((t) => (qty[t.id] ?? 0) > 0)
         .map((t) => ({ itemId: t.id, quantity: qty[t.id] })),
       seatIds: seatSections ? seatIds : undefined,
+      answers: scopedAnswers,
       consentTerms: terms,
       consentPrivacy: privacy,
     });
@@ -232,6 +256,44 @@ export function RegistrationWizard({
                     <span>{totalCents === 0 ? "Free" : `$${centsToPrice(totalCents)}`}</span>
                   </div>
                 </div>
+                {scopedFields.length > 0 && (
+                  <div className="flex flex-col gap-3 rounded-[var(--radius-lg)] border border-border p-3">
+                    <div className="font-medium">Additional details</div>
+                    {scopedFields.map((f) => {
+                      const label = locale === "ar" && f.labelAr ? f.labelAr : f.labelEn;
+                      const ph = (locale === "ar" ? f.placeholderAr : f.placeholderEn) ?? "";
+                      const help = locale === "ar" ? f.helpTextAr : f.helpTextEn;
+                      const val = answers[f.id] ?? "";
+                      const set = (v: string) => setAnswers((s) => ({ ...s, [f.id]: v }));
+                      const cls = "mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-sm";
+                      return (
+                        <div key={f.id}>
+                          <Label>{label}{f.required ? " *" : ""}</Label>
+                          {f.type === "textarea" ? (
+                            <textarea className={cls} value={val} placeholder={ph} onChange={(e) => set(e.target.value)} />
+                          ) : f.type === "select" || f.type === "multiselect" ? (
+                            <select className={cls} value={val} onChange={(e) => set(e.target.value)}>
+                              <option value="">—</option>
+                              {fieldOptions(f.options).map((o) => <option key={o} value={o}>{o}</option>)}
+                            </select>
+                          ) : f.type === "checkbox" ? (
+                            <label className="mt-1 flex items-center gap-2 text-sm">
+                              <input type="checkbox" checked={val === "true"} onChange={(e) => set(e.target.checked ? "true" : "")} /> Yes
+                            </label>
+                          ) : (
+                            <Input
+                              type={f.type === "email" ? "email" : f.type === "date" ? "date" : "text"}
+                              value={val}
+                              placeholder={ph}
+                              onChange={(e) => set(e.target.value)}
+                            />
+                          )}
+                          {help && <p className="mt-1 text-xs text-muted-foreground">{help}</p>}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
                 <label className="flex items-center gap-2 text-sm">
                   <input
                     type="checkbox"
