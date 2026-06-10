@@ -6,6 +6,7 @@ import type { SessionContext } from "@/lib/auth/types";
 import { resolvePretixContext } from "@/lib/pretix/context";
 import * as pretixOrders from "@/lib/pretix/orders";
 import { PretixValidationError } from "@/lib/pretix/errors";
+import { releaseSeats } from "@/lib/seats/service";
 import { emit } from "@/lib/webhooks/service";
 import { sendEmail } from "@/lib/email/service";
 import {
@@ -203,6 +204,9 @@ export async function reject(session: SessionContext, orderId: string) {
   } catch {
     // best-effort pretix cancel
   }
+
+  // Free any seats reserved by this order so they return to the pool.
+  await releaseSeats(order.orderCode).catch(() => {});
 
   const updated = { ...order, approvalStatus: "rejected" as const, status: "canceled" as const };
 

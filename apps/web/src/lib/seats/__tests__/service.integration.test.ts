@@ -14,6 +14,8 @@ describe.skipIf(!run)("seats + waitlist integration", () => {
   const userId = `swuser-${stamp}`;
   let mappingId = "";
   const seatIds: string[] = [];
+  let blockedId = "";
+  let accessibleId = "";
 
   const admin = (org: string): SessionContext => ({
     userId, isSuperAdmin: false,
@@ -46,13 +48,21 @@ describe.skipIf(!run)("seats + waitlist integration", () => {
       });
       seatIds.push(s.id);
     }
+    const blocked = await prisma.seatAssignment.create({
+      data: { rowId: row.id, label: "B1", state: "blocked" },
+    });
+    blockedId = blocked.id;
+    const accessible = await prisma.seatAssignment.create({
+      data: { rowId: row.id, label: "X1", state: "accessible" },
+    });
+    accessibleId = accessible.id;
   });
 
   afterAll(async () => {
     if (!run) return;
     await prisma.auditLog.deleteMany({ where: { organizationId: orgId } });
     await prisma.waitlistEntry.deleteMany({ where: { eventMappingId: mappingId } });
-    await prisma.seatAssignment.deleteMany({ where: { id: { in: seatIds } } });
+    await prisma.seatAssignment.deleteMany({ where: { id: { in: [...seatIds, blockedId, accessibleId] } } });
     // cascade cleans rows/sections/maps via eventMapping delete
     await prisma.eventMapping.deleteMany({ where: { id: mappingId } });
     await prisma.organization.deleteMany({ where: { id: orgId } });
@@ -60,8 +70,8 @@ describe.skipIf(!run)("seats + waitlist integration", () => {
     await prisma.$disconnect();
   });
 
-  it("hold → confirm → release", async () => {
-    await seats.holdSeats(mappingId, seatIds, "holder1");
+  it("hold → confirm → release (holder == order code)", async () => {
+    await seats.holdSeats(mappingId, seatIds, "ORDER1");
     let rows = await prisma.seatAssignment.findMany({ where: { id: { in: seatIds } } });
     expect(rows.every((s) => s.state === "temporarily_held")).toBe(true);
 
@@ -74,10 +84,42 @@ describe.skipIf(!run)("seats + waitlist integration", () => {
     expect(rows.every((s) => s.state === "available")).toBe(true);
   });
 
-  it("holdSeats rejects an already-held seat", async () => {
+  it("two users cannot both hold the same seat", async () => {
+    await seats.holdSeats(mappingId, [seatIds[0]], "userA");
+    await expect(seats.holdSeats(mappingId, [seatIds[0]], "userB")).rejects.toThrow();
+    await seats.releaseSeats("userA");
+  });
+
+  it("wrong holder cannot confirm another order's held seat", async () => {
     await seats.holdSeats(mappingId, [seatIds[0]], "holderA");
-    await expect(seats.holdSeats(mappingId, [seatIds[0]], "holderB")).rejects.toThrow();
-    await seats.releaseSeats("holderA"); // attendeeRef was holderA on hold
+    await expect(seats.confirmSeats([seatIds[0]], "holderB")).rejects.toThrow(/not held|expired/i);
+    // still held by A, not confirmed
+    const s = await prisma.seatAssignment.findUniqueOrThrow({ where: { id: seatIds[0] } });
+    expect(s.state).toBe("temporarily_held");
+    await seats.releaseSeats("holderA");
+  });
+
+  it("accessible seat can be held; blocked seat cannot", async () => {
+    await seats.holdSeats(mappingId, [accessibleId], "accHolder");
+    const acc = await prisma.seatAssignment.findUniqueOrThrow({ where: { id: accessibleId } });
+    expect(acc.state).toBe("temporarily_held");
+    await seats.releaseSeats("accHolder");
+
+    await expect(seats.holdSeats(mappingId, [blockedId], "blkHolder")).rejects.toThrow();
+    const blk = await prisma.seatAssignment.findUniqueOrThrow({ where: { id: blockedId } });
+    expect(blk.state).toBe("blocked");
+  });
+
+  it("expired hold is released on read", async () => {
+    await seats.holdSeats(mappingId, [seatIds[1]], "expHolder");
+    // force the hold into the past
+    await prisma.seatAssignment.update({
+      where: { id: seatIds[1] },
+      data: { heldUntil: new Date(Date.now() - 1000) },
+    });
+    await seats.releaseExpiredHolds(mappingId);
+    const s = await prisma.seatAssignment.findUniqueOrThrow({ where: { id: seatIds[1] } });
+    expect(s.state).toBe("available");
   });
 
   it("waitlist join assigns positions, promote works", async () => {

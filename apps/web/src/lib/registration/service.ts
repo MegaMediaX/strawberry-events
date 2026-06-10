@@ -14,7 +14,7 @@ import {
 } from "@/lib/email/templates";
 import { requiresApproval } from "@/lib/approval/state";
 import { tagForItem } from "@/lib/checkin/eligibility";
-import { holdSeats, confirmSeats } from "@/lib/seats/service";
+import { holdSeats, confirmSeats, releaseSeats } from "@/lib/seats/service";
 import { emit } from "@/lib/webhooks/service";
 import { registerInputSchema, type RegisterInput } from "./schema";
 
@@ -76,9 +76,21 @@ export async function register(input: RegisterInput): Promise<RegisterResult> {
   );
 
   // Reserve selected seats for seated events (hold then confirm against the order).
+  // On any seat failure, release seats and cancel the just-created pretix order so
+  // we never leave an orphan order or a half-reserved seat map.
   if (data.seatIds && data.seatIds.length > 0) {
-    await holdSeats(event.id, data.seatIds, order.code);
-    await confirmSeats(data.seatIds, order.code);
+    try {
+      await holdSeats(event.id, data.seatIds, order.code);
+      await confirmSeats(data.seatIds, order.code);
+    } catch (seatErr) {
+      await releaseSeats(order.code).catch(() => {});
+      try {
+        await pretixOrders.cancelOrder(ctx.organizerSlug, event.pretixEventSlug, order.code, ctx.token);
+      } catch {
+        // best-effort rollback
+      }
+      throw seatErr;
+    }
     void emit(event.organizationId, "seat.held", { orderCode: order.code, seatIds: data.seatIds }, event.id);
     void emit(event.organizationId, "seat.confirmed", { orderCode: order.code, seatIds: data.seatIds }, event.id);
   }
