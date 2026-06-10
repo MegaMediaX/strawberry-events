@@ -350,6 +350,8 @@ model SeatAssignment {
 
   @@unique([rowId, label])
   @@index([state])
+  @@index([heldUntil])
+  @@index([attendeeRef])
   @@map("seat_assignments")
 }
 
@@ -596,6 +598,7 @@ model WebhookDelivery {
   webhook Webhook @relation(fields: [webhookId], references: [id], onDelete: Cascade)
 
   @@index([webhookId])
+  @@index([success, nextRetryAt])
   @@map("webhook_deliveries")
 }
 
@@ -652,6 +655,9 @@ model AttendeeOrder {
   @@index([eventMappingId])
   @@index([userId])
   @@index([email])
+  @@index([eventMappingId, orderCode])
+  @@index([eventMappingId, status])
+  @@index([eventMappingId, approvalStatus])
   @@map("attendee_orders")
 }
 
