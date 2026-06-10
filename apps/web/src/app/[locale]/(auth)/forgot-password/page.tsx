@@ -1,8 +1,8 @@
 import Link from "next/link";
 import { setRequestLocale } from "next-intl/server";
-import { LoginForm } from "./login-form";
+import { ForgotPasswordForm } from "./forgot-password-form";
 
-export default async function LoginPage({
+export default async function ForgotPasswordPage({
   params,
 }: {
   params: Promise<{ locale: string }>;
@@ -19,18 +19,11 @@ export default async function LoginPage({
           >
             Strawberry Events
           </Link>
-          <p className="mt-1 text-sm text-muted-foreground">Sign in to continue</p>
         </div>
-        <LoginForm locale={locale} />
+        <ForgotPasswordForm locale={locale} />
         <p className="mt-4 text-center text-sm text-muted-foreground">
-          <Link className="text-primary underline" href={`/${locale}/forgot-password`}>
-            Forgot password?
-          </Link>
-        </p>
-        <p className="mt-1 text-center text-sm text-muted-foreground">
-          New here?{" "}
-          <Link className="text-primary underline" href={`/${locale}/register`}>
-            Create an account
+          <Link className="text-primary underline" href={`/${locale}/login`}>
+            Back to sign in
           </Link>
         </p>
       </div>

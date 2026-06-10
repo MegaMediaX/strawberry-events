@@ -1,14 +1,18 @@
 import Link from "next/link";
 import { setRequestLocale } from "next-intl/server";
-import { LoginForm } from "./login-form";
+import { ResetPasswordForm } from "./reset-password-form";
 
-export default async function LoginPage({
+export default async function ResetPasswordPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ locale: string }>;
+  searchParams: Promise<{ token?: string }>;
 }) {
   const { locale } = await params;
+  const { token } = await searchParams;
   setRequestLocale(locale);
+
   return (
     <main className="flex min-h-screen flex-col items-center justify-center px-4">
       <div className="w-full max-w-sm">
@@ -19,20 +23,18 @@ export default async function LoginPage({
           >
             Strawberry Events
           </Link>
-          <p className="mt-1 text-sm text-muted-foreground">Sign in to continue</p>
         </div>
-        <LoginForm locale={locale} />
-        <p className="mt-4 text-center text-sm text-muted-foreground">
-          <Link className="text-primary underline" href={`/${locale}/forgot-password`}>
-            Forgot password?
-          </Link>
-        </p>
-        <p className="mt-1 text-center text-sm text-muted-foreground">
-          New here?{" "}
-          <Link className="text-primary underline" href={`/${locale}/register`}>
-            Create an account
-          </Link>
-        </p>
+        {token ? (
+          <ResetPasswordForm locale={locale} token={token} />
+        ) : (
+          <p className="text-center text-sm text-muted-foreground">
+            This reset link is invalid or has expired.{" "}
+            <Link className="text-primary underline" href={`/${locale}/forgot-password`}>
+              Request a new one
+            </Link>
+            .
+          </p>
+        )}
       </div>
     </main>
   );
