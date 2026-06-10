@@ -103,6 +103,7 @@ export async function createEvent(
         accountMode: input.accountMode,
         approvalMode: input.approvalMode,
         comingSoon: input.comingSoon,
+        liveOnPretix: input.live,
       },
     });
     await writeAudit(session, org.id, "event.created", "event", mapping.id);
@@ -176,7 +177,8 @@ export async function updateEvent(
   await pretixEvents.updateEvent(
     ctx.organizerSlug,
     mapping.pretixEventSlug,
-    { titleEn: input.titleEn, titleAr: input.titleAr, date_from: input.dateFrom },
+    // Forward `live` — previously dropped, so the pretix live toggle was a no-op on edit.
+    { titleEn: input.titleEn, titleAr: input.titleAr, date_from: input.dateFrom, live: input.live },
     ctx.token,
   );
 
@@ -191,6 +193,9 @@ export async function updateEvent(
       accountMode: input.accountMode,
       approvalMode: input.approvalMode,
       comingSoon: input.comingSoon,
+      // Authoritative local write so the storefront gate is consistent immediately
+      // (the inbound pretix webhook reconciles this too, but this removes the race).
+      liveOnPretix: input.live,
     },
   });
   await writeAudit(session, org.id, "event.updated", "event", updated.id);

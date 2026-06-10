@@ -8,6 +8,7 @@ vi.mock("@/lib/db/client", () => ({
       findMany: vi.fn(),
       findUnique: vi.fn(),
       create: vi.fn(),
+      update: vi.fn(),
     },
     organization: { findUnique: vi.fn() },
     pretixObjectMapping: { create: vi.fn() },
@@ -17,6 +18,8 @@ vi.mock("@/lib/db/client", () => ({
 vi.mock("@/lib/pretix/events", () => ({
   createEvent: vi.fn(),
   deleteEvent: vi.fn(),
+  updateEvent: vi.fn(),
+  getEvent: vi.fn(),
 }));
 vi.mock("@/lib/pretix/products", () => ({
   createItem: vi.fn(),
@@ -152,6 +155,32 @@ describe("createEvent", () => {
 
     await expect(createEvent(orgAdmin, org, input)).rejects.toThrow("db down");
     expect(pretixEvents.deleteEvent).toHaveBeenCalledWith("acme", "expo", "env_tok");
+  });
+});
+
+describe("updateEvent (D7 live flag)", () => {
+  const m = <T,>(fn: T) => fn as unknown as ReturnType<typeof vi.fn>;
+  const liveInput = {
+    titleEn: "Expo", titleAr: null, slug: "expo", descriptionEn: null, descriptionAr: null,
+    dateFrom: "2026-09-01T09:00:00Z", dateTo: null,
+    visibility: "public", accountMode: "optional", approvalMode: "none",
+    comingSoon: false, live: true,
+  } as never;
+
+  it("forwards input.live to pretix and persists liveOnPretix locally", async () => {
+    m(prisma.eventMapping.findUnique).mockResolvedValue({
+      id: "e1", organizationId: "orgA", localEventId: "loc1", pretixEventSlug: "expo",
+    });
+    m(prisma.organization.findUnique).mockResolvedValue(org);
+    m(pretixEvents.updateEvent).mockResolvedValue({});
+    m(prisma.eventMapping.update).mockResolvedValue({ id: "e1" });
+
+    await updateEvent(orgAdmin, "e1", liveInput);
+
+    const patch = m(pretixEvents.updateEvent).mock.calls[0][2];
+    expect(patch.live).toBe(true);
+    const data = m(prisma.eventMapping.update).mock.calls[0][0].data;
+    expect(data.liveOnPretix).toBe(true);
   });
 });
 

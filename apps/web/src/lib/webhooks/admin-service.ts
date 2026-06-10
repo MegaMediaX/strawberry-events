@@ -4,6 +4,7 @@ import { ForbiddenError } from "@/lib/auth/guards";
 import type { SessionContext } from "@/lib/auth/types";
 import { isWebhookEvent } from "./events";
 import { deliver } from "./service";
+import { assertSafeWebhookUrl } from "./ssrf-guard";
 
 function assertCanManage(session: SessionContext, organizationId: string) {
   if (session.impersonating) {
@@ -35,6 +36,9 @@ export interface CreateWebhookInput {
 
 export async function createWebhook(session: SessionContext, input: CreateWebhookInput) {
   assertCanManage(session, input.organizationId);
+  // Reject SSRF-prone targets (non-https, loopback/link-local/RFC-1918) before
+  // we ever store the URL. TODO: apply the same guard to any future updateWebhook.
+  await assertSafeWebhookUrl(input.url);
   const wh = await prisma.webhook.create({
     data: {
       organizationId: input.organizationId,

@@ -36,8 +36,20 @@ describe("listPublicEvents", () => {
     const where = (prisma.eventMapping.findMany as ReturnType<typeof vi.fn>).mock
       .calls[0][0].where;
     expect(where.visibility).toBe("public");
+    expect(where.liveOnPretix).toBe(true);
     expect(open.map((e) => e.id)).toEqual(["e1"]);
     expect(comingSoon.map((e) => e.id)).toEqual(["e2"]);
+  });
+});
+
+describe("storefront gate (D7): public AND live", () => {
+  it("getPublicEvent requires liveOnPretix in the query", async () => {
+    (prisma.eventMapping.findFirst as ReturnType<typeof vi.fn>).mockResolvedValue(null);
+    await getPublicEvent("draft");
+    const where = (prisma.eventMapping.findFirst as ReturnType<typeof vi.fn>).mock
+      .calls[0][0].where;
+    expect(where.visibility).toBe("public");
+    expect(where.liveOnPretix).toBe(true);
   });
 });
 
