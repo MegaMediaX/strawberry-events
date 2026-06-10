@@ -36,6 +36,7 @@ export default async function EditEventPage({
           accountMode: event.accountMode,
           approvalMode: event.approvalMode,
           comingSoon: event.comingSoon,
+          live: event.liveOnPretix,
         }}
       />
     </div>

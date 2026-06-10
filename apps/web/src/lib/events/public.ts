@@ -28,7 +28,7 @@ export async function listPublicEvents(): Promise<{
   comingSoon: EventMapping[];
 }> {
   const events = await prisma.eventMapping.findMany({
-    where: { visibility: "public" },
+    where: { visibility: "public", liveOnPretix: true },
     orderBy: { createdAt: "desc" },
   });
   return {
@@ -42,7 +42,7 @@ export async function getPublicEvent(
   slug: string,
 ): Promise<PublicEventDetail | null> {
   const event = await prisma.eventMapping.findFirst({
-    where: { pretixEventSlug: slug, visibility: "public" },
+    where: { pretixEventSlug: slug, visibility: "public", liveOnPretix: true },
   });
   if (!event) return null;
 
