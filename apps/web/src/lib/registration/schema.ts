@@ -16,6 +16,9 @@ export const registerInputSchema = z.object({
     .array(z.object({ itemId: z.number().int(), quantity: z.number().int().min(1) }))
     .min(1, "Select at least one ticket"),
   seatIds: z.array(z.string()).optional(),
+  // Staff walk-in only: an explicit role/tag overriding the item→tag mapping.
+  // The public wizard never sets this, so behavior there is unchanged.
+  roleTag: z.enum(["media", "partner", "staff", "speaker", "visitor"]).optional(),
   consentTerms: z.literal(true, { message: "You must accept the Terms" }),
   consentPrivacy: z.literal(true, { message: "You must accept the Privacy Policy" }),
 });

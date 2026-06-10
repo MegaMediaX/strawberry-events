@@ -22,6 +22,10 @@ export default async function StaffLayout({
         <Link href={`/${locale}/staff`} className="font-bold">
           Strawberry · Staff
         </Link>
+        <nav className="flex gap-4 text-sm">
+          <Link href={`/${locale}/staff/events`} className="hover:underline">Events</Link>
+          <Link href={`/${locale}/staff/registrations`} className="hover:underline">Walk-in</Link>
+        </nav>
       </header>
       <main className="flex-1 p-4">{children}</main>
     </div>

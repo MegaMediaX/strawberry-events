@@ -135,10 +135,12 @@ export async function register(input: RegisterInput): Promise<RegisterResult> {
       approvalStatus,
       provider,
       totalCents,
-      roleTag: tagForItem(
-        (event.itemTagMap ?? {}) as Record<string, unknown>,
-        data.tickets[0]?.itemId ?? -1,
-      ),
+      roleTag:
+        data.roleTag ??
+        tagForItem(
+          (event.itemTagMap ?? {}) as Record<string, unknown>,
+          data.tickets[0]?.itemId ?? -1,
+        ),
       pretixSecret: order.positions?.[0]?.secret ?? null,
       magicLinkToken,
     },
