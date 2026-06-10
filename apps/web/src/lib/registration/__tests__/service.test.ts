@@ -5,6 +5,7 @@ vi.mock("@/lib/db/client", () => ({
     eventMapping: { findFirst: vi.fn() },
     organization: { findUnique: vi.fn() },
     attendeeOrder: { create: vi.fn() },
+    userProfile: { upsert: vi.fn() },
   },
 }));
 vi.mock("@/lib/pretix/products", () => ({ listItems: vi.fn() }));
@@ -155,5 +156,45 @@ describe("register", () => {
         consentTerms: false as never,
       }),
     ).rejects.toThrow();
+  });
+
+  it("persists phone, phoneCC and a server-side consent timestamp", async () => {
+    mock(pretixProducts.listItems).mockResolvedValue([
+      { id: 7, titleEn: "V", titleAr: null, priceCents: 2500, active: true },
+    ]);
+    mock(pretixOrders.createOrder).mockResolvedValue({ code: "PC1", status: "n" });
+
+    await register({ ...base, tickets: [{ itemId: 7, quantity: 1 }] });
+
+    const data = mock(prisma.attendeeOrder.create).mock.calls[0][0].data;
+    expect(data.phone).toBe("70123456");
+    expect(data.phoneCC).toBe("+961");
+    expect(data.consentAt).toBeInstanceOf(Date);
+  });
+
+  it("upserts the UserProfile when a userId is present", async () => {
+    mock(pretixProducts.listItems).mockResolvedValue([
+      { id: 7, titleEn: "V", titleAr: null, priceCents: 2500, active: true },
+    ]);
+    mock(pretixOrders.createOrder).mockResolvedValue({ code: "PC2", status: "n" });
+
+    await register({ ...base, userId: "u1", tickets: [{ itemId: 7, quantity: 1 }] });
+
+    expect(prisma.userProfile.upsert).toHaveBeenCalledTimes(1);
+    const arg = mock(prisma.userProfile.upsert).mock.calls[0][0];
+    expect(arg.where).toEqual({ userId: "u1" });
+    expect(arg.update.phone).toBe("70123456");
+    expect(arg.update.phoneCC).toBe("+961");
+  });
+
+  it("does not upsert a UserProfile when there is no userId", async () => {
+    mock(pretixProducts.listItems).mockResolvedValue([
+      { id: 7, titleEn: "V", titleAr: null, priceCents: 2500, active: true },
+    ]);
+    mock(pretixOrders.createOrder).mockResolvedValue({ code: "PC3", status: "n" });
+
+    await register({ ...base, tickets: [{ itemId: 7, quantity: 1 }] });
+
+    expect(prisma.userProfile.upsert).not.toHaveBeenCalled();
   });
 });

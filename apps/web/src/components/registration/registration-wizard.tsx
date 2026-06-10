@@ -238,7 +238,17 @@ export function RegistrationWizard({
                     checked={terms}
                     onChange={(e) => setTerms(e.target.checked)}
                   />
-                  I agree to the Terms and Conditions
+                  <span>
+                    I agree to the{" "}
+                    <a
+                      href={`/${locale}/legal/terms`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-primary underline"
+                    >
+                      Terms and Conditions
+                    </a>
+                  </span>
                 </label>
                 <label className="flex items-center gap-2 text-sm">
                   <input
@@ -246,7 +256,17 @@ export function RegistrationWizard({
                     checked={privacy}
                     onChange={(e) => setPrivacy(e.target.checked)}
                   />
-                  I agree to the Privacy Policy
+                  <span>
+                    I agree to the{" "}
+                    <a
+                      href={`/${locale}/legal/privacy`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-primary underline"
+                    >
+                      Privacy Policy
+                    </a>
+                  </span>
                 </label>
               </div>
             )}

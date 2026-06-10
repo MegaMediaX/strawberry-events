@@ -79,6 +79,9 @@ describe.skipIf(!run)("register integration", () => {
     expect(res.status).toBe("pending");
     const row = await prisma.attendeeOrder.findFirst({ where: { orderCode: res.orderCode } });
     expect(row?.status).toBe("pending");
+    expect(row?.phone).toBe("70123456");
+    expect(row?.phoneCC).toBe("+961");
+    expect(row?.consentAt).toBeInstanceOf(Date);
   });
 
   it("free ticket writes a paid AttendeeOrder", async () => {

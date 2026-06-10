@@ -40,7 +40,13 @@ export function methodNotAllowed() {
  */
 export async function resolveApiEvent(ctx: ApiContext, eventId: string) {
   assertEventAccess(ctx, eventId);
+  // Fail closed: a key with a null organizationId must not resolve any event.
+  // Prisma drops `undefined` from a WHERE clause, so `organizationId ?? undefined`
+  // would have matched events in ANY org — a cross-org read.
+  if (!ctx.organizationId) {
+    throw new ApiError("forbidden", "API key has no organization", 403);
+  }
   return prisma.eventMapping.findFirst({
-    where: { id: eventId, organizationId: ctx.organizationId ?? undefined },
+    where: { id: eventId, organizationId: ctx.organizationId },
   });
 }

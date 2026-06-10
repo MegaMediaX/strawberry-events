@@ -638,6 +638,9 @@ model AttendeeOrder {
   email          String
   attendeeName   String?
   company        String?
+  phone          String?
+  phoneCC        String?
+  consentAt      DateTime?
   userId         String?
   status         AttendeeOrderStatus    @default(pending)
   approvalStatus AttendeeApprovalStatus @default(not_required)

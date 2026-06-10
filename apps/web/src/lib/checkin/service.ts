@@ -46,6 +46,10 @@ export async function searchAttendees(
   eventId: string,
   query: string,
 ) {
+  // Enforce check-in role at the service layer: the layout guard is UI-only,
+  // but server actions are directly invocable, so a finance member could
+  // otherwise harvest attendee PII (orderCode/email/name) through searchAction.
+  assertCanCheckin(session);
   const mapping = await resolveEvent(session, eventId);
   return prisma.attendeeOrder.findMany({
     where: {
