@@ -15,6 +15,21 @@ import type { EventInput, TicketInput } from "./schema";
  * actions are independently callable. Finance and check-in staff are excluded,
  * and impersonating sessions cannot mutate configuration.
  */
+/** Normalize the optional location fields for persistence (empty string → null). */
+function locationData(input: EventInput) {
+  const s = (v: string | null | undefined) => (v && v.trim() ? v.trim() : null);
+  return {
+    venueName: s(input.venueName),
+    address: s(input.address),
+    city: s(input.city),
+    country: s(input.country),
+    mapUrl: s(input.mapUrl),
+    mapEmbedUrl: s(input.mapEmbedUrl),
+    latitude: input.latitude ?? null,
+    longitude: input.longitude ?? null,
+  };
+}
+
 function assertCanManageEvents(session: SessionContext) {
   if (session.impersonating) {
     throw new ForbiddenError("Cannot modify events while impersonating");
@@ -104,6 +119,7 @@ export async function createEvent(
         approvalMode: input.approvalMode,
         comingSoon: input.comingSoon,
         liveOnPretix: input.live,
+        ...locationData(input),
       },
     });
     await writeAudit(session, org.id, "event.created", "event", mapping.id);
@@ -196,6 +212,7 @@ export async function updateEvent(
       // Authoritative local write so the storefront gate is consistent immediately
       // (the inbound pretix webhook reconciles this too, but this removes the race).
       liveOnPretix: input.live,
+      ...locationData(input),
     },
   });
   await writeAudit(session, org.id, "event.updated", "event", updated.id);

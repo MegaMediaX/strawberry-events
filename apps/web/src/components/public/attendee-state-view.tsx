@@ -1,4 +1,5 @@
 import { registrationState } from "@/lib/approval/state";
+import { hasLocation, locationLine, directionsUrl, type EventLocation } from "@/lib/events/location";
 import { QrCodeDisplay } from "./qr-code-display";
 
 interface OrderLike {
@@ -6,7 +7,7 @@ interface OrderLike {
   status: "pending" | "paid" | "canceled";
   approvalStatus: "not_required" | "pending" | "approved" | "rejected";
   pretixSecret?: string | null;
-  eventMapping: { titleEn: string };
+  eventMapping: { titleEn: string } & EventLocation;
 }
 
 export function AttendeeStateView({ order }: { order: OrderLike }) {
@@ -59,6 +60,25 @@ export function AttendeeStateView({ order }: { order: OrderLike }) {
 
       {state === "canceled" && (
         <p className="mt-6 text-sm text-muted-foreground">This registration was canceled.</p>
+      )}
+
+      {state !== "rejected" && state !== "canceled" && hasLocation(order.eventMapping) && (
+        <div className="mt-8 border-t border-border pt-4 text-sm">
+          <div className="font-medium">Venue</div>
+          {locationLine(order.eventMapping) && (
+            <p className="mt-1 text-muted-foreground">{locationLine(order.eventMapping)}</p>
+          )}
+          {directionsUrl(order.eventMapping) && (
+            <a
+              className="mt-1 inline-block text-primary underline"
+              href={directionsUrl(order.eventMapping)!}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              Get directions
+            </a>
+          )}
+        </div>
       )}
     </main>
   );

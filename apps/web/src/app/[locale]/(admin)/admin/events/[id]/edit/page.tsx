@@ -37,6 +37,14 @@ export default async function EditEventPage({
           approvalMode: event.approvalMode,
           comingSoon: event.comingSoon,
           live: event.liveOnPretix,
+          venueName: event.venueName ?? undefined,
+          address: event.address ?? undefined,
+          city: event.city ?? undefined,
+          country: event.country ?? undefined,
+          mapUrl: event.mapUrl ?? undefined,
+          mapEmbedUrl: event.mapEmbedUrl ?? undefined,
+          latitude: event.latitude ?? undefined,
+          longitude: event.longitude ?? undefined,
         }}
       />
     </div>

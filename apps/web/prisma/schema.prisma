@@ -276,6 +276,16 @@ model EventMapping {
   // AND liveOnPretix=true, so flipping local visibility alone cannot leak a draft.
   // Kept in sync by updateEvent (authoritative) and the inbound pretix webhook.
   liveOnPretix        Boolean      @default(false)
+  // Location (all optional; storefront renders gracefully when absent). No live
+  // Places API required — operators paste a Google Maps URL / embed URL.
+  venueName           String?
+  address             String?
+  city                String?
+  country             String?
+  mapUrl              String?
+  mapEmbedUrl         String?
+  latitude            Float?
+  longitude           Float?
   createdAt           DateTime     @default(now())
   updatedAt           DateTime     @updatedAt
 
