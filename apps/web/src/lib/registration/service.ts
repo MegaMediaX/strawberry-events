@@ -124,6 +124,12 @@ export async function register(input: RegisterInput): Promise<RegisterResult> {
       email: data.attendee.email,
       attendeeName: `${data.attendee.firstName} ${data.attendee.lastName}`.trim(),
       company: data.attendee.company ?? null,
+      phone: data.attendee.phone,
+      phoneCC: data.attendee.phoneCC,
+      // Server-side consent timestamp: the wizard hard-requires both consent
+      // checkboxes, so reaching here means consent was given. Stamped on the
+      // server so it cannot be spoofed by the client.
+      consentAt: new Date(),
       userId: data.userId ?? null,
       status,
       approvalStatus,
@@ -137,6 +143,29 @@ export async function register(input: RegisterInput): Promise<RegisterResult> {
       magicLinkToken,
     },
   });
+
+  // Keep the signed-in user's profile in sync with what they just entered.
+  // Best-effort: a profile write must never roll back a committed registration.
+  if (data.userId) {
+    try {
+      await prisma.userProfile.upsert({
+        where: { userId: data.userId },
+        update: {
+          phone: data.attendee.phone,
+          phoneCC: data.attendee.phoneCC,
+          preferredLocale: data.locale,
+        },
+        create: {
+          userId: data.userId,
+          phone: data.attendee.phone,
+          phoneCC: data.attendee.phoneCC,
+          preferredLocale: data.locale,
+        },
+      });
+    } catch {
+      // swallow — order already persisted
+    }
+  }
 
   void emit(event.organizationId, "order.created", { orderCode: order.code, status }, event.id);
   if (status === "paid") {

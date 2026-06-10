@@ -1,20 +1,10 @@
 import { setRequestLocale } from "next-intl/server";
 import { getSessionContext, requireRole } from "@/lib/auth/session";
-import { prisma } from "@/lib/db/client";
+import { resolveOrgId } from "@/lib/admin/resolve-org";
 import { listWebhooks } from "@/lib/webhooks/admin-service";
 import { WebhookManager, type WebhookRow } from "./webhook-manager";
 
 export const dynamic = "force-dynamic";
-
-async function resolveOrgId(session: NonNullable<Awaited<ReturnType<typeof getSessionContext>>>) {
-  const membership = session.memberships.find((m) => m.role === "organizer_admin");
-  if (membership) return membership.organizationId;
-  if (session.isSuperAdmin) {
-    const org = await prisma.organization.findFirst({ orderBy: { createdAt: "asc" } });
-    return org?.id ?? null;
-  }
-  return null;
-}
 
 export default async function WebhooksPage({
   params,

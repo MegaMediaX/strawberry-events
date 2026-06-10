@@ -10,10 +10,10 @@ export default async function ConfirmationPage({
 }: {
   params: Promise<{ locale: string; slug: string; orderCode: string }>;
 }) {
-  const { locale, orderCode } = await params;
+  const { locale, slug, orderCode } = await params;
   setRequestLocale(locale);
 
-  const order = await getOrderByCode(orderCode);
+  const order = await getOrderByCode(orderCode, slug);
   if (!order) notFound();
 
   return <AttendeeStateView order={order} />;

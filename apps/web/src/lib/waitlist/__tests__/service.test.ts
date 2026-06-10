@@ -3,7 +3,8 @@ import type { SessionContext } from "@/lib/auth/types";
 
 vi.mock("@/lib/db/client", () => ({
   prisma: {
-    waitlistEntry: { findFirst: vi.fn(), create: vi.fn(), update: vi.fn() },
+    waitlistEntry: { findFirst: vi.fn(), findMany: vi.fn(), create: vi.fn(), update: vi.fn() },
+    eventMapping: { findUnique: vi.fn() },
     auditLog: { create: vi.fn() },
   },
 }));
@@ -11,7 +12,11 @@ vi.mock("@/lib/email/service", () => ({ sendEmail: vi.fn().mockResolvedValue(tru
 
 import { prisma } from "@/lib/db/client";
 import * as email from "@/lib/email/service";
-import { joinWaitlist, promote } from "@/lib/waitlist/service";
+import { joinWaitlist, promote, listWaitlist } from "@/lib/waitlist/service";
+
+const superAdmin: SessionContext = {
+  userId: "su", isSuperAdmin: true, memberships: [],
+};
 
 const mock = <T,>(fn: T) => fn as unknown as ReturnType<typeof vi.fn>;
 
@@ -78,5 +83,50 @@ describe("promote", () => {
       ...entry, eventMapping: { ...entry.eventMapping, organizationId: "orgB" },
     });
     await expect(promote(orgAdmin, "w1")).rejects.toThrow();
+  });
+});
+
+describe("listWaitlist", () => {
+  it("throws when the event mapping does not exist (fail closed)", async () => {
+    mock(prisma.eventMapping.findUnique).mockResolvedValue(null);
+    await expect(listWaitlist(orgAdmin, "missing")).rejects.toThrow();
+    expect(prisma.waitlistEntry.findMany).not.toHaveBeenCalled();
+  });
+
+  it("throws when the session cannot access the event's org", async () => {
+    mock(prisma.eventMapping.findUnique).mockResolvedValue({
+      organizationId: "orgB", localEventId: "loc1",
+    });
+    await expect(listWaitlist(orgAdmin, "e1")).rejects.toThrow();
+    expect(prisma.waitlistEntry.findMany).not.toHaveBeenCalled();
+  });
+
+  it("returns entries when the session has access", async () => {
+    mock(prisma.eventMapping.findUnique).mockResolvedValue({
+      organizationId: "orgA", localEventId: "loc1",
+    });
+    mock(prisma.waitlistEntry.findMany).mockResolvedValue([entry]);
+    const res = await listWaitlist(orgAdmin, "e1");
+    expect(res).toEqual([entry]);
+  });
+
+  it("returns an empty array only AFTER the access check passes (regression)", async () => {
+    // Previously an empty list short-circuited the auth check entirely.
+    mock(prisma.eventMapping.findUnique).mockResolvedValue({
+      organizationId: "orgA", localEventId: "loc1",
+    });
+    mock(prisma.waitlistEntry.findMany).mockResolvedValue([]);
+    const res = await listWaitlist(orgAdmin, "e1");
+    expect(res).toEqual([]);
+    expect(prisma.eventMapping.findUnique).toHaveBeenCalled();
+  });
+
+  it("super admin can list any org's entries", async () => {
+    mock(prisma.eventMapping.findUnique).mockResolvedValue({
+      organizationId: "orgB", localEventId: "loc1",
+    });
+    mock(prisma.waitlistEntry.findMany).mockResolvedValue([entry]);
+    const res = await listWaitlist(superAdmin, "e1");
+    expect(res).toEqual([entry]);
   });
 });

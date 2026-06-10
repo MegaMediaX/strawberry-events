@@ -48,19 +48,23 @@ export async function joinWaitlist(
 
 /** List waitlist entries for an event the session can access. */
 export async function listWaitlist(session: SessionContext, eventMappingId: string) {
-  const entries = await prisma.waitlistEntry.findMany({
+  // Resolve and authorize against the event's org BEFORE fetching, and fail
+  // closed if the event is missing. The previous "check only if the list is
+  // non-empty" pattern let an empty waitlist (the normal case at event start)
+  // bypass the access check entirely — a cross-org leak the moment two orgs
+  // share the instance.
+  const mapping = await prisma.eventMapping.findUnique({
+    where: { id: eventMappingId },
+    select: { organizationId: true, localEventId: true },
+  });
+  if (!mapping) throw new ForbiddenError("Event not found");
+  if (!canAccessEvent(session, mapping.organizationId, mapping.localEventId)) {
+    throw new ForbiddenError("Access denied");
+  }
+  return prisma.waitlistEntry.findMany({
     where: { eventMappingId },
-    include: { eventMapping: true },
     orderBy: { position: "asc" },
   });
-  const first = entries[0];
-  if (
-    first &&
-    !canAccessEvent(session, first.eventMapping.organizationId, first.eventMapping.localEventId)
-  ) {
-    return [];
-  }
-  return entries;
 }
 
 /** Promote a waitlisted entry (organizer/super admin only). Emails + audits. */

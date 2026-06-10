@@ -17,7 +17,7 @@ vi.mock("@/lib/pretix/checkin", () => ({
 
 import { prisma } from "@/lib/db/client";
 import * as pretixCheckin from "@/lib/pretix/checkin";
-import { checkInOrder } from "@/lib/checkin/service";
+import { checkInOrder, searchAttendees } from "@/lib/checkin/service";
 
 const mock = <T,>(fn: T) => fn as unknown as ReturnType<typeof vi.fn>;
 
@@ -104,5 +104,38 @@ describe("checkInOrder", () => {
     const res = await checkInOrder(staff, "e1", "ABC12", 5);
     expect(res.ok).toBe(false);
     expect(res.reason).toMatch(/already/i);
+  });
+});
+
+describe("searchAttendees", () => {
+  it("finance role cannot search attendees (PII exposure)", async () => {
+    await expect(searchAttendees(finance, "e1", "abc")).rejects.toThrow();
+    expect(prisma.attendeeOrder.findMany).not.toHaveBeenCalled();
+  });
+
+  it("impersonating session cannot search attendees", async () => {
+    await expect(
+      searchAttendees({ ...staff, impersonating: true }, "e1", "abc"),
+    ).rejects.toThrow();
+    expect(prisma.attendeeOrder.findMany).not.toHaveBeenCalled();
+  });
+
+  it("checkin_staff can search attendees", async () => {
+    mock(prisma.attendeeOrder.findMany).mockResolvedValue([order()]);
+    const res = await searchAttendees(staff, "e1", "abc");
+    expect(res).toEqual([order()]);
+    expect(prisma.attendeeOrder.findMany).toHaveBeenCalledTimes(1);
+  });
+
+  it("organizer_admin can search attendees", async () => {
+    const orgAdmin: SessionContext = {
+      userId: "a1",
+      isSuperAdmin: false,
+      memberships: [{ organizationId: "orgA", role: "organizer_admin", assignedEventIds: [] }],
+    };
+    mock(prisma.attendeeOrder.findMany).mockResolvedValue([order()]);
+    const res = await searchAttendees(orgAdmin, "e1", "abc");
+    expect(res).toEqual([order()]);
+    expect(prisma.attendeeOrder.findMany).toHaveBeenCalledTimes(1);
   });
 });
