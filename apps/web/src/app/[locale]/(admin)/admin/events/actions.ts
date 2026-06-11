@@ -103,6 +103,47 @@ export async function createTicketAction(
   return {};
 }
 
+export async function setTicketInviteOnlyAction(
+  locale: string,
+  eventId: string,
+  itemId: number,
+  inviteOnly: boolean,
+): Promise<ActionResult> {
+  const session = await getSessionContext();
+  if (!session) return { error: "Not authenticated" };
+
+  try {
+    await service.setTicketInviteOnly(session, eventId, itemId, inviteOnly);
+  } catch (err) {
+    return { error: (err as Error).message };
+  }
+
+  revalidatePath(`/${locale}/admin/events/${eventId}/tickets`);
+  return {};
+}
+
+export async function generateInviteLinkAction(
+  locale: string,
+  eventId: string,
+  itemId: number,
+  tag: "media" | "partner" | "speaker" | "staff" | "visitor" | undefined,
+  expiresInSeconds: number | undefined,
+): Promise<ActionResult & { url?: string }> {
+  const session = await getSessionContext();
+  if (!session) return { error: "Not authenticated" };
+
+  try {
+    const url = await service.generateInviteLink(session, eventId, itemId, {
+      locale,
+      tag,
+      expiresInSeconds,
+    });
+    return { url };
+  } catch (err) {
+    return { error: (err as Error).message };
+  }
+}
+
 export async function createSubEventAction(
   locale: string,
   eventId: string,

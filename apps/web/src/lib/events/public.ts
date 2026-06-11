@@ -14,6 +14,8 @@ export interface PublicTicket {
 export interface PublicEventDetail {
   event: EventMapping;
   tickets: PublicTicket[];
+  /** Items hidden from public registration (invite-only). */
+  inviteOnlyTickets: PublicTicket[];
   capacity: { sold: number; total: number | null };
   dateFrom: string | null;
   dateTo: string | null;
@@ -76,16 +78,19 @@ export async function getPublicEvent(
       ? { sold: 0, total: null }
       : { sold: Math.max(0, total - available), total };
 
+  const inviteOnlySet = new Set(event.inviteOnlyItemIds);
+  const activeItems = items.filter((i) => i.active);
+  const toTicket = (i: (typeof activeItems)[number]): PublicTicket => ({
+    id: i.id,
+    titleEn: i.titleEn,
+    titleAr: i.titleAr,
+    priceCents: i.priceCents,
+  });
+
   return {
     event,
-    tickets: items
-      .filter((i) => i.active)
-      .map((i) => ({
-        id: i.id,
-        titleEn: i.titleEn,
-        titleAr: i.titleAr,
-        priceCents: i.priceCents,
-      })),
+    tickets: activeItems.filter((i) => !inviteOnlySet.has(i.id)).map(toTicket),
+    inviteOnlyTickets: activeItems.filter((i) => inviteOnlySet.has(i.id)).map(toTicket),
     capacity,
     dateFrom: detail?.dateFrom ?? null,
     dateTo: detail?.dateTo ?? null,

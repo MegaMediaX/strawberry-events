@@ -283,6 +283,7 @@ model EventMapping {
   accountMode         AccountMode  @default(optional)
   approvalMode        ApprovalMode @default(none)
   autoApproveItemIds  Int[]        @default([])
+  inviteOnlyItemIds   Int[]        @default([])
   payBeforeApproval   Boolean      @default(false)
   itemTagMap          Json         @default("{}")
   seatSelectionEnabled Boolean     @default(false)

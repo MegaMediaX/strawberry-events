@@ -5,6 +5,7 @@ import { getSeatMap } from "@/lib/seats/service";
 import { getEventFields } from "@/lib/admin/custom-fields";
 import { RegistrationWizard } from "@/components/registration/registration-wizard";
 import { prisma } from "@/lib/db/client";
+import { verifyInvite } from "@/lib/tokens/invite";
 import type { SectionNode } from "@/components/seats/seat-selector";
 import type { SubEventItem } from "@/components/registration/sub-event-picker";
 
@@ -12,17 +13,37 @@ export const dynamic = "force-dynamic";
 
 export default async function RegisterPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ locale: string; slug: string }>;
+  searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
 }) {
-  const { locale, slug } = await params;
+  const [{ locale, slug }, sp] = await Promise.all([params, searchParams]);
   setRequestLocale(locale);
 
   const data = await getPublicEvent(slug);
   if (!data) notFound();
 
+  // Validate invite token and unlock invite-only tickets if valid.
+  const rawInvite = typeof sp.invite === "string" ? sp.invite : undefined;
+  let inviteToken: string | undefined;
+  let unlockedItemIds: Set<number> = new Set();
+  if (rawInvite) {
+    const payload = verifyInvite(rawInvite);
+    if (payload && payload.ev === slug) {
+      inviteToken = rawInvite;
+      for (const id of payload.items) unlockedItemIds.add(id);
+    }
+  }
+
   const title = locale === "ar" && data.event.titleAr ? data.event.titleAr : data.event.titleEn;
-  const tickets = data.tickets.map((t) => ({
+
+  const unlockedInviteTickets = data.inviteOnlyTickets.filter((t) =>
+    unlockedItemIds.has(t.id),
+  );
+  const allTickets = [...data.tickets, ...unlockedInviteTickets];
+
+  const tickets = allTickets.map((t) => ({
     id: t.id,
     title: locale === "ar" && t.titleAr ? t.titleAr : t.titleEn,
     priceCents: t.priceCents,
@@ -90,6 +111,7 @@ export default async function RegisterPage({
         subEvents={subEvents}
         ticketsPerUserMain={data.event.ticketsPerUserMain}
         ticketsPerUserTotal={data.event.ticketsPerUserTotal}
+        inviteToken={inviteToken}
       />
     </div>
   );

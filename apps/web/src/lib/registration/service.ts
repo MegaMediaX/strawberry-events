@@ -6,6 +6,7 @@ import { PretixValidationError } from "@/lib/pretix/errors";
 import { centsToPrice } from "@/lib/pretix/mappers";
 import { selectProvider } from "@/lib/payments/provider";
 import { signMagicLink } from "@/lib/tokens/magic-link";
+import { verifyInvite, type InvitePayload } from "@/lib/tokens/invite";
 import { sendEmail } from "@/lib/email/service";
 import {
   pendingEmail,
@@ -19,6 +20,34 @@ import { emit } from "@/lib/webhooks/service";
 import { getEventFields, getFieldsForTicket, validateRequiredAnswers } from "@/lib/admin/custom-fields";
 import { registerInputSchema, type RegisterInput } from "./schema";
 import { validateSelection } from "@/lib/events/conflicts";
+
+/**
+ * Pure, unit-testable guard: throws if invite-only items are selected without
+ * a valid invite that covers them.
+ */
+export function assertInviteAllows(
+  payload: InvitePayload | null,
+  eventSlug: string,
+  inviteOnlyItemIds: number[],
+  selectedItemIds: number[],
+): void {
+  const inviteOnly = new Set(inviteOnlyItemIds);
+  const selectedInviteOnly = selectedItemIds.filter((id) => inviteOnly.has(id));
+  if (selectedInviteOnly.length === 0) return; // no invite-only items → no check needed
+
+  if (!payload) {
+    throw new Error("This ticket requires a valid invitation");
+  }
+  if (payload.ev !== eventSlug) {
+    throw new Error("This ticket requires a valid invitation");
+  }
+  const allowed = new Set(payload.items);
+  for (const id of selectedInviteOnly) {
+    if (!allowed.has(id)) {
+      throw new Error("This ticket requires a valid invitation");
+    }
+  }
+}
 
 export interface RegisterResult {
   orderCode: string;
@@ -45,6 +74,15 @@ export async function register(input: RegisterInput): Promise<RegisterResult> {
     where: { eventMappingId: event.id },
   });
   validateSelection(event, subEvents, data.tickets);
+
+  // Invite-only enforcement: verify token covers every invite-only item selected.
+  const invitePayload = data.inviteToken ? verifyInvite(data.inviteToken) : null;
+  assertInviteAllows(
+    invitePayload,
+    event.pretixEventSlug,
+    event.inviteOnlyItemIds,
+    data.tickets.map((t) => t.itemId),
+  );
 
   // Recompute prices from pretix (never trust client prices).
   const items = await pretixProducts.listItems(
@@ -160,6 +198,7 @@ export async function register(input: RegisterInput): Promise<RegisterResult> {
       provider,
       totalCents,
       roleTag:
+        invitePayload?.tag ??
         data.roleTag ??
         tagForItem(
           (event.itemTagMap ?? {}) as Record<string, unknown>,
