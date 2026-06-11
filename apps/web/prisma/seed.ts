@@ -6,9 +6,22 @@ const prisma = new PrismaClient();
 const argonOptions = { memoryCost: 19456, timeCost: 2, parallelism: 1 };
 
 async function main() {
-  const adminEmail = process.env.SEED_ADMIN_EMAIL ?? "admin@strawberry.local";
+  // The single bootstrap super admin (Marven). In production set
+  // SEED_ADMIN_PASSWORD to a strong secret in the environment — it is
+  // argon2id-hashed below and the plaintext is NEVER stored in the repo or DB.
+  // The placeholder fallback is intentionally weak so a prod seed without the
+  // env var fails loudly (see the guard below).
+  const adminEmail = process.env.SEED_ADMIN_EMAIL ?? "marvenmouaalem@gmail.com";
+  const adminName = process.env.SEED_ADMIN_NAME ?? "Marven";
   const adminPassword = process.env.SEED_ADMIN_PASSWORD ?? "ChangeMe!123";
   const orgSlug = process.env.PRETIX_DEFAULT_ORGANIZER ?? "strawberry";
+
+  if (process.env.NODE_ENV === "production" && !process.env.SEED_ADMIN_PASSWORD) {
+    throw new Error(
+      "Refusing to seed a production super admin with the placeholder password. " +
+        "Set SEED_ADMIN_PASSWORD (and optionally SEED_ADMIN_EMAIL/SEED_ADMIN_NAME) first.",
+    );
+  }
 
   const org = await prisma.organization.upsert({
     where: { slug: orgSlug },
@@ -27,7 +40,7 @@ async function main() {
     update: { passwordHash },
     create: {
       email: adminEmail,
-      name: "Super Admin",
+      name: adminName,
       passwordHash,
       emailVerified: new Date(),
     },
@@ -45,8 +58,13 @@ async function main() {
     },
   });
 
-  console.log(`Seeded organization '${org.slug}' and super admin '${adminEmail}'.`);
-  console.log("Dev login password:", adminPassword);
+  console.log(`Seeded organization '${org.slug}' and super admin '${adminName}' <${adminEmail}>.`);
+  // Only ever echo the plaintext outside production (local dev convenience).
+  if (process.env.NODE_ENV !== "production") {
+    console.log("Dev login password:", adminPassword);
+  } else {
+    console.log("Super admin password set from SEED_ADMIN_PASSWORD (not logged).");
+  }
 }
 
 main()
