@@ -114,6 +114,31 @@ export async function register(input: RegisterInput): Promise<RegisterResult> {
     }
   }
 
+  // Single-use enforcement is an ATOMIC compare-and-set, not the read above —
+  // the read only yields a fast, friendly error. Two concurrent registrations
+  // using the same invite would both pass the read; only one wins this claim.
+  // We stamp redeemedAt now (reserving the invite) and set redeemedOrderCode
+  // once the order exists; on any failure before that we release the claim.
+  if (inviteTokenHash) {
+    const claimed = await prisma.invite.updateMany({
+      where: { tokenHash: inviteTokenHash, redeemedAt: null },
+      data: { redeemedAt: new Date() },
+    });
+    if (claimed.count !== 1) {
+      throw new Error("This invitation has already been used");
+    }
+  }
+  const releaseInviteClaim = async () => {
+    if (!inviteTokenHash) return;
+    // Only release a claim that hasn't been finalized to an order.
+    await prisma.invite
+      .updateMany({
+        where: { tokenHash: inviteTokenHash, redeemedOrderCode: null },
+        data: { redeemedAt: null },
+      })
+      .catch(() => {});
+  };
+
   // Recompute prices from pretix (never trust client prices).
   const items = await pretixProducts.listItems(
     ctx.organizerSlug,
@@ -160,12 +185,19 @@ export async function register(input: RegisterInput): Promise<RegisterResult> {
     throw new Error(`Missing required field(s): ${missingFields.join(", ")}`);
   }
 
-  const order = await pretixOrders.createOrder(
-    ctx.organizerSlug,
-    event.pretixEventSlug,
-    { email: data.attendee.email, locale: data.locale, positions },
-    ctx.token,
-  );
+  let order;
+  try {
+    order = await pretixOrders.createOrder(
+      ctx.organizerSlug,
+      event.pretixEventSlug,
+      { email: data.attendee.email, locale: data.locale, positions },
+      ctx.token,
+    );
+  } catch (err) {
+    // Order never got off the ground — free the invite for a genuine retry.
+    await releaseInviteClaim();
+    throw err;
+  }
 
   // Reserve selected seats for seated events (hold then confirm against the order).
   // On any seat failure, release seats and cancel the just-created pretix order so
@@ -181,6 +213,8 @@ export async function register(input: RegisterInput): Promise<RegisterResult> {
       } catch {
         // best-effort rollback
       }
+      // The order is being cancelled, so the invite must not stay consumed.
+      await releaseInviteClaim();
       throw seatErr;
     }
     void emit(event.organizationId, "seat.held", { orderCode: order.code, seatIds: data.seatIds }, event.id);
@@ -239,15 +273,17 @@ export async function register(input: RegisterInput): Promise<RegisterResult> {
     },
   });
 
-  // Mark email-bound invite as redeemed (best-effort; after order committed).
+  // Finalize the invite claim: the redeemedAt stamp was set atomically above;
+  // now bind it to the committed order. Best-effort — the single-use guard is
+  // already enforced by the reservation, so a failure here cannot double-redeem.
   if (inviteTokenHash) {
     try {
       await prisma.invite.update({
         where: { tokenHash: inviteTokenHash },
-        data: { redeemedAt: new Date(), redeemedOrderCode: order.code },
+        data: { redeemedOrderCode: order.code },
       });
     } catch (err) {
-      console.error("[register] invite redemption mark failed:", (err as Error).message);
+      console.error("[register] invite redemption finalize failed:", (err as Error).message);
     }
   }
 
