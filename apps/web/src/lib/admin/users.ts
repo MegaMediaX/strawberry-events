@@ -2,6 +2,13 @@ import type { Prisma, MemberRole, UserStatus } from "@prisma/client";
 import { prisma } from "@/lib/db/client";
 import { ForbiddenError } from "@/lib/auth/guards";
 import type { SessionContext } from "@/lib/auth/types";
+import { generateResetToken } from "@/lib/tokens/reset-token";
+import { sendEmail } from "@/lib/email/service";
+import { userInviteEmail, type Locale } from "@/lib/email/templates";
+
+/** Invite links are valid for 7 days (longer than a self-service reset). */
+const INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 /** Only super admins and organizer admins may manage users; never while impersonating. */
 function assertCanManageUsers(session: SessionContext) {
@@ -21,6 +28,86 @@ export interface UserFilters {
   q?: string;
   role?: string;
   organizationId?: string;
+}
+
+/** Organizations the session may invite users into (super admin → all). */
+export async function invitableOrgs(
+  session: SessionContext,
+): Promise<{ id: string; name: string }[]> {
+  assertCanManageUsers(session);
+  const orgs = adminOrgIds(session);
+  return prisma.organization.findMany({
+    where: orgs ? { id: { in: orgs } } : undefined,
+    select: { id: true, name: true },
+    orderBy: { name: "asc" },
+  });
+}
+
+/** Roles the session may grant (org admins cannot mint super admins). */
+export function grantableRoles(session: SessionContext): MemberRole[] {
+  const base: MemberRole[] = ["organizer_admin", "finance", "checkin_staff"];
+  return session.isSuperAdmin ? (["super_admin", ...base] as MemberRole[]) : base;
+}
+
+export interface InviteInput {
+  email: string;
+  name?: string | null;
+  organizationId: string;
+  role: MemberRole;
+}
+
+/**
+ * Invite a new staff/admin user: create a role-less account, attach the org
+ * membership/role, mint a 7-day single-use token, and email a set-password link
+ * (reuses the password-reset flow). Role hierarchy is enforced — an organizer
+ * admin can never grant super_admin and can only act in orgs they administer.
+ * Audited. Rejects duplicate emails (manage the existing user instead).
+ */
+export async function inviteUser(
+  session: SessionContext,
+  input: InviteInput,
+  locale: Locale = "en",
+): Promise<{ userId: string; emailSent: boolean }> {
+  assertCanManageUsers(session);
+
+  if (input.role === "super_admin" && !session.isSuperAdmin) {
+    throw new ForbiddenError("Only a super admin can grant super admin");
+  }
+  const orgs = adminOrgIds(session);
+  if (orgs && !orgs.includes(input.organizationId)) {
+    throw new ForbiddenError("Cannot invite users into this organization");
+  }
+
+  const email = input.email.toLowerCase().trim();
+  if (!EMAIL_RE.test(email)) throw new Error("Enter a valid email address");
+
+  const org = await prisma.organization.findUnique({ where: { id: input.organizationId } });
+  if (!org) throw new ForbiddenError("Organization not found");
+
+  const existing = await prisma.user.findUnique({ where: { email } });
+  if (existing) throw new Error("A user with that email already exists");
+
+  const user = await prisma.user.create({
+    data: { email, name: input.name?.trim() || null, status: "active" },
+  });
+  await prisma.organizationMember.create({
+    data: { organizationId: org.id, userId: user.id, role: input.role, assignedEventIds: [] },
+  });
+
+  const { token, tokenHash } = generateResetToken();
+  await prisma.passwordResetToken.create({
+    data: { userId: user.id, tokenHash, expiresAt: new Date(Date.now() + INVITE_TTL_MS) },
+  });
+  const url = `${process.env.APP_URL ?? ""}/${locale}/reset-password?token=${token}`;
+  const emailSent = await sendEmail(
+    { to: email, ...userInviteEmail(locale, url, org.name) },
+    { templateType: "user_invite", organizationId: org.id, attendeeRef: user.id },
+  );
+
+  await audit(session, org.id, "user.invited", user.id);
+  // The account + token are created regardless; the caller surfaces a delivery
+  // failure so the admin can resend rather than believing the invite arrived.
+  return { userId: user.id, emailSent };
 }
 
 export async function listUsers(session: SessionContext, filters: UserFilters = {}) {

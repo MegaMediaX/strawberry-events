@@ -108,6 +108,23 @@ export function confirmationEmail(
   };
 }
 
+export function userInviteEmail(
+  locale: Locale,
+  inviteUrl: string,
+  orgName: string,
+): RenderedEmail {
+  if (locale === "ar") {
+    return {
+      subject: `دعوة للانضمام إلى ${orgName}`,
+      text: `تمت دعوتك للانضمام إلى ${orgName} على منصة سترّوبري للفعاليات.\nلتعيين كلمة المرور وتفعيل حسابك، افتح الرابط التالي (صالح لمدة 7 أيام):\n${inviteUrl}\nإذا لم تكن تتوقع هذه الدعوة، تجاهل هذه الرسالة.`,
+    };
+  }
+  return {
+    subject: `You've been invited to ${orgName}`,
+    text: `You've been invited to join ${orgName} on the Strawberry Events platform.\nTo set your password and activate your account, open this link (valid for 7 days):\n${inviteUrl}\nIf you weren't expecting this invitation, you can ignore this email.`,
+  };
+}
+
 export function passwordResetEmail(locale: Locale, resetUrl: string): RenderedEmail {
   if (locale === "ar") {
     return {
