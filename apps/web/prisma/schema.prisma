@@ -310,6 +310,11 @@ model EventMapping {
   createdAt           DateTime     @default(now())
   updatedAt           DateTime     @updatedAt
 
+  // Sub-event capacity controls (optional; null = unlimited / no cap)
+  maxAttendees         Int?
+  ticketsPerUserMain   Int  @default(1)
+  ticketsPerUserTotal  Int  @default(1)
+
   organization     Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   pretixObjects    PretixObjectMapping[]
   seatMaps         SeatMap[]
@@ -319,10 +324,38 @@ model EventMapping {
   customFormFields CustomFormField[]
   attendeeOrders   AttendeeOrder[]
   waitlistEntries  WaitlistEntry[]
+  subEvents        SubEvent[]
 
   @@unique([pretixOrganizerSlug, pretixEventSlug])
   @@index([organizationId])
   @@map("event_mappings")
+}
+
+// ---------------------------------------------------------------------------
+// Sub-events (sessions / workshops / breakouts within an event)
+// ---------------------------------------------------------------------------
+
+model SubEvent {
+  id             String    @id @default(cuid())
+  eventMappingId String
+  titleEn        String
+  titleAr        String?
+  category       String
+  location       String?
+  dateFrom       DateTime
+  dateTo         DateTime
+  priceCents     Int       @default(0)
+  maxAttendees   Int?
+  ticketsPerUser Int       @default(1)
+  pretixItemId   Int?
+  pretixQuotaId  Int?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  eventMapping EventMapping @relation(fields: [eventMappingId], references: [id], onDelete: Cascade)
+
+  @@index([eventMappingId])
+  @@map("sub_events")
 }
 
 model PretixObjectMapping {

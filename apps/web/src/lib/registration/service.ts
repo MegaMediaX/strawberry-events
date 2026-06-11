@@ -18,6 +18,7 @@ import { holdSeats, confirmSeats, releaseSeats } from "@/lib/seats/service";
 import { emit } from "@/lib/webhooks/service";
 import { getEventFields, getFieldsForTicket, validateRequiredAnswers } from "@/lib/admin/custom-fields";
 import { registerInputSchema, type RegisterInput } from "./schema";
+import { validateSelection } from "@/lib/events/conflicts";
 
 export interface RegisterResult {
   orderCode: string;
@@ -38,6 +39,12 @@ export async function register(input: RegisterInput): Promise<RegisterResult> {
   });
   if (!org) throw new Error("Organization not found");
   const ctx = resolvePretixContext(org);
+
+  // Sub-event caps + time-conflict validation (server-side, source of truth).
+  const subEvents = await prisma.subEvent.findMany({
+    where: { eventMappingId: event.id },
+  });
+  validateSelection(event, subEvents, data.tickets);
 
   // Recompute prices from pretix (never trust client prices).
   const items = await pretixProducts.listItems(
