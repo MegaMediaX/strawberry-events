@@ -45,7 +45,7 @@ export function InviteUserForm({
     });
     setBusy(false);
     if (res.ok) {
-      setMsg({ ok: true, text: `Invite sent to ${form.email}.` });
+      setMsg({ ok: !res.warning, text: res.warning ?? `Invite sent to ${form.email}.` });
       setForm({ ...form, email: "", name: "" });
       router.refresh();
     } else {

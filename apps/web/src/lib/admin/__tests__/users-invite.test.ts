@@ -10,7 +10,7 @@ vi.mock("@/lib/db/client", () => ({
     auditLog: { create: vi.fn() },
   },
 }));
-vi.mock("@/lib/email/service", () => ({ sendEmail: vi.fn() }));
+vi.mock("@/lib/email/service", () => ({ sendEmail: vi.fn(() => Promise.resolve(true)) }));
 vi.mock("@/lib/tokens/reset-token", () => ({
   generateResetToken: () => ({ token: "plain-tok", tokenHash: "hash-tok" }),
 }));
@@ -40,6 +40,7 @@ beforeEach(() => {
   m(prisma.user.create).mockResolvedValue({ id: "newU", email: "x@y.com" });
   m(prisma.organizationMember.create).mockResolvedValue({});
   m(prisma.passwordResetToken.create).mockResolvedValue({});
+  m(sendEmail).mockResolvedValue(true);
 });
 
 describe("inviteUser — happy path", () => {
@@ -51,6 +52,7 @@ describe("inviteUser — happy path", () => {
       role: "checkin_staff",
     });
     expect(res.userId).toBe("newU");
+    expect(res.emailSent).toBe(true);
     // email normalized + name trimmed
     expect(m(prisma.user.create).mock.calls[0][0].data).toMatchObject({
       email: "new.person@example.com",
@@ -67,6 +69,14 @@ describe("inviteUser — happy path", () => {
       tokenHash: "hash-tok",
     });
     expect(sendEmail).toHaveBeenCalledTimes(1);
+    expect(prisma.auditLog.create).toHaveBeenCalled();
+  });
+
+  it("still creates the account but reports emailSent=false when delivery fails", async () => {
+    m(sendEmail).mockResolvedValue(false);
+    const res = await inviteUser(orgAdmin, { email: "a@b.com", organizationId: "orgA", role: "finance" });
+    expect(res.emailSent).toBe(false);
+    expect(prisma.user.create).toHaveBeenCalled();
     expect(prisma.auditLog.create).toHaveBeenCalled();
   });
 });

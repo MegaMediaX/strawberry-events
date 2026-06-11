@@ -9,6 +9,7 @@ import type { Locale } from "@/lib/email/templates";
 export interface ActionResult {
   ok: boolean;
   error?: string;
+  warning?: string;
 }
 
 export async function inviteUserAction(
@@ -18,9 +19,11 @@ export async function inviteUserAction(
   const session = await getSessionContext();
   if (!session) return { ok: false, error: "Not authenticated" };
   try {
-    await inviteUser(session, input, locale === "ar" ? "ar" : ("en" as Locale));
+    const { emailSent } = await inviteUser(session, input, locale === "ar" ? "ar" : ("en" as Locale));
     revalidatePath(`/${locale}/admin/users`);
-    return { ok: true };
+    return emailSent
+      ? { ok: true }
+      : { ok: true, warning: "User created, but the invite email could not be sent. Resend it from the user's page." };
   } catch (err) {
     return { ok: false, error: (err as Error).message };
   }

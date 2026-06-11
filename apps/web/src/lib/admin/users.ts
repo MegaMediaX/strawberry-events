@@ -67,7 +67,7 @@ export async function inviteUser(
   session: SessionContext,
   input: InviteInput,
   locale: Locale = "en",
-): Promise<{ userId: string }> {
+): Promise<{ userId: string; emailSent: boolean }> {
   assertCanManageUsers(session);
 
   if (input.role === "super_admin" && !session.isSuperAdmin) {
@@ -99,13 +99,15 @@ export async function inviteUser(
     data: { userId: user.id, tokenHash, expiresAt: new Date(Date.now() + INVITE_TTL_MS) },
   });
   const url = `${process.env.APP_URL ?? ""}/${locale}/reset-password?token=${token}`;
-  await sendEmail(
+  const emailSent = await sendEmail(
     { to: email, ...userInviteEmail(locale, url, org.name) },
     { templateType: "user_invite", organizationId: org.id, attendeeRef: user.id },
   );
 
   await audit(session, org.id, "user.invited", user.id);
-  return { userId: user.id };
+  // The account + token are created regardless; the caller surfaces a delivery
+  // failure so the admin can resend rather than believing the invite arrived.
+  return { userId: user.id, emailSent };
 }
 
 export async function listUsers(session: SessionContext, filters: UserFilters = {}) {
