@@ -5,6 +5,8 @@ import { getEventForSession, listTickets, listSubEvents } from "@/lib/events/ser
 import { centsToPrice } from "@/lib/pretix/mappers";
 import { TicketBuilder } from "./ticket-builder";
 import { SubEventBuilder } from "./sub-event-builder";
+import { InviteControls } from "./invite-controls";
+import { EmailInvitePanel } from "./email-invite-panel";
 
 export default async function TicketsPage({
   params,
@@ -36,6 +38,8 @@ export default async function TicketsPage({
               <th className="py-2">Ticket</th>
               <th>Price</th>
               <th>Active</th>
+              <th>Invite only</th>
+              <th>Invite link</th>
             </tr>
           </thead>
           <tbody>
@@ -44,6 +48,14 @@ export default async function TicketsPage({
                 <td className="py-2">{i.titleEn}</td>
                 <td>${centsToPrice(i.priceCents)}</td>
                 <td>{i.active ? "✓" : "—"}</td>
+                <td colSpan={2}>
+                  <InviteControls
+                    locale={locale}
+                    eventId={id}
+                    itemId={i.id}
+                    isInviteOnly={event.inviteOnlyItemIds.includes(i.id)}
+                  />
+                </td>
               </tr>
             ))}
           </tbody>
@@ -51,6 +63,12 @@ export default async function TicketsPage({
       )}
 
       <TicketBuilder locale={locale} eventId={id} />
+
+      <EmailInvitePanel
+        locale={locale}
+        eventId={id}
+        inviteOnlyItemIds={event.inviteOnlyItemIds}
+      />
 
       <h2 className="mb-3 mt-8 text-xl font-semibold">Sub-events</h2>
       {subEvents.length === 0 ? (

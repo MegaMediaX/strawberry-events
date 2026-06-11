@@ -6,6 +6,8 @@ import { PretixValidationError } from "@/lib/pretix/errors";
 import { centsToPrice } from "@/lib/pretix/mappers";
 import { selectProvider } from "@/lib/payments/provider";
 import { signMagicLink } from "@/lib/tokens/magic-link";
+import { verifyInvite, type InvitePayload } from "@/lib/tokens/invite";
+import { sha256 } from "@/lib/crypto";
 import { sendEmail } from "@/lib/email/service";
 import {
   pendingEmail,
@@ -19,6 +21,48 @@ import { emit } from "@/lib/webhooks/service";
 import { getEventFields, getFieldsForTicket, validateRequiredAnswers } from "@/lib/admin/custom-fields";
 import { registerInputSchema, type RegisterInput } from "./schema";
 import { validateSelection } from "@/lib/events/conflicts";
+
+/**
+ * Pure, unit-testable guard: throws if invite-only items are selected without
+ * a valid invite that covers them.
+ */
+export function assertInviteAllows(
+  payload: InvitePayload | null,
+  eventSlug: string,
+  inviteOnlyItemIds: number[],
+  selectedItemIds: number[],
+): void {
+  const inviteOnly = new Set(inviteOnlyItemIds);
+  const selectedInviteOnly = selectedItemIds.filter((id) => inviteOnly.has(id));
+  if (selectedInviteOnly.length === 0) return; // no invite-only items → no check needed
+
+  if (!payload) {
+    throw new Error("This ticket requires a valid invitation");
+  }
+  if (payload.ev !== eventSlug) {
+    throw new Error("This ticket requires a valid invitation");
+  }
+  const allowed = new Set(payload.items);
+  for (const id of selectedInviteOnly) {
+    if (!allowed.has(id)) {
+      throw new Error("This ticket requires a valid invitation");
+    }
+  }
+}
+
+/**
+ * Pure guard: if the invite payload is email-bound, verify the registrant
+ * email matches (case-insensitive). Throws on mismatch — testable without DB.
+ */
+export function assertEmailMatches(
+  invitePayload: InvitePayload | null,
+  attendeeEmail: string,
+): void {
+  if (!invitePayload?.email) return; // stateless link — no email check
+  if (invitePayload.email.toLowerCase() !== attendeeEmail.toLowerCase()) {
+    throw new Error("This invitation was issued to a different email address");
+  }
+}
 
 export interface RegisterResult {
   orderCode: string;
@@ -45,6 +89,28 @@ export async function register(input: RegisterInput): Promise<RegisterResult> {
     where: { eventMappingId: event.id },
   });
   validateSelection(event, subEvents, data.tickets);
+
+  // Invite-only enforcement: verify token covers every invite-only item selected.
+  const invitePayload = data.inviteToken ? verifyInvite(data.inviteToken) : null;
+  assertInviteAllows(
+    invitePayload,
+    event.pretixEventSlug,
+    event.inviteOnlyItemIds,
+    data.tickets.map((t) => t.itemId),
+  );
+
+  // Email-bound invite: validate email match + single-use DB record.
+  assertEmailMatches(invitePayload, data.attendee.email);
+  let inviteTokenHash: string | null = null;
+  if (invitePayload?.email && data.inviteToken) {
+    inviteTokenHash = sha256(data.inviteToken);
+    const invite = await prisma.invite.findUnique({ where: { tokenHash: inviteTokenHash } });
+    if (!invite) throw new Error("Invitation not found");
+    if (invite.redeemedAt) throw new Error("This invitation has already been used");
+    if (invite.expiresAt && invite.expiresAt < new Date()) {
+      throw new Error("This invitation has expired");
+    }
+  }
 
   // Recompute prices from pretix (never trust client prices).
   const items = await pretixProducts.listItems(
@@ -160,6 +226,7 @@ export async function register(input: RegisterInput): Promise<RegisterResult> {
       provider,
       totalCents,
       roleTag:
+        invitePayload?.tag ??
         data.roleTag ??
         tagForItem(
           (event.itemTagMap ?? {}) as Record<string, unknown>,
@@ -169,6 +236,18 @@ export async function register(input: RegisterInput): Promise<RegisterResult> {
       magicLinkToken,
     },
   });
+
+  // Mark email-bound invite as redeemed (best-effort; after order committed).
+  if (inviteTokenHash) {
+    try {
+      await prisma.invite.update({
+        where: { tokenHash: inviteTokenHash },
+        data: { redeemedAt: new Date(), redeemedOrderCode: order.code },
+      });
+    } catch (err) {
+      console.error("[register] invite redemption mark failed:", (err as Error).message);
+    }
+  }
 
   // Keep the signed-in user's profile in sync with what they just entered.
   // Best-effort: a profile write must never roll back a committed registration.

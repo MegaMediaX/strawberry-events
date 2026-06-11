@@ -39,6 +39,7 @@ export function RegistrationWizard({
   subEvents = [],
   ticketsPerUserMain = 1,
   ticketsPerUserTotal = 1,
+  inviteToken,
 }: {
   locale: string;
   slug: string;
@@ -48,6 +49,7 @@ export function RegistrationWizard({
   subEvents?: SubEventItem[];
   ticketsPerUserMain?: number;
   ticketsPerUserTotal?: number;
+  inviteToken?: string;
 }) {
   const hasSubEvents = subEvents.length > 0;
   const STEPS = buildSteps(hasSubEvents);
@@ -145,6 +147,7 @@ export function RegistrationWizard({
       tickets: allTickets,
       seatIds: seatSections ? seatIds : undefined,
       answers: scopedAnswers,
+      inviteToken,
       consentTerms: terms,
       consentPrivacy: privacy,
     });

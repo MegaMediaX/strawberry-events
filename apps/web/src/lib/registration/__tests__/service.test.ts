@@ -22,7 +22,8 @@ import { prisma } from "@/lib/db/client";
 import * as pretixProducts from "@/lib/pretix/products";
 import * as pretixOrders from "@/lib/pretix/orders";
 import * as email from "@/lib/email/service";
-import { register } from "@/lib/registration/service";
+import { register, assertInviteAllows } from "@/lib/registration/service";
+import { signInvite } from "@/lib/tokens/invite";
 
 const mock = <T,>(fn: T) => fn as unknown as ReturnType<typeof vi.fn>;
 
@@ -39,6 +40,7 @@ beforeEach(() => {
     visibility: "public",
     approvalMode: "none",
     autoApproveItemIds: [],
+    inviteOnlyItemIds: [],
     ticketsPerUserMain: 10,
     ticketsPerUserTotal: 10,
   });
@@ -234,5 +236,52 @@ describe("register", () => {
     await register({ ...base, tickets: [{ itemId: 7, quantity: 1 }] });
 
     expect(prisma.userProfile.upsert).not.toHaveBeenCalled();
+  });
+});
+
+describe("assertInviteAllows", () => {
+  beforeEach(() => {
+    process.env.WEBHOOK_SECRET = "s";
+  });
+
+  it("allows a public-only selection with no token", () => {
+    expect(() =>
+      assertInviteAllows(null, "expo", [99], [7]),
+    ).not.toThrow();
+  });
+
+  it("allows when a valid invite covers all selected invite-only items", () => {
+    const payload = signInvite({ ev: "expo", items: [99] });
+    const parsed = { ev: "expo", items: [99] };
+    expect(() =>
+      assertInviteAllows(parsed, "expo", [99], [99]),
+    ).not.toThrow();
+  });
+
+  it("throws when invite-only item selected with no token", () => {
+    expect(() =>
+      assertInviteAllows(null, "expo", [99], [99]),
+    ).toThrow("valid invitation");
+  });
+
+  it("throws when token is for a different event", () => {
+    const payload = { ev: "other-event", items: [99] };
+    expect(() =>
+      assertInviteAllows(payload, "expo", [99], [99]),
+    ).toThrow("valid invitation");
+  });
+
+  it("throws when token does not cover a selected invite-only item", () => {
+    const payload = { ev: "expo", items: [88] };
+    expect(() =>
+      assertInviteAllows(payload, "expo", [99], [99]),
+    ).toThrow("valid invitation");
+  });
+
+  it("allows a mix of public + invite-only when token covers the invite-only item", () => {
+    const payload = { ev: "expo", items: [99] };
+    expect(() =>
+      assertInviteAllows(payload, "expo", [99], [7, 99]),
+    ).not.toThrow();
   });
 });

@@ -21,6 +21,8 @@ export const registerInputSchema = z.object({
   roleTag: z.enum(["media", "partner", "staff", "speaker", "visitor"]).optional(),
   // Modular per-ticket custom field answers.
   answers: z.array(z.object({ fieldId: z.string(), value: z.string() })).optional(),
+  // Invite token for invite-only tickets (set by the register page from the URL).
+  inviteToken: z.string().optional(),
   consentTerms: z.literal(true, { message: "You must accept the Terms" }),
   consentPrivacy: z.literal(true, { message: "You must accept the Privacy Policy" }),
 });

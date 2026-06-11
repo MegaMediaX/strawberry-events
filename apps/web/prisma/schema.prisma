@@ -283,6 +283,7 @@ model EventMapping {
   accountMode         AccountMode  @default(optional)
   approvalMode        ApprovalMode @default(none)
   autoApproveItemIds  Int[]        @default([])
+  inviteOnlyItemIds   Int[]        @default([])
   payBeforeApproval   Boolean      @default(false)
   itemTagMap          Json         @default("{}")
   seatSelectionEnabled Boolean     @default(false)
@@ -325,6 +326,7 @@ model EventMapping {
   attendeeOrders   AttendeeOrder[]
   waitlistEntries  WaitlistEntry[]
   subEvents        SubEvent[]
+  invites          Invite[]
 
   @@unique([pretixOrganizerSlug, pretixEventSlug])
   @@index([organizationId])
@@ -771,6 +773,32 @@ model AttendeeOrder {
   @@index([eventMappingId, status])
   @@index([eventMappingId, approvalStatus])
   @@map("attendee_orders")
+}
+
+// ---------------------------------------------------------------------------
+// Email-bound single-use invites (Phase B)
+// ---------------------------------------------------------------------------
+
+model Invite {
+  id                 String      @id @default(cuid())
+  eventMappingId     String
+  email              String
+  itemIds            Int[]       @default([])
+  tag                AttendeeTag?
+  // SHA-256 of the signed invite token — deterministic unique-index lookup.
+  // A DB breach yields no usable invite link; the plaintext exists only in transit.
+  tokenHash          String      @unique
+  expiresAt          DateTime?
+  redeemedAt         DateTime?
+  redeemedOrderCode  String?
+  createdByUserId    String?
+  createdAt          DateTime    @default(now())
+
+  eventMapping EventMapping @relation(fields: [eventMappingId], references: [id], onDelete: Cascade)
+
+  @@index([eventMappingId])
+  @@index([email])
+  @@map("invites")
 }
 
 model WaitlistEntry {
