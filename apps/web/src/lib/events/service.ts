@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { Organization, EventMapping } from "@prisma/client";
+import type { Organization, EventMapping, Invite, AttendeeTag } from "@prisma/client";
 import { prisma } from "@/lib/db/client";
 import { scopeWhere, canAccessEvent } from "@/lib/auth/org-scope";
 import { assertRole, ForbiddenError } from "@/lib/auth/guards";
@@ -9,6 +9,10 @@ import * as pretixEvents from "@/lib/pretix/events";
 import * as pretixProducts from "@/lib/pretix/products";
 import { saveCoverImage, deleteCoverImage } from "./cover-image";
 import type { EventInput, TicketInput, SubEventInput } from "./schema";
+import { sha256 } from "@/lib/crypto";
+import { signInvite } from "@/lib/tokens/invite";
+import { sendEmail } from "@/lib/email/service";
+import { inviteEmail } from "@/lib/email/templates";
 
 /**
  * Event/ticket/quota configuration is restricted to organizer admins and super
@@ -497,4 +501,126 @@ export async function generateInviteLink(
     String(itemId),
   );
   return `${appUrl}/${options.locale}/events/${mapping.pretixEventSlug}/register?invite=${token}`;
+}
+
+export interface CreateEmailInvitesInput {
+  emails: string[];
+  itemIds: number[];
+  tag?: AttendeeTag;
+  expiresAt?: Date | null;
+}
+
+export interface CreateEmailInvitesResult {
+  sent: number;
+  skipped: string[];
+}
+
+/**
+ * Issue email-bound, single-use invites for specific attendees.
+ * Deduplicates against existing un-redeemed, un-expired invites for the
+ * same event+email combination. Emails are best-effort — a send failure
+ * never aborts the invite creation.
+ */
+export async function createEmailInvites(
+  session: SessionContext,
+  eventId: string,
+  input: CreateEmailInvitesInput,
+): Promise<CreateEmailInvitesResult> {
+  assertCanManageEvents(session);
+  const mapping = await getEventForSession(session, eventId);
+  if (!mapping) throw new Error("Event not found or access denied");
+
+  const appUrl = process.env.APP_URL ?? "";
+  const slug = mapping.pretixEventSlug;
+  const expEpoch = input.expiresAt
+    ? Math.floor(input.expiresAt.getTime() / 1000)
+    : undefined;
+
+  // Normalise and deduplicate the submitted list.
+  const unique = [...new Set(input.emails.map((e) => e.trim().toLowerCase()).filter(Boolean))];
+
+  // Find existing active (unredeemed + unexpired) invites for this event.
+  const existing = await prisma.invite.findMany({
+    where: {
+      eventMappingId: mapping.id,
+      email: { in: unique },
+      redeemedAt: null,
+    },
+    select: { email: true, expiresAt: true },
+  });
+  const now = new Date();
+  const activeEmails = new Set(
+    existing
+      .filter((r) => !r.expiresAt || r.expiresAt > now)
+      .map((r) => r.email),
+  );
+
+  const skipped: string[] = [];
+  let sent = 0;
+
+  for (const email of unique) {
+    if (activeEmails.has(email)) {
+      skipped.push(email);
+      continue;
+    }
+
+    const token = signInvite({
+      ev: slug,
+      items: input.itemIds,
+      tag: input.tag,
+      email,
+      exp: expEpoch,
+    });
+    const tokenHash = sha256(token);
+    const link = `${appUrl}/en/events/${slug}/register?invite=${token}`;
+
+    await prisma.invite.create({
+      data: {
+        eventMappingId: mapping.id,
+        email,
+        itemIds: input.itemIds,
+        tag: input.tag ?? null,
+        tokenHash,
+        expiresAt: input.expiresAt ?? null,
+        createdByUserId: session.userId ?? null,
+      },
+    });
+
+    try {
+      const msg = inviteEmail("en", mapping.titleEn, link);
+      await sendEmail(
+        { to: email, ...msg },
+        { templateType: "invite", organizationId: mapping.organizationId, eventMappingId: mapping.id },
+      );
+    } catch {
+      // best-effort
+    }
+
+    sent++;
+  }
+
+  await writeAudit(
+    session,
+    mapping.organizationId,
+    "invite.created",
+    "event",
+    mapping.id,
+  );
+
+  return { sent, skipped };
+}
+
+/** List invites for an event (newest first) — for the admin UI. */
+export async function listInvites(
+  session: SessionContext,
+  eventId: string,
+): Promise<Invite[]> {
+  assertCanManageEvents(session);
+  const mapping = await getEventForSession(session, eventId);
+  if (!mapping) throw new Error("Event not found or access denied");
+
+  return prisma.invite.findMany({
+    where: { eventMappingId: mapping.id },
+    orderBy: { createdAt: "desc" },
+  });
 }

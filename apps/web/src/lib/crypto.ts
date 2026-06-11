@@ -1,4 +1,9 @@
-import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
+import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:crypto";
+
+/** SHA-256 hex digest of a string (used for deterministic unique-index lookups). */
+export function sha256(input: string): string {
+  return createHash("sha256").update(input).digest("hex");
+}
 
 const ALGO = "aes-256-gcm";
 

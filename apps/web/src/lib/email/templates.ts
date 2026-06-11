@@ -142,6 +142,23 @@ export function orderCanceledEmail(
   };
 }
 
+export function inviteEmail(
+  locale: Locale,
+  eventTitle: string,
+  inviteUrl: string,
+): RenderedEmail {
+  if (locale === "ar") {
+    return {
+      subject: `دعوة شخصية للتسجيل في ${eventTitle}`,
+      text: `تمت دعوتك للتسجيل في ${eventTitle}.\nهذا الرابط شخصي وللاستخدام مرة واحدة فقط — لا تشاركه مع أحد:\n${inviteUrl}\nإذا لم تكن تتوقع هذه الدعوة، يمكنك تجاهل هذه الرسالة.`,
+    };
+  }
+  return {
+    subject: `You're invited to register for ${eventTitle}`,
+    text: `You've been personally invited to register for ${eventTitle}.\nThis link is for you only and can be used once — please do not share it:\n${inviteUrl}\nIf you weren't expecting this, you can ignore this email.`,
+  };
+}
+
 export function passwordResetEmail(locale: Locale, resetUrl: string): RenderedEmail {
   if (locale === "ar") {
     return {

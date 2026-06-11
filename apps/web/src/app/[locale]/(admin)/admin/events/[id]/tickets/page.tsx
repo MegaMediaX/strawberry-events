@@ -6,6 +6,7 @@ import { centsToPrice } from "@/lib/pretix/mappers";
 import { TicketBuilder } from "./ticket-builder";
 import { SubEventBuilder } from "./sub-event-builder";
 import { InviteControls } from "./invite-controls";
+import { EmailInvitePanel } from "./email-invite-panel";
 
 export default async function TicketsPage({
   params,
@@ -62,6 +63,12 @@ export default async function TicketsPage({
       )}
 
       <TicketBuilder locale={locale} eventId={id} />
+
+      <EmailInvitePanel
+        locale={locale}
+        eventId={id}
+        inviteOnlyItemIds={event.inviteOnlyItemIds}
+      />
 
       <h2 className="mb-3 mt-8 text-xl font-semibold">Sub-events</h2>
       {subEvents.length === 0 ? (
