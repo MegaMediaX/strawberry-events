@@ -1,7 +1,8 @@
 import Link from "next/link";
 import { setRequestLocale } from "next-intl/server";
 import { getSessionContext, requireRole } from "@/lib/auth/session";
-import { listUsers } from "@/lib/admin/users";
+import { listUsers, invitableOrgs, grantableRoles } from "@/lib/admin/users";
+import { InviteUserForm } from "./invite-user-form";
 
 export const dynamic = "force-dynamic";
 
@@ -23,13 +24,19 @@ export default async function UsersPage({
   const session = await getSessionContext();
   if (!session) return null;
 
-  const users = await listUsers(session, { q: sp.q, role: sp.role });
+  const [users, orgs] = await Promise.all([
+    listUsers(session, { q: sp.q, role: sp.role }),
+    invitableOrgs(session),
+  ]);
+  const roles = grantableRoles(session);
   const sel = "rounded-md border border-border bg-background px-2 py-1.5 text-sm";
 
   return (
     <div>
       <h1 className="text-2xl font-bold">Users</h1>
       <p className="mt-1 text-sm text-muted-foreground">Staff and admins you can manage.</p>
+
+      <InviteUserForm locale={locale} orgs={orgs} roles={roles} />
 
       <form className="mt-4 flex flex-wrap gap-2" method="get">
         <input className={sel} type="search" name="q" placeholder="Name / email" defaultValue={sp.q ?? ""} />
