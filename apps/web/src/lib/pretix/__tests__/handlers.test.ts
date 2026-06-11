@@ -38,6 +38,9 @@ const order = (o: Record<string, unknown> = {}) => ({
   status: "pending",
   approvalStatus: "not_required",
   magicLinkToken: "mlt",
+  email: "a@b.com",
+  userId: null,
+  eventMapping: { titleEn: "Expo" },
   ...o,
 });
 
@@ -101,13 +104,15 @@ describe("handleOrderCanceled", () => {
     expect(releaseSeats).not.toHaveBeenCalled();
   });
 
-  it("cancels, releases seats, and emits seat.released", async () => {
+  it("cancels, releases seats, emits seat.released, and emails the attendee", async () => {
     mock(prisma.attendeeOrder.findFirst).mockResolvedValue(order());
     await handleOrderCanceled(ctx);
     const arg = mock(prisma.attendeeOrder.updateMany).mock.calls[0][0];
     expect(arg.data).toMatchObject({ status: "canceled" });
     expect(releaseSeats).toHaveBeenCalledWith("ABC12");
     expect(mock(emit).mock.calls.map((c) => c[1])).toContain("seat.released");
+    expect(sendEmail).toHaveBeenCalledTimes(1);
+    expect(mock(sendEmail).mock.calls[0][1]).toMatchObject({ templateType: "order_canceled" });
   });
 });
 
