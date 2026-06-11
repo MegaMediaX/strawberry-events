@@ -6,6 +6,7 @@ vi.mock("@/lib/db/client", () => ({
     organization: { findUnique: vi.fn() },
     attendeeOrder: { create: vi.fn() },
     userProfile: { upsert: vi.fn() },
+    subEvent: { findMany: vi.fn() },
     customFormField: { findMany: vi.fn() },
     customFormAnswer: { createMany: vi.fn() },
   },
@@ -38,7 +39,10 @@ beforeEach(() => {
     visibility: "public",
     approvalMode: "none",
     autoApproveItemIds: [],
+    ticketsPerUserMain: 10,
+    ticketsPerUserTotal: 10,
   });
+  mock(prisma.subEvent.findMany).mockResolvedValue([]);
   mock(prisma.organization.findUnique).mockResolvedValue({
     id: "orgA",
     pretixOrganizerSlug: "acme",

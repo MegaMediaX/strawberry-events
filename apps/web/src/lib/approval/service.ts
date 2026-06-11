@@ -113,6 +113,17 @@ export async function approve(session: SessionContext, orderId: string) {
   const locale = await recipientLocale(order.userId);
 
   const isFree = order.provider === "free" || order.totalCents === 0;
+
+  // payBeforeApproval: when the event requires payment to precede approval, a
+  // paid-tier order may not be approved until it has actually been paid. Free
+  // orders are exempt (nothing to pay). Without this flag, approval of a paid
+  // order leaves it approved+pending-payment as before.
+  if (order.eventMapping.payBeforeApproval && !isFree && order.status !== "paid") {
+    throw new ForbiddenError(
+      "Payment must be completed before this registration can be approved",
+    );
+  }
+
   const newStatus: "pending" | "paid" = isFree ? "paid" : "pending";
 
   // Claim the transition atomically (closes the double-decision TOCTOU race).

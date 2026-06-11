@@ -1,9 +1,10 @@
 import { notFound } from "next/navigation";
 import { setRequestLocale } from "next-intl/server";
 import { getSessionContext, requireRole } from "@/lib/auth/session";
-import { getEventForSession, listTickets } from "@/lib/events/service";
+import { getEventForSession, listTickets, listSubEvents } from "@/lib/events/service";
 import { centsToPrice } from "@/lib/pretix/mappers";
 import { TicketBuilder } from "./ticket-builder";
+import { SubEventBuilder } from "./sub-event-builder";
 
 export default async function TicketsPage({
   params,
@@ -19,6 +20,7 @@ export default async function TicketsPage({
   if (!event) notFound();
 
   const items = await listTickets(session!, id);
+  const subEvents = await listSubEvents(session!, id);
 
   return (
     <div className="max-w-2xl">
@@ -49,6 +51,36 @@ export default async function TicketsPage({
       )}
 
       <TicketBuilder locale={locale} eventId={id} />
+
+      <h2 className="mb-3 mt-8 text-xl font-semibold">Sub-events</h2>
+      {subEvents.length === 0 ? (
+        <p className="mb-4 text-muted-foreground">No sub-events yet.</p>
+      ) : (
+        <table className="mb-6 w-full text-sm">
+          <thead>
+            <tr className="border-b text-left text-muted-foreground">
+              <th className="py-2">Title</th>
+              <th>Category</th>
+              <th>Location</th>
+              <th>From</th>
+              <th>To</th>
+            </tr>
+          </thead>
+          <tbody>
+            {subEvents.map((s) => (
+              <tr key={s.id} className="border-b">
+                <td className="py-2">{s.titleEn}</td>
+                <td>{s.category}</td>
+                <td>{s.location ?? "—"}</td>
+                <td>{s.dateFrom.toISOString().slice(0, 16).replace("T", " ")}</td>
+                <td>{s.dateTo.toISOString().slice(0, 16).replace("T", " ")}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+
+      <SubEventBuilder locale={locale} eventId={id} />
     </div>
   );
 }

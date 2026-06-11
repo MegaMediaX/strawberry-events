@@ -8,7 +8,7 @@ import { resolvePretixContext } from "@/lib/pretix/context";
 import * as pretixEvents from "@/lib/pretix/events";
 import * as pretixProducts from "@/lib/pretix/products";
 import { saveCoverImage, deleteCoverImage } from "./cover-image";
-import type { EventInput, TicketInput } from "./schema";
+import type { EventInput, TicketInput, SubEventInput } from "./schema";
 
 /**
  * Event/ticket/quota configuration is restricted to organizer admins and super
@@ -123,6 +123,10 @@ export async function createEvent(
         waitlistEnabled: input.waitlistEnabled,
         seatSelectionEnabled: input.seatSelectionEnabled,
         badgeAutoPrint: input.badgeAutoPrint,
+        payBeforeApproval: input.payBeforeApproval,
+        maxAttendees: input.maxAttendees ?? null,
+        ticketsPerUserMain: input.ticketsPerUserMain ?? 1,
+        ticketsPerUserTotal: input.ticketsPerUserTotal ?? 1,
         ...locationData(input),
       },
     });
@@ -219,6 +223,12 @@ export async function updateEvent(
       waitlistEnabled: input.waitlistEnabled,
       seatSelectionEnabled: input.seatSelectionEnabled,
       badgeAutoPrint: input.badgeAutoPrint,
+      payBeforeApproval: input.payBeforeApproval,
+      maxAttendees: input.maxAttendees ?? null,
+      // Only overwrite the per-user caps when the form actually supplied them;
+      // a blank field arrives as undefined and must NOT silently reset to 1.
+      ...(input.ticketsPerUserMain != null && { ticketsPerUserMain: input.ticketsPerUserMain }),
+      ...(input.ticketsPerUserTotal != null && { ticketsPerUserTotal: input.ticketsPerUserTotal }),
       ...locationData(input),
     },
   });
@@ -328,4 +338,88 @@ export async function createTicket(
 
   await writeAudit(session, org.id, "ticket.created", "ticket", String(item.id));
   return { itemId: item.id, quotaId: quota.id };
+}
+
+/** List sub-events for an event the session can access. */
+export async function listSubEvents(session: SessionContext, eventId: string) {
+  const mapping = await getEventForSession(session, eventId);
+  if (!mapping) throw new Error("Event not found or access denied");
+  return prisma.subEvent.findMany({
+    where: { eventMappingId: mapping.id },
+    orderBy: { dateFrom: "asc" },
+  });
+}
+
+/**
+ * Create a sub-event (pretix item + quota) on an event the session can access.
+ * Records pretix object ids locally and writes an audit entry.
+ */
+export async function createSubEvent(
+  session: SessionContext,
+  eventId: string,
+  input: SubEventInput,
+) {
+  assertCanManageEvents(session);
+  const mapping = await getEventForSession(session, eventId);
+  if (!mapping) throw new Error("Event not found or access denied");
+  const org = await prisma.organization.findUnique({
+    where: { id: mapping.organizationId },
+  });
+  if (!org) throw new Error("Organization not found");
+  const ctx = resolvePretixContext(org);
+
+  const item = await pretixProducts.createItem(
+    ctx.organizerSlug,
+    mapping.pretixEventSlug,
+    { titleEn: input.titleEn, titleAr: input.titleAr, priceCents: input.priceCents },
+    ctx.token,
+  );
+
+  const quota = await pretixProducts.createQuota(
+    ctx.organizerSlug,
+    mapping.pretixEventSlug,
+    {
+      name: `${input.titleEn} quota`,
+      size: input.maxAttendees ?? null,
+      items: [item.id],
+    },
+    ctx.token,
+  );
+
+  const subEvent = await prisma.subEvent.create({
+    data: {
+      eventMappingId: mapping.id,
+      titleEn: input.titleEn,
+      titleAr: input.titleAr ?? null,
+      category: input.category,
+      location: input.location ?? null,
+      dateFrom: new Date(input.dateFrom),
+      dateTo: new Date(input.dateTo),
+      priceCents: input.priceCents,
+      maxAttendees: input.maxAttendees ?? null,
+      ticketsPerUser: input.ticketsPerUser,
+      pretixItemId: item.id,
+      pretixQuotaId: quota.id,
+    },
+  });
+
+  await prisma.pretixObjectMapping.create({
+    data: {
+      eventMappingId: mapping.id,
+      objectType: "item",
+      localId: subEvent.id,
+      pretixId: String(item.id),
+    },
+  });
+  await prisma.pretixObjectMapping.create({
+    data: {
+      eventMappingId: mapping.id,
+      objectType: "quota",
+      localId: subEvent.id,
+      pretixId: String(quota.id),
+    },
+  });
+
+  await writeAudit(session, org.id, "subevent.created", "subevent", subEvent.id);
+  return subEvent;
 }

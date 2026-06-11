@@ -11,6 +11,7 @@ import { PhoneCountryField } from "./phone-country-field";
 import { SeatSelector } from "@/components/seats/seat-selector";
 import { getFieldsForTicket, validateRequiredAnswers, fieldOptions, type FieldDef } from "@/lib/forms/fields";
 import { registerAction } from "@/app/[locale]/(public)/events/[slug]/register/actions";
+import { SubEventPicker, type SubEventItem, type SubEventSelection } from "./sub-event-picker";
 
 interface WizardTicket {
   id: number;
@@ -18,7 +19,16 @@ interface WizardTicket {
   priceCents: number;
 }
 
-const STEPS = ["Details", "Tickets", "Confirm"];
+/** Step labels — Sessions step is skipped when there are no sub-events. */
+function buildSteps(hasSubEvents: boolean): string[] {
+  return hasSubEvents
+    ? ["Details", "Tickets", "Sessions", "Confirm"]
+    : ["Details", "Tickets", "Confirm"];
+}
+
+const CONFIRM_STEP_NO_SUB = 2;
+const CONFIRM_STEP_WITH_SUB = 3;
+const SESSIONS_STEP = 2;
 
 export function RegistrationWizard({
   locale,
@@ -26,13 +36,23 @@ export function RegistrationWizard({
   tickets,
   seatSections,
   customFields = [],
+  subEvents = [],
+  ticketsPerUserMain = 1,
+  ticketsPerUserTotal = 1,
 }: {
   locale: string;
   slug: string;
   tickets: WizardTicket[];
   seatSections?: import("@/components/seats/seat-selector").SectionNode[];
   customFields?: FieldDef[];
+  subEvents?: SubEventItem[];
+  ticketsPerUserMain?: number;
+  ticketsPerUserTotal?: number;
 }) {
+  const hasSubEvents = subEvents.length > 0;
+  const STEPS = buildSteps(hasSubEvents);
+  const CONFIRM_STEP = hasSubEvents ? CONFIRM_STEP_WITH_SUB : CONFIRM_STEP_NO_SUB;
+
   const reduce = useReducedMotion();
   const [step, setStep] = useState(0);
   const [err, setErr] = useState<string | null>(null);
@@ -48,6 +68,7 @@ export function RegistrationWizard({
     company: "",
   });
   const [qty, setQty] = useState<Record<number, number>>({});
+  const [subEventSelection, setSubEventSelection] = useState<SubEventSelection[]>([]);
   const [terms, setTerms] = useState(false);
   const [privacy, setPrivacy] = useState(false);
   const [answers, setAnswers] = useState<Record<string, string>>({});
@@ -63,10 +84,13 @@ export function RegistrationWizard({
     return [...byId.values()];
   })();
 
-  const totalCents = tickets.reduce(
-    (sum, t) => sum + (qty[t.id] ?? 0) * t.priceCents,
-    0,
-  );
+  const subEventCents = subEventSelection.reduce((sum, s) => {
+    const se = subEvents.find((x) => x.pretixItemId === s.itemId);
+    return sum + (se ? se.priceCents * s.quantity : 0);
+  }, 0);
+  const totalCents =
+    tickets.reduce((sum, t) => sum + (qty[t.id] ?? 0) * t.priceCents, 0) +
+    subEventCents;
   const hasTickets = Object.values(qty).some((q) => q > 0);
   const totalQty = Object.values(qty).reduce((sum, q) => sum + (q ?? 0), 0);
   const seatsRequired = !!seatSections && seatSections.length > 0;
@@ -90,7 +114,7 @@ export function RegistrationWizard({
         return;
       }
     }
-    setStep((s) => Math.min(2, s + 1));
+    setStep((s) => Math.min(CONFIRM_STEP, s + 1));
   }
 
   async function submit() {
@@ -112,11 +136,13 @@ export function RegistrationWizard({
     const scopedAnswers = scopedFields
       .map((f) => ({ fieldId: f.id, value: answers[f.id] ?? "" }))
       .filter((x) => x.value.trim());
+    const mainTickets = tickets
+      .filter((t) => (qty[t.id] ?? 0) > 0)
+      .map((t) => ({ itemId: t.id, quantity: qty[t.id] }));
+    const allTickets = [...mainTickets, ...subEventSelection.filter((s) => s.quantity > 0)];
     const res = await registerAction(locale, slug, {
       attendee: { ...a, company: a.company || null },
-      tickets: tickets
-        .filter((t) => (qty[t.id] ?? 0) > 0)
-        .map((t) => ({ itemId: t.id, quantity: qty[t.id] })),
+      tickets: allTickets,
       seatIds: seatSections ? seatIds : undefined,
       answers: scopedAnswers,
       consentTerms: terms,
@@ -237,7 +263,17 @@ export function RegistrationWizard({
               </div>
             )}
 
-            {step === 2 && (
+            {hasSubEvents && step === SESSIONS_STEP && (
+              <SubEventPicker
+                locale={locale}
+                subEvents={subEvents}
+                selected={subEventSelection}
+                totalAllowance={Math.max(0, ticketsPerUserTotal - totalQty)}
+                onChange={setSubEventSelection}
+              />
+            )}
+
+            {step === CONFIRM_STEP && (
               <div className="flex flex-col gap-4">
                 <div className="rounded-[var(--radius-lg)] border border-border p-3 text-sm">
                   <div className="font-medium">Order summary</div>
@@ -251,6 +287,17 @@ export function RegistrationWizard({
                         <span>${centsToPrice(t.priceCents * (qty[t.id] ?? 0))}</span>
                       </div>
                     ))}
+                  {subEventSelection.filter((s) => s.quantity > 0).map((s) => {
+                    const se = subEvents.find((x) => x.pretixItemId === s.itemId);
+                    if (!se) return null;
+                    const title = locale === "ar" && se.titleAr ? se.titleAr : se.titleEn;
+                    return (
+                      <div key={s.itemId} className="mt-1 flex justify-between">
+                        <span>{title} × {s.quantity}</span>
+                        <span>${centsToPrice(se.priceCents * s.quantity)}</span>
+                      </div>
+                    );
+                  })}
                   <div className="mt-2 flex justify-between border-t border-border pt-2 font-semibold">
                     <span>Total</span>
                     <span>{totalCents === 0 ? "Free" : `$${centsToPrice(totalCents)}`}</span>
@@ -348,7 +395,7 @@ export function RegistrationWizard({
         >
           Back
         </Button>
-        {step < 2 ? (
+        {step < CONFIRM_STEP ? (
           <Button type="button" onClick={next}>
             Next
           </Button>

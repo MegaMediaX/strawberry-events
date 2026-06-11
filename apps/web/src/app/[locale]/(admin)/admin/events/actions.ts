@@ -5,7 +5,7 @@ import { redirect } from "next/navigation";
 import { getSessionContext } from "@/lib/auth/session";
 import { getActiveOrg } from "@/lib/auth/active-org.server";
 import * as service from "@/lib/events/service";
-import { eventInputSchema, ticketInputSchema } from "@/lib/events/schema";
+import { eventInputSchema, ticketInputSchema, subEventInputSchema } from "@/lib/events/schema";
 import { PretixValidationError } from "@/lib/pretix/errors";
 
 export interface ActionResult {
@@ -92,6 +92,32 @@ export async function createTicketAction(
 
   try {
     await service.createTicket(session, eventId, parsed.data);
+  } catch (err) {
+    if (err instanceof PretixValidationError) {
+      return { fieldErrors: err.fieldErrors };
+    }
+    return { error: (err as Error).message };
+  }
+
+  revalidatePath(`/${locale}/admin/events/${eventId}/tickets`);
+  return {};
+}
+
+export async function createSubEventAction(
+  locale: string,
+  eventId: string,
+  values: unknown,
+): Promise<ActionResult> {
+  const session = await getSessionContext();
+  if (!session) return { error: "Not authenticated" };
+
+  const parsed = subEventInputSchema.safeParse(values);
+  if (!parsed.success) {
+    return { fieldErrors: zodToFieldErrors(parsed.error.issues) };
+  }
+
+  try {
+    await service.createSubEvent(session, eventId, parsed.data);
   } catch (err) {
     if (err instanceof PretixValidationError) {
       return { fieldErrors: err.fieldErrors };

@@ -46,6 +46,7 @@ export function EventForm({
       waitlistEnabled: false,
       seatSelectionEnabled: false,
       badgeAutoPrint: false,
+      payBeforeApproval: false,
       ...initial,
     },
   });
@@ -153,6 +154,13 @@ export function EventForm({
         <label className="flex items-center gap-2"><input type="checkbox" {...register("waitlistEnabled")} /> Enable waitlist when sold out</label>
         <label className="flex items-center gap-2"><input type="checkbox" {...register("seatSelectionEnabled")} /> Enable seat selection</label>
         <label className="flex items-center gap-2"><input type="checkbox" {...register("badgeAutoPrint")} /> Auto-print badge on check-in</label>
+        <label className="flex items-center gap-2"><input type="checkbox" {...register("payBeforeApproval")} /> Require payment before approval</label>
+        <div className="mt-2 border-t pt-3 text-sm font-medium text-muted-foreground">Capacity & ticket limits</div>
+        <div><Label>Max attendees (blank = unlimited)</Label><Input type="number" min={0} {...register("maxAttendees", { setValueAs: (v) => (v === "" || v == null ? null : Number(v)) })} />{err("maxAttendees")}</div>
+        <div className="grid grid-cols-2 gap-3">
+          <div><Label>Tickets per user — main event</Label><Input type="number" min={1} {...register("ticketsPerUserMain", { setValueAs: (v) => (v === "" || v == null ? undefined : Number(v)) })} />{err("ticketsPerUserMain")}</div>
+          <div><Label>Tickets per user — total</Label><Input type="number" min={1} {...register("ticketsPerUserTotal", { setValueAs: (v) => (v === "" || v == null ? undefined : Number(v)) })} />{err("ticketsPerUserTotal")}</div>
+        </div>
       </div>
 
       <div className={tab === "Tickets" ? "" : "hidden"}>
