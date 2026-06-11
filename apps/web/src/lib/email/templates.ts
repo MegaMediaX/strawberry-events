@@ -125,6 +125,23 @@ export function userInviteEmail(
   };
 }
 
+export function orderCanceledEmail(
+  locale: Locale,
+  eventTitle: string,
+  orderCode: string,
+): RenderedEmail {
+  if (locale === "ar") {
+    return {
+      subject: `تم إلغاء تسجيلك — ${eventTitle}`,
+      text: `نعلمك بأنه تم إلغاء تسجيلك في ${eventTitle}.\nرمز الطلب: ${orderCode}\nلم تعد تذكرتك صالحة. إذا كان لديك استفسار، يرجى التواصل مع المنظّم.`,
+    };
+  }
+  return {
+    subject: `Your registration was canceled — ${eventTitle}`,
+    text: `Your registration for ${eventTitle} has been canceled.\nOrder code: ${orderCode}\nYour ticket is no longer valid. If you have questions, please contact the organizer.`,
+  };
+}
+
 export function passwordResetEmail(locale: Locale, resetUrl: string): RenderedEmail {
   if (locale === "ar") {
     return {

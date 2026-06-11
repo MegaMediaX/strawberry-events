@@ -3,8 +3,10 @@ import { notFound } from "next/navigation";
 import { setRequestLocale } from "next-intl/server";
 import { getSessionContext, requireRole } from "@/lib/auth/session";
 import { getRegistrationDetail } from "@/lib/admin/registrations";
+import { hasAnyRole } from "@/lib/auth/guards";
 import { centsToPrice } from "@/lib/pretix/mappers";
 import { QrCodeDisplay } from "@/components/public/qr-code-display";
+import { CancelRegistrationButton } from "./cancel-registration-button";
 
 export const dynamic = "force-dynamic";
 
@@ -62,6 +64,9 @@ export default async function RegistrationDetailPage({
         <Link className="rounded-md border border-border px-3 py-1.5 hover:bg-muted" href={`/${locale}/admin/emails?q=${encodeURIComponent(o.orderCode)}`}>
           Emails
         </Link>
+        {(session.isSuperAdmin || hasAnyRole(session, ["organizer_admin"])) && o.state !== "canceled" && (
+          <CancelRegistrationButton locale={locale} orderId={id} />
+        )}
       </div>
 
       <div className="mt-6 grid gap-6 sm:grid-cols-2">
