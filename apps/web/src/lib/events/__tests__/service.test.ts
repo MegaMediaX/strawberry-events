@@ -119,6 +119,9 @@ describe("createEvent", () => {
     approvalMode: "none" as const,
     comingSoon: false,
     live: false,
+    waitlistEnabled: false,
+    seatSelectionEnabled: false,
+    badgeAutoPrint: false,
   };
 
   it("creates in pretix then writes a scoped mapping + audit", async () => {

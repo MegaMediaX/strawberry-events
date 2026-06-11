@@ -87,6 +87,12 @@ export function EventList({
                   <Link className="ms-3 text-primary underline" href={`/${locale}/admin/events/${e.id}/fields`}>
                     Fields
                   </Link>
+                  <Link className="ms-3 text-primary underline" href={`/${locale}/admin/events/${e.id}/tickets`}>
+                    Tickets
+                  </Link>
+                  <Link className="ms-3 text-primary underline" href={`/${locale}/admin/events/${e.id}/waitlist`}>
+                    Waitlist
+                  </Link>
                 </td>
               </tr>
             ))}
@@ -95,18 +101,25 @@ export function EventList({
       ) : (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {events.map((e) => (
-            <Link
+            <div
               key={e.id}
-              href={editHref(e.id)}
               className="overflow-hidden rounded-lg border transition hover:shadow-md"
             >
-              <div className="h-20 bg-gradient-to-br from-pink-500 to-orange-300" />
-              <div className="p-3">
-                <div className="font-semibold">{e.titleEn}</div>
-                <div className="text-sm text-muted-foreground">{e.slug}</div>
-                <div className="mt-1 text-sm">{statusLabel(e)}</div>
+              <Link href={editHref(e.id)}>
+                <div className="h-20 bg-gradient-to-br from-pink-500 to-orange-300" />
+                <div className="p-3">
+                  <div className="font-semibold">{e.titleEn}</div>
+                  <div className="text-sm text-muted-foreground">{e.slug}</div>
+                  <div className="mt-1 text-sm">{statusLabel(e)}</div>
+                </div>
+              </Link>
+              <div className="flex flex-wrap gap-3 border-t px-3 py-2 text-sm">
+                <Link className="text-primary underline" href={editHref(e.id)}>Edit</Link>
+                <Link className="text-primary underline" href={`/${locale}/admin/events/${e.id}/fields`}>Fields</Link>
+                <Link className="text-primary underline" href={`/${locale}/admin/events/${e.id}/tickets`}>Tickets</Link>
+                <Link className="text-primary underline" href={`/${locale}/admin/events/${e.id}/waitlist`}>Waitlist</Link>
               </div>
-            </Link>
+            </div>
           ))}
         </div>
       )}

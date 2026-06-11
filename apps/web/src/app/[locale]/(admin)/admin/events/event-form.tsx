@@ -43,6 +43,9 @@ export function EventForm({
       approvalMode: "none",
       comingSoon: false,
       live: false,
+      waitlistEnabled: false,
+      seatSelectionEnabled: false,
+      badgeAutoPrint: false,
       ...initial,
     },
   });
@@ -146,6 +149,10 @@ export function EventForm({
         </div>
         <label className="flex items-center gap-2"><input type="checkbox" {...register("comingSoon")} /> Coming soon</label>
         <label className="flex items-center gap-2"><input type="checkbox" {...register("live")} /> Live (published in pretix)</label>
+        <div className="mt-2 border-t pt-3 text-sm font-medium text-muted-foreground">Registration features</div>
+        <label className="flex items-center gap-2"><input type="checkbox" {...register("waitlistEnabled")} /> Enable waitlist when sold out</label>
+        <label className="flex items-center gap-2"><input type="checkbox" {...register("seatSelectionEnabled")} /> Enable seat selection</label>
+        <label className="flex items-center gap-2"><input type="checkbox" {...register("badgeAutoPrint")} /> Auto-print badge on check-in</label>
       </div>
 
       <div className={tab === "Tickets" ? "" : "hidden"}>

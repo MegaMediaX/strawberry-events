@@ -21,6 +21,7 @@ export async function approveAction(
     return { ok: false, error: (err as Error).message };
   }
   revalidatePath(`/${locale}/admin/approvals`);
+  revalidatePath(`/${locale}/admin/approvals/${orderId}`);
   return { ok: true };
 }
 
@@ -36,5 +37,6 @@ export async function rejectAction(
     return { ok: false, error: (err as Error).message };
   }
   revalidatePath(`/${locale}/admin/approvals`);
+  revalidatePath(`/${locale}/admin/approvals/${orderId}`);
   return { ok: true };
 }

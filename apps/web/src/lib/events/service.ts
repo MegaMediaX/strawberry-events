@@ -120,6 +120,9 @@ export async function createEvent(
         approvalMode: input.approvalMode,
         comingSoon: input.comingSoon,
         liveOnPretix: input.live,
+        waitlistEnabled: input.waitlistEnabled,
+        seatSelectionEnabled: input.seatSelectionEnabled,
+        badgeAutoPrint: input.badgeAutoPrint,
         ...locationData(input),
       },
     });
@@ -213,6 +216,9 @@ export async function updateEvent(
       // Authoritative local write so the storefront gate is consistent immediately
       // (the inbound pretix webhook reconciles this too, but this removes the race).
       liveOnPretix: input.live,
+      waitlistEnabled: input.waitlistEnabled,
+      seatSelectionEnabled: input.seatSelectionEnabled,
+      badgeAutoPrint: input.badgeAutoPrint,
       ...locationData(input),
     },
   });

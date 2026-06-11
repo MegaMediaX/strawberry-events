@@ -7,7 +7,8 @@ import { resolvePretixContext } from "@/lib/pretix/context";
 import * as pretixOrders from "@/lib/pretix/orders";
 import { PretixValidationError } from "@/lib/pretix/errors";
 import { sendEmail } from "@/lib/email/service";
-import { confirmationEmail, type Locale } from "@/lib/email/templates";
+import { confirmationEmail } from "@/lib/email/templates";
+import { recipientLocale } from "@/lib/email/recipient-locale";
 import { isTicketIssued } from "./ticket";
 
 export interface FinanceFilters {
@@ -112,7 +113,7 @@ export async function markOrderPaid(session: SessionContext, orderId: string) {
   // Best-effort confirmation email with the ticket link.
   try {
     const appUrl = process.env.APP_URL ?? "";
-    const locale: Locale = "en";
+    const locale = await recipientLocale(order.userId);
     const ticketUrl = `${appUrl}/${locale}/t/${order.magicLinkToken}`;
     const msg = confirmationEmail(
       locale,

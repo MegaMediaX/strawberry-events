@@ -13,8 +13,8 @@ import {
   confirmationEmail,
   approvedPaymentEmail,
   rejectedEmail,
-  type Locale,
 } from "@/lib/email/templates";
+import { recipientLocale } from "@/lib/email/recipient-locale";
 
 export interface ApprovalFilters {
   approvalStatus?: AttendeeApprovalStatus;
@@ -110,7 +110,7 @@ export async function approve(session: SessionContext, orderId: string) {
   });
   if (!org) throw new Error("Organization not found");
   const ctx = resolvePretixContext(org);
-  const locale: Locale = "en";
+  const locale = await recipientLocale(order.userId);
 
   const isFree = order.provider === "free" || order.totalCents === 0;
   const newStatus: "pending" | "paid" = isFree ? "paid" : "pending";
@@ -188,7 +188,7 @@ export async function reject(session: SessionContext, orderId: string) {
   });
   if (!org) throw new Error("Organization not found");
   const ctx = resolvePretixContext(org);
-  const locale: Locale = "en";
+  const locale = await recipientLocale(order.userId);
 
   // Claim the transition atomically.
   const claim = await prisma.attendeeOrder.updateMany({

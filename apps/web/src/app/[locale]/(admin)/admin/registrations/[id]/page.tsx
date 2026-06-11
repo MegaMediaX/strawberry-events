@@ -54,14 +54,14 @@ export default async function RegistrationDetailPage({
 
       <div className="mt-4 flex flex-wrap gap-2 text-sm">
         {(o.state === "pending_approval") && (
-          <Link className="rounded-md border border-border px-3 py-1.5 hover:bg-muted" href={`/${locale}/admin/approvals`}>Approve / reject</Link>
+          <Link className="rounded-md border border-border px-3 py-1.5 hover:bg-muted" href={`/${locale}/admin/approvals/${id}`}>Approve / reject</Link>
         )}
         {(o.method === "COD" && o.state === "pending_payment") && (
-          <Link className="rounded-md border border-border px-3 py-1.5 hover:bg-muted" href={`/${locale}/admin/finance`}>Mark COD paid</Link>
+          <Link className="rounded-md border border-border px-3 py-1.5 hover:bg-muted" href={`/${locale}/admin/finance/${id}`}>Mark COD paid</Link>
         )}
-        <span className="rounded-md border border-dashed border-border px-3 py-1.5 text-muted-foreground" title="Available after the email-logs chunk">
-          Resend email (coming soon)
-        </span>
+        <Link className="rounded-md border border-border px-3 py-1.5 hover:bg-muted" href={`/${locale}/admin/emails?q=${encodeURIComponent(o.orderCode)}`}>
+          Emails
+        </Link>
       </div>
 
       <div className="mt-6 grid gap-6 sm:grid-cols-2">

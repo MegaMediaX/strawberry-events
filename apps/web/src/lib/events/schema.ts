@@ -20,6 +20,10 @@ export const eventInputSchema = z.object({
     .default("none"),
   comingSoon: z.boolean().default(false),
   live: z.boolean().default(false),
+  // Registration feature toggles (read by the public/register flows).
+  waitlistEnabled: z.boolean().default(false),
+  seatSelectionEnabled: z.boolean().default(false),
+  badgeAutoPrint: z.boolean().default(false),
   // Location (all optional; storefront renders gracefully when absent).
   venueName: z.string().optional().nullable(),
   address: z.string().optional().nullable(),
