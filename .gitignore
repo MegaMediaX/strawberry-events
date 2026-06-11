@@ -12,3 +12,6 @@ node_modules/
 /CLAUDE.md
 ruvector.db
 .mcp.json
+
+# Uploaded media (event cover photos etc.) — served from disk, not committed
+.uploads/

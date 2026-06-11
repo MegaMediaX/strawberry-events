@@ -2,7 +2,9 @@ import { notFound } from "next/navigation";
 import { setRequestLocale } from "next-intl/server";
 import { getSessionContext, requireRole } from "@/lib/auth/session";
 import { getEventForEdit } from "@/lib/events/service";
+import { coverImageUrl } from "@/lib/events/cover-image";
 import { EventForm } from "../../event-form";
+import { CoverUploader } from "./cover-uploader";
 
 export default async function EditEventPage({
   params,
@@ -46,6 +48,11 @@ export default async function EditEventPage({
           latitude: event.latitude ?? undefined,
           longitude: event.longitude ?? undefined,
         }}
+      />
+      <CoverUploader
+        locale={locale}
+        eventId={event.id}
+        initialUrl={event.coverImagePath ? coverImageUrl(event.coverImagePath) : null}
       />
     </div>
   );

@@ -3,6 +3,7 @@ import { setRequestLocale } from "next-intl/server";
 import { getPublicEvent } from "@/lib/events/public";
 import { capacityState } from "@/lib/events/capacity";
 import { hasLocation, locationLine, directionsUrl } from "@/lib/events/location";
+import { coverImageUrl } from "@/lib/events/cover-image";
 import { EventHero } from "@/components/public/event-hero";
 import { TicketRail } from "@/components/public/ticket-rail";
 import { MobileCtaBar } from "@/components/public/mobile-cta-bar";
@@ -60,6 +61,7 @@ export default async function EventDetailPage({
         statusLabel={
           event.comingSoon ? "Coming soon" : soldOut ? "Sold out" : "Open"
         }
+        coverUrl={event.coverImagePath ? coverImageUrl(event.coverImagePath) : null}
       />
 
       <div className="mt-8 grid grid-cols-1 gap-8 lg:grid-cols-[1fr_320px]">

@@ -6,6 +6,7 @@ export interface EventCardData {
   titleAr: string | null;
   visibility: string;
   comingSoon: boolean;
+  coverUrl?: string | null;
 }
 
 export function EventCard({
@@ -21,8 +22,12 @@ export function EventCard({
   const inner = (
     <div className="group overflow-hidden rounded-[var(--radius-lg)] border border-border bg-card shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg">
       <div
-        className="h-36 w-full"
-        style={{ backgroundImage: "var(--gradient-hero)" }}
+        className="h-36 w-full bg-cover bg-center"
+        style={
+          event.coverUrl
+            ? { backgroundImage: `url("${event.coverUrl}")` }
+            : { backgroundImage: "var(--gradient-hero)" }
+        }
       />
       <div className="p-4">
         <h3 className="text-lg font-semibold leading-snug tracking-tight">{title}</h3>
