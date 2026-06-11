@@ -16,7 +16,7 @@ vi.mock("@/lib/db/client", () => ({
     subEvent: { findMany: vi.fn() },
     customFormField: { findMany: vi.fn() },
     customFormAnswer: { createMany: vi.fn() },
-    invite: { findUnique: vi.fn(), update: vi.fn() },
+    invite: { findUnique: vi.fn(), update: vi.fn(), updateMany: vi.fn() },
   },
 }));
 vi.mock("@/lib/pretix/products", () => ({ listItems: vi.fn() }));
@@ -81,6 +81,8 @@ beforeEach(() => {
     id: "ao1",
   }));
   mock(prisma.invite.update).mockResolvedValue({});
+  // Atomic single-use claim succeeds by default (one row transitioned to redeemed).
+  mock(prisma.invite.updateMany).mockResolvedValue({ count: 1 });
   mock(email.sendEmail).mockResolvedValue(true);
   mock(prisma.customFormField.findMany).mockResolvedValue([]);
   mock(prisma.customFormAnswer.createMany).mockResolvedValue({ count: 0 });
@@ -136,9 +138,66 @@ describe("register() – email-bound invite", () => {
     });
 
     expect(res.orderCode).toBe("INV1");
+    // Atomic claim: compare-and-set keyed on redeemedAt:null (the single-use guard).
+    expect(mock(prisma.invite.updateMany).mock.calls[0][0]).toMatchObject({
+      where: { tokenHash, redeemedAt: null },
+      data: { redeemedAt: expect.any(Date) },
+    });
+    // Finalize: bind the claimed invite to the committed order.
     expect(mock(prisma.invite.update).mock.calls[0][0]).toMatchObject({
       where: { tokenHash },
-      data: expect.objectContaining({ redeemedAt: expect.any(Date), redeemedOrderCode: "INV1" }),
+      data: { redeemedOrderCode: "INV1" },
+    });
+  });
+
+  it("rejects a concurrent double-redeem: loser of the atomic claim is turned away", async () => {
+    const token = makeToken("alice@example.com");
+    mock(prisma.invite.findUnique).mockResolvedValue({
+      id: "inv1",
+      tokenHash: sha256(token),
+      redeemedAt: null,
+      expiresAt: null,
+    });
+    // The read passes (redeemedAt null), but the atomic claim loses the race —
+    // a concurrent registration already flipped redeemedAt, so 0 rows match.
+    mock(prisma.invite.updateMany).mockResolvedValue({ count: 0 });
+
+    await expect(
+      register({
+        ...base,
+        tickets: [{ itemId: 7, quantity: 1 }],
+        inviteToken: token,
+      }),
+    ).rejects.toThrow("already been used");
+
+    // Must abort BEFORE creating a pretix order — no double order, no double seat.
+    expect(pretixOrders.createOrder).not.toHaveBeenCalled();
+  });
+
+  it("releases the invite claim if order creation fails (genuine retry possible)", async () => {
+    const token = makeToken("alice@example.com");
+    mock(prisma.invite.findUnique).mockResolvedValue({
+      id: "inv1",
+      tokenHash: sha256(token),
+      redeemedAt: null,
+      expiresAt: null,
+    });
+    mock(pretixOrders.createOrder).mockRejectedValueOnce(new Error("pretix down"));
+
+    await expect(
+      register({
+        ...base,
+        tickets: [{ itemId: 7, quantity: 1 }],
+        inviteToken: token,
+      }),
+    ).rejects.toThrow("pretix down");
+
+    // Claim (1st updateMany) then release (2nd updateMany resetting redeemedAt:null).
+    const calls = mock(prisma.invite.updateMany).mock.calls;
+    expect(calls.length).toBe(2);
+    expect(calls[1][0]).toMatchObject({
+      where: { tokenHash: sha256(token), redeemedOrderCode: null },
+      data: { redeemedAt: null },
     });
   });
 
