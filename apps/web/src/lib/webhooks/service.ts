@@ -31,6 +31,10 @@ export async function deliver(d: DeliveryRow, now: Date = new Date()): Promise<b
     await assertSafeWebhookUrl(d.webhook.url);
     const res = await fetch(d.webhook.url, {
       method: "POST",
+      // Do NOT follow redirects: the SSRF guard validated d.webhook.url, but a
+      // 3xx Location (e.g. -> http://169.254.169.254/...) would bypass it. Treat
+      // any redirect as a delivery failure rather than chasing it.
+      redirect: "manual",
       headers: {
         "content-type": "application/json",
         "X-Strawberry-Event": d.event,
@@ -40,6 +44,8 @@ export async function deliver(d: DeliveryRow, now: Date = new Date()): Promise<b
       },
       body,
     });
+    // res.ok is false for 3xx with redirect:"manual" (status 300-399), so a
+    // redirecting endpoint is recorded as a failure — never silently followed.
     const success = res.ok;
     await prisma.webhookDelivery.update({
       where: { id: d.id },
@@ -101,7 +107,9 @@ export async function emit(
 /** Re-attempt deliveries whose nextRetryAt is due. */
 export async function retryDue(now: Date = new Date()): Promise<number> {
   const due = await prisma.webhookDelivery.findMany({
-    where: { success: false, nextRetryAt: { lte: now }, attempts: { lt: MAX_ATTEMPTS } },
+    // Skip endpoints disabled after the initial failed attempt — a disabled
+    // webhook must stop receiving deliveries, including retries.
+    where: { success: false, nextRetryAt: { lte: now }, attempts: { lt: MAX_ATTEMPTS }, webhook: { active: true } },
     include: { webhook: true },
   });
   for (const d of due) {

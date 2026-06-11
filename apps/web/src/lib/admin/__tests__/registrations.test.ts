@@ -78,6 +78,22 @@ describe("buildCsv", () => {
     expect(lines[1]).toContain('"Expo, 2026"');
     expect(lines[1]).toContain("ABC12");
   });
+
+  it("neutralizes CSV formula injection in attendee-controlled cells", () => {
+    const rows: RegistrationRow[] = [{
+      id: "o1", orderCode: "ABC12", event: "Expo", eventId: "e1",
+      attendee: "=HYPERLINK(\"http://evil\")", email: "j@x.com", phone: "70",
+      company: "@SUM(1)", roleTag: "visitor", method: "COD",
+      status: "pending", approvalStatus: "not_required", state: "pending_payment",
+      createdAt: new Date("2026-01-01T00:00:00Z"),
+    }];
+    const csv = buildCsv(rows);
+    // Leading formula chars are prefixed with a single quote so spreadsheets
+    // treat them as literal text, never executing them.
+    expect(csv).toContain("'=HYPERLINK");
+    expect(csv).toContain("'@SUM(1)");
+    expect(csv).not.toMatch(/,=HYPERLINK/);
+  });
 });
 
 describe("getRegistrationDetail — access + QR gating", () => {

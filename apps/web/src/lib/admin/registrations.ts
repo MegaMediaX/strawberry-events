@@ -130,7 +130,11 @@ export function buildCsv(rows: RegistrationRow[], answersByOrder?: Map<string, s
   const withCustom = !!answersByOrder;
   const headers = ["Event", "Order", "Attendee", "Email", "Phone", "Company", "Role", "Method", "State", "Created", ...(withCustom ? ["Custom fields"] : [])];
   const esc = (v: unknown) => {
-    const s = v == null ? "" : String(v);
+    let s = v == null ? "" : String(v);
+    // Neutralize CSV formula injection: spreadsheet apps execute a cell that
+    // starts with = + - @ (or tab/CR). Attendee-controlled fields (name, company,
+    // custom answers) flow here, so prefix a single quote to force a literal.
+    if (/^[=+\-@\t\r]/.test(s)) s = `'${s}`;
     return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
   };
   const lines = [headers.join(",")];

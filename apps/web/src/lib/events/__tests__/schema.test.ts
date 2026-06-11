@@ -29,6 +29,27 @@ describe("eventInputSchema", () => {
     void dateFrom;
     expect(eventInputSchema.safeParse(rest).success).toBe(false);
   });
+
+  it("accepts https map/WhatsApp URLs", () => {
+    expect(eventInputSchema.safeParse({
+      ...valid,
+      mapUrl: "https://maps.google.com/x",
+      whatsappChannelUrl: "https://whatsapp.com/channel/abc",
+    }).success).toBe(true);
+  });
+
+  it("rejects dangerous URL schemes (javascript:/data:) in URL fields", () => {
+    for (const field of ["mapUrl", "mapEmbedUrl", "whatsappChannelUrl"] as const) {
+      expect(
+        eventInputSchema.safeParse({ ...valid, [field]: "javascript:alert(1)" }).success,
+        `${field} should reject javascript:`,
+      ).toBe(false);
+      expect(
+        eventInputSchema.safeParse({ ...valid, [field]: "data:text/html,<script>1</script>" }).success,
+        `${field} should reject data:`,
+      ).toBe(false);
+    }
+  });
 });
 
 describe("ticketInputSchema", () => {
