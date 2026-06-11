@@ -1,8 +1,9 @@
 "use client";
 
 import { useState } from "react";
-import { useForm } from "react-hook-form";
+import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
+import { DateTimeField } from "@/components/ui/datetime-field";
 import {
   eventInputSchema,
   type EventInput,
@@ -30,6 +31,7 @@ export function EventForm({
 
   const {
     register,
+    control,
     handleSubmit,
     setError,
     formState: { errors, isSubmitting },
@@ -90,8 +92,27 @@ export function EventForm({
       </div>
 
       <div className={tab === "Schedule & Location" ? "flex flex-col gap-3" : "hidden"}>
-        <div><Label>Start (ISO date-time)</Label><Input placeholder="2026-09-01T09:00:00Z" {...register("dateFrom")} />{err("dateFrom")}</div>
-        <div><Label>End (optional)</Label><Input {...register("dateTo")} /></div>
+        <div>
+          <Label>Start</Label>
+          <Controller
+            control={control}
+            name="dateFrom"
+            render={({ field }) => (
+              <DateTimeField value={field.value} onChange={(iso) => field.onChange(iso ?? "")} />
+            )}
+          />
+          {err("dateFrom")}
+        </div>
+        <div>
+          <Label>End (optional)</Label>
+          <Controller
+            control={control}
+            name="dateTo"
+            render={({ field }) => (
+              <DateTimeField value={field.value} onChange={(iso) => field.onChange(iso)} />
+            )}
+          />
+        </div>
         <div className="mt-2 border-t pt-3 text-sm font-medium text-muted-foreground">Location (optional)</div>
         <div><Label>Venue name</Label><Input {...register("venueName")} /></div>
         <div><Label>Address</Label><Input {...register("address")} /></div>
