@@ -122,6 +122,7 @@ describe("createEvent", () => {
     waitlistEnabled: false,
     seatSelectionEnabled: false,
     badgeAutoPrint: false,
+    payBeforeApproval: false,
   };
 
   it("creates in pretix then writes a scoped mapping + audit", async () => {

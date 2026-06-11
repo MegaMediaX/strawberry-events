@@ -174,3 +174,28 @@ describe("reject — idempotency / state guards (H1)", () => {
     expect(registrationState({ approvalStatus: "rejected", status: "canceled" })).toBe("rejected");
   });
 });
+
+describe("approve — payBeforeApproval enforcement", () => {
+  const payFirst = (o: Record<string, unknown> = {}) =>
+    order({ eventMapping: { ...order().eventMapping, payBeforeApproval: true }, ...o });
+
+  it("blocks approving an unpaid paid-tier order when the event requires pay-first", async () => {
+    mock(prisma.attendeeOrder.findUnique).mockResolvedValue(payFirst({ status: "pending" }));
+    await expect(approve(orgAdmin, "o1")).rejects.toThrow(/payment must be completed/i);
+    expect(prisma.attendeeOrder.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("allows approval once the order is paid", async () => {
+    mock(prisma.attendeeOrder.findUnique).mockResolvedValue(payFirst({ status: "paid" }));
+    await approve(orgAdmin, "o1");
+    expect(prisma.attendeeOrder.updateMany).toHaveBeenCalled();
+  });
+
+  it("exempts free orders (nothing to pay)", async () => {
+    mock(prisma.attendeeOrder.findUnique).mockResolvedValue(
+      payFirst({ status: "pending", provider: "free", totalCents: 0 }),
+    );
+    await approve(orgAdmin, "o1");
+    expect(prisma.attendeeOrder.updateMany).toHaveBeenCalled();
+  });
+});

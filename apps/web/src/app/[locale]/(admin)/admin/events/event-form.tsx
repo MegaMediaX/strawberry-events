@@ -46,6 +46,7 @@ export function EventForm({
       waitlistEnabled: false,
       seatSelectionEnabled: false,
       badgeAutoPrint: false,
+      payBeforeApproval: false,
       ...initial,
     },
   });
@@ -153,6 +154,7 @@ export function EventForm({
         <label className="flex items-center gap-2"><input type="checkbox" {...register("waitlistEnabled")} /> Enable waitlist when sold out</label>
         <label className="flex items-center gap-2"><input type="checkbox" {...register("seatSelectionEnabled")} /> Enable seat selection</label>
         <label className="flex items-center gap-2"><input type="checkbox" {...register("badgeAutoPrint")} /> Auto-print badge on check-in</label>
+        <label className="flex items-center gap-2"><input type="checkbox" {...register("payBeforeApproval")} /> Require payment before approval</label>
       </div>
 
       <div className={tab === "Tickets" ? "" : "hidden"}>

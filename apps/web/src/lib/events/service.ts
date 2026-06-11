@@ -123,6 +123,7 @@ export async function createEvent(
         waitlistEnabled: input.waitlistEnabled,
         seatSelectionEnabled: input.seatSelectionEnabled,
         badgeAutoPrint: input.badgeAutoPrint,
+        payBeforeApproval: input.payBeforeApproval,
         ...locationData(input),
       },
     });
@@ -219,6 +220,7 @@ export async function updateEvent(
       waitlistEnabled: input.waitlistEnabled,
       seatSelectionEnabled: input.seatSelectionEnabled,
       badgeAutoPrint: input.badgeAutoPrint,
+      payBeforeApproval: input.payBeforeApproval,
       ...locationData(input),
     },
   });

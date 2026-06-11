@@ -42,6 +42,7 @@ export default async function EditEventPage({
           waitlistEnabled: event.waitlistEnabled,
           seatSelectionEnabled: event.seatSelectionEnabled,
           badgeAutoPrint: event.badgeAutoPrint,
+          payBeforeApproval: event.payBeforeApproval,
           venueName: event.venueName ?? undefined,
           address: event.address ?? undefined,
           city: event.city ?? undefined,

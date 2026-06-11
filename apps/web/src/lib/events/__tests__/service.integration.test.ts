@@ -73,6 +73,7 @@ describe.skipIf(!run)("events service integration", () => {
       waitlistEnabled: false,
       seatSelectionEnabled: false,
       badgeAutoPrint: false,
+      payBeforeApproval: false,
     });
 
     expect(mapping.organizationId).toBe(orgAId);
