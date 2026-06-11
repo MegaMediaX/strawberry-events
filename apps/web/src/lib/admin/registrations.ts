@@ -32,7 +32,8 @@ function buildWhere(session: SessionContext, f: RegistrationFilters): Prisma.Att
   if (f.roleTag) and.push({ roleTag: f.roleTag as Prisma.AttendeeOrderWhereInput["roleTag"] });
   if (f.approvalStatus) and.push({ approvalStatus: f.approvalStatus as Prisma.AttendeeOrderWhereInput["approvalStatus"] });
   if (f.paymentStatus) and.push({ status: f.paymentStatus as Prisma.AttendeeOrderWhereInput["status"] });
-  if (f.issued) and.push(ISSUED);
+  if (f.issued === true) and.push(ISSUED);
+  else if (f.issued === false) and.push({ NOT: ISSUED });
   if (f.createdFrom || f.createdTo) {
     and.push({ createdAt: { ...(f.createdFrom ? { gte: f.createdFrom } : {}), ...(f.createdTo ? { lte: f.createdTo } : {}) } });
   }

@@ -3,6 +3,7 @@ import { getOrder } from "@/lib/pretix/orders";
 import { emit } from "@/lib/webhooks/service";
 import { sendEmail } from "@/lib/email/service";
 import { confirmationEmail } from "@/lib/email/templates";
+import { recipientLocale } from "@/lib/email/recipient-locale";
 import type { ReconcileCtx } from "./types";
 
 /**
@@ -45,11 +46,12 @@ export async function handleOrderPaid(ctx: ReconcileCtx): Promise<void> {
 
   emit(ctx.organizationId, "ticket.issued", { orderCode: ctx.orderCode }, ctx.eventMappingId);
   try {
-    const ticketUrl = `${process.env.APP_URL ?? ""}/en/t/${order.magicLinkToken}`;
+    const locale = await recipientLocale(order.userId);
+    const ticketUrl = `${process.env.APP_URL ?? ""}/${locale}/t/${order.magicLinkToken}`;
     await sendEmail(
       {
         to: order.email,
-        ...confirmationEmail("en", ctx.pretixEventSlug, ctx.orderCode, ticketUrl),
+        ...confirmationEmail(locale, ctx.pretixEventSlug, ctx.orderCode, ticketUrl),
       },
       { templateType: "ticket_issued", organizationId: ctx.organizationId, eventMappingId: ctx.eventMappingId, attendeeRef: ctx.orderCode },
     );

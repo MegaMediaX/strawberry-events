@@ -113,6 +113,11 @@ export async function inviteUser(
 export async function listUsers(session: SessionContext, filters: UserFilters = {}) {
   assertCanManageUsers(session);
   const orgs = adminOrgIds(session);
+  // Defensive: a non-super admin may only filter within orgs they administer,
+  // even though the org clause below already constrains results.
+  if (orgs && filters.organizationId && !orgs.includes(filters.organizationId)) {
+    throw new ForbiddenError("Cannot list users in this organization");
+  }
   const clauses: Prisma.UserWhereInput[] = [];
   if (orgs) clauses.push({ memberships: { some: { organizationId: { in: orgs } } } });
   if (filters.organizationId) clauses.push({ memberships: { some: { organizationId: filters.organizationId } } });
@@ -180,7 +185,7 @@ export async function changeRole(
   userId: string,
   organizationId: string,
   role: MemberRole,
-  assignedEventIds: string[] = [],
+  assignedEventIds?: string[],
 ) {
   assertCanManageUsers(session);
   if (role === "super_admin" && !session.isSuperAdmin) {
@@ -191,10 +196,13 @@ export async function changeRole(
     throw new ForbiddenError("Cannot manage users in this organization");
   }
 
+  // Preserve existing event scoping on a role change unless the caller passes a
+  // new value — otherwise a checkin_staff member's assignedEventIds would be
+  // silently wiped (widening access).
   const membership = await prisma.organizationMember.upsert({
     where: { organizationId_userId: { organizationId, userId } },
-    update: { role, assignedEventIds },
-    create: { organizationId, userId, role, assignedEventIds },
+    update: { role, ...(assignedEventIds !== undefined ? { assignedEventIds } : {}) },
+    create: { organizationId, userId, role, assignedEventIds: assignedEventIds ?? [] },
   });
   await audit(session, organizationId, "user.role_changed", userId);
   return membership;

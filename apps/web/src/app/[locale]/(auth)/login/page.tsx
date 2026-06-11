@@ -4,10 +4,13 @@ import { LoginForm } from "./login-form";
 
 export default async function LoginPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ locale: string }>;
+  searchParams: Promise<{ reset?: string }>;
 }) {
   const { locale } = await params;
+  const { reset } = await searchParams;
   setRequestLocale(locale);
   return (
     <main className="flex min-h-screen flex-col items-center justify-center px-4">
@@ -21,7 +24,7 @@ export default async function LoginPage({
           </Link>
           <p className="mt-1 text-sm text-muted-foreground">Sign in to continue</p>
         </div>
-        <LoginForm locale={locale} />
+        <LoginForm locale={locale} justReset={reset === "1"} />
         <p className="mt-4 text-center text-sm text-muted-foreground">
           <Link className="text-primary underline" href={`/${locale}/forgot-password`}>
             Forgot password?

@@ -70,6 +70,9 @@ describe.skipIf(!run)("events service integration", () => {
       approvalMode: "none",
       comingSoon: false,
       live: false,
+      waitlistEnabled: false,
+      seatSelectionEnabled: false,
+      badgeAutoPrint: false,
     });
 
     expect(mapping.organizationId).toBe(orgAId);

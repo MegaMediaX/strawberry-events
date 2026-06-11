@@ -16,6 +16,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { landingPathAction } from "./actions";
 
 const schema = z.object({
   email: z.string().email(),
@@ -24,7 +25,7 @@ const schema = z.object({
 
 type FormValues = z.infer<typeof schema>;
 
-export function LoginForm({ locale }: { locale: string }) {
+export function LoginForm({ locale, justReset = false }: { locale: string; justReset?: boolean }) {
   const t = useTranslations("auth");
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
@@ -44,7 +45,8 @@ export function LoginForm({ locale }: { locale: string }) {
       setError("Invalid email or password.");
       return;
     }
-    router.push(`/${locale}/admin`);
+    const dest = await landingPathAction(locale);
+    router.push(dest);
     router.refresh();
   }
 
@@ -75,6 +77,11 @@ export function LoginForm({ locale }: { locale: string }) {
               </p>
             )}
           </div>
+          {justReset && !error && (
+            <p className="text-sm text-emerald-600 dark:text-emerald-400">
+              Password reset — sign in with your new password.
+            </p>
+          )}
           {error && <p className="text-sm text-destructive">{error}</p>}
           <Button type="submit" disabled={isSubmitting}>
             {t("submit")}

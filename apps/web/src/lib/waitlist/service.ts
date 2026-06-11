@@ -5,7 +5,8 @@ import type { SessionContext } from "@/lib/auth/types";
 import { sendEmail } from "@/lib/email/service";
 import { emit } from "@/lib/webhooks/service";
 import { record } from "@/lib/audit/service";
-import { waitlistPromotedEmail, type Locale } from "@/lib/email/templates";
+import { waitlistPromotedEmail } from "@/lib/email/templates";
+import { recipientLocale } from "@/lib/email/recipient-locale";
 
 /** Join the waitlist for an event (optionally a specific ticket). Idempotent per email. */
 export async function joinWaitlist(
@@ -91,7 +92,7 @@ export async function promote(session: SessionContext, entryId: string) {
     data: { status: "promoted", promotedAt: new Date() },
   });
 
-  const locale: Locale = "en";
+  const locale = await recipientLocale(entry.userId);
   const registerUrl = `${process.env.APP_URL ?? ""}/${locale}/events/${entry.eventMapping.pretixEventSlug ?? ""}/register`;
   try {
     await sendEmail(

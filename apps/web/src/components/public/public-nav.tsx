@@ -4,6 +4,7 @@ import { getSessionContext } from "@/lib/auth/session";
 import { LanguageSwitcher } from "@/components/language-switcher";
 import { THEME_COOKIE } from "@/lib/theme/theme";
 import { ThemeToggle } from "./theme-toggle";
+import { signOutAction } from "@/lib/auth/sign-out-action";
 
 export async function PublicNav({ locale }: { locale: string }) {
   const initialDark = (await cookies()).get(THEME_COOKIE)?.value === "dark";
@@ -20,12 +21,22 @@ export async function PublicNav({ locale }: { locale: string }) {
         </Link>
         <nav className="flex items-center gap-1">
           {session ? (
-            <Link
-              href={`/${locale}/my-tickets`}
-              className="rounded-md px-3 py-1.5 text-sm font-medium text-muted-foreground transition hover:bg-muted hover:text-foreground"
-            >
-              My tickets
-            </Link>
+            <>
+              <Link
+                href={`/${locale}/my-tickets`}
+                className="rounded-md px-3 py-1.5 text-sm font-medium text-muted-foreground transition hover:bg-muted hover:text-foreground"
+              >
+                My tickets
+              </Link>
+              <form action={signOutAction.bind(null, locale)}>
+                <button
+                  type="submit"
+                  className="rounded-md px-3 py-1.5 text-sm font-medium text-muted-foreground transition hover:bg-muted hover:text-foreground"
+                >
+                  Sign out
+                </button>
+              </form>
+            </>
           ) : (
             <Link
               href={`/${locale}/login`}

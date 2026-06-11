@@ -21,5 +21,6 @@ export async function markPaidAction(
     return { ok: false, error: (err as Error).message };
   }
   revalidatePath(`/${locale}/admin/finance`);
+  revalidatePath(`/${locale}/admin/finance/${orderId}`);
   return { ok: true };
 }
