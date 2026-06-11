@@ -54,12 +54,16 @@ export async function getPublicEvent(
   if (!org) return null;
   const ctx = resolvePretixContext(org);
 
-  const [items, quotas, detail] = await Promise.all([
+  const [items, quotas, detail, subEvents] = await Promise.all([
     pretixProducts.listItems(ctx.organizerSlug, event.pretixEventSlug, ctx.token),
     pretixProducts.listQuotas(ctx.organizerSlug, event.pretixEventSlug, ctx.token),
     pretixEvents
       .getEvent(ctx.organizerSlug, event.pretixEventSlug, ctx.token)
       .catch(() => null),
+    prisma.subEvent.findMany({
+      where: { eventMappingId: event.id },
+      select: { pretixItemId: true },
+    }),
   ]);
 
   // Aggregate capacity: unlimited if any quota is unlimited (size null).
@@ -79,7 +83,12 @@ export async function getPublicEvent(
       : { sold: Math.max(0, total - available), total };
 
   const inviteOnlySet = new Set(event.inviteOnlyItemIds);
-  const activeItems = items.filter((i) => i.active);
+  // Sub-events are pretix items too, but they belong only in the "Sessions"
+  // step of registration — never the main ticket selector. Exclude them here.
+  const subEventItemSet = new Set(
+    subEvents.map((s) => s.pretixItemId).filter((id): id is number => id != null),
+  );
+  const activeItems = items.filter((i) => i.active && !subEventItemSet.has(i.id));
   const toTicket = (i: (typeof activeItems)[number]): PublicTicket => ({
     id: i.id,
     titleEn: i.titleEn,

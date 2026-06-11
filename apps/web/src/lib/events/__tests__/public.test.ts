@@ -4,6 +4,7 @@ vi.mock("@/lib/db/client", () => ({
   prisma: {
     eventMapping: { findMany: vi.fn(), findFirst: vi.fn() },
     organization: { findUnique: vi.fn() },
+    subEvent: { findMany: vi.fn().mockResolvedValue([]) },
   },
 }));
 vi.mock("@/lib/pretix/products", () => ({
@@ -84,5 +85,34 @@ describe("getPublicEvent", () => {
     expect(res?.tickets[0].priceCents).toBe(2500);
     // total 100, available 80 -> sold 20
     expect(res?.capacity).toEqual({ sold: 20, total: 100 });
+  });
+
+  it("excludes sub-event items from the main ticket list", async () => {
+    (prisma.eventMapping.findFirst as ReturnType<typeof vi.fn>).mockResolvedValue({
+      id: "e1",
+      titleEn: "Expo",
+      pretixEventSlug: "expo",
+      organizationId: "orgA",
+      visibility: "public",
+      inviteOnlyItemIds: [],
+    });
+    (prisma.organization.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({
+      id: "orgA",
+      pretixOrganizerSlug: "acme",
+      pretixApiToken: null,
+    });
+    // item 7 is a real ticket; item 33 is a sub-event's pretix item.
+    (pretixProducts.listItems as ReturnType<typeof vi.fn>).mockResolvedValue([
+      { id: 7, titleEn: "General Admission", titleAr: null, priceCents: 0, active: true },
+      { id: 33, titleEn: "Workshop A", titleAr: null, priceCents: 0, active: true },
+    ]);
+    (pretixProducts.listQuotas as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+    (prisma.subEvent.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([
+      { pretixItemId: 33 },
+    ]);
+
+    const res = await getPublicEvent("expo");
+    const ids = res?.tickets.map((t) => t.id);
+    expect(ids).toEqual([7]); // sub-event item 33 excluded from main tickets
   });
 });
