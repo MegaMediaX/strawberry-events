@@ -95,6 +95,12 @@ export function RegistrationWizard({
     subEventCents;
   const hasTickets = Object.values(qty).some((q) => q > 0);
   const totalQty = Object.values(qty).reduce((sum, q) => sum + (q ?? 0), 0);
+  // Per-user ticket caps (admin-set on the event). Main tickets count toward
+  // both the main cap and the overall total; sub-events count toward the total.
+  const subQty = subEventSelection.reduce((sum, s) => sum + s.quantity, 0);
+  const mainCapReached = totalQty >= ticketsPerUserMain;
+  const totalCapReached = totalQty + subQty >= ticketsPerUserTotal;
+  const canAddMainTicket = !mainCapReached && !totalCapReached;
   const seatsRequired = !!seatSections && seatSections.length > 0;
   const seatsSatisfied = !seatsRequired || seatIds.length === totalQty;
 
@@ -250,13 +256,24 @@ export function RegistrationWizard({
                         type="button"
                         variant="outline"
                         size="icon"
-                        onClick={() => setQty({ ...qty, [t.id]: (qty[t.id] ?? 0) + 1 })}
+                        disabled={!canAddMainTicket}
+                        onClick={() => {
+                          if (!canAddMainTicket) return;
+                          setQty({ ...qty, [t.id]: (qty[t.id] ?? 0) + 1 });
+                        }}
                       >
                         +
                       </Button>
                     </div>
                   </div>
                 ))}
+                {(mainCapReached || totalCapReached) && (
+                  <p className="text-sm text-muted-foreground">
+                    {totalCapReached && !mainCapReached
+                      ? `You can register for up to ${ticketsPerUserTotal} item(s) in total.`
+                      : `You can register for up to ${ticketsPerUserMain} ticket(s) per person.`}
+                  </p>
+                )}
                 {seatSections && seatSections.length > 0 && (
                   <div className="mt-2 rounded-[var(--radius-lg)] border border-border p-3">
                     <div className="mb-2 font-medium">Choose your seat(s)</div>
