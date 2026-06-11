@@ -1,7 +1,7 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { CheckCircle2, Clock, XCircle, Ban } from "lucide-react";
+import { CheckCircle2, Clock, XCircle, Ban, MessageCircle } from "lucide-react";
 import { registrationState } from "@/lib/approval/state";
 import { hasLocation, locationLine, directionsUrl, type EventLocation } from "@/lib/events/location";
 import { QrCodeDisplay } from "./qr-code-display";
@@ -11,7 +11,7 @@ interface OrderLike {
   status: "pending" | "paid" | "canceled";
   approvalStatus: "not_required" | "pending" | "approved" | "rejected";
   pretixSecret?: string | null;
-  eventMapping: { titleEn: string } & EventLocation;
+  eventMapping: { titleEn: string; whatsappChannelUrl?: string | null } & EventLocation;
 }
 
 const STATE_CONFIG = {
@@ -112,6 +112,20 @@ export function AttendeeStateView({ order }: { order: OrderLike }) {
             )}
           </div>
         )}
+
+        {state !== "rejected" &&
+          state !== "canceled" &&
+          order.eventMapping.whatsappChannelUrl && (
+            <a
+              href={order.eventMapping.whatsappChannelUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="mt-6 inline-flex w-full items-center justify-center gap-2 rounded-[var(--radius-lg)] bg-[#25D366] px-4 py-3 font-medium text-white transition-opacity hover:opacity-90"
+            >
+              <MessageCircle className="h-5 w-5" />
+              Join our WhatsApp channel
+            </a>
+          )}
       </motion.div>
     </main>
   );

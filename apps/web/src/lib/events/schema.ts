@@ -35,6 +35,8 @@ export const eventInputSchema = z.object({
   mapEmbedUrl: z.string().url("Enter a valid URL").optional().or(z.literal("")).nullable(),
   latitude: z.number().optional().nullable(),
   longitude: z.number().optional().nullable(),
+  // Optional WhatsApp channel/group link shown after registration.
+  whatsappChannelUrl: z.string().url("Enter a valid URL").optional().or(z.literal("")).nullable(),
   // Sub-event capacity controls (stage 1).
   maxAttendees: z.number().int().min(0).nullable().optional(),
   ticketsPerUserMain: z.number().int().min(1).optional(),

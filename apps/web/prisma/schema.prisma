@@ -304,6 +304,9 @@ model EventMapping {
   mapEmbedUrl         String?
   latitude            Float?
   longitude           Float?
+  // Optional WhatsApp channel/group invite link shown to attendees after they
+  // register (e.g. https://whatsapp.com/channel/... or chat.whatsapp.com/...).
+  whatsappChannelUrl  String?
   // Cover photo: stored filename only (e.g. "<id>-<uuid>.webp"); the file lives
   // under the server uploads dir and is served via /media/event-cover/<file>.
   // Never a user-supplied path — generated server-side to prevent traversal.

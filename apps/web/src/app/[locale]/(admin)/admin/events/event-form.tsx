@@ -126,6 +126,8 @@ export function EventForm({
         </div>
         <div><Label>Google Maps URL</Label><Input placeholder="https://maps.google.com/…" {...register("mapUrl")} />{err("mapUrl")}</div>
         <div><Label>Map embed URL (optional)</Label><Input placeholder="https://www.google.com/maps/embed?…" {...register("mapEmbedUrl")} />{err("mapEmbedUrl")}</div>
+        <div className="mt-2 border-t pt-3 text-sm font-medium text-muted-foreground">Community</div>
+        <div><Label>WhatsApp channel link (optional)</Label><Input placeholder="https://whatsapp.com/channel/… or https://chat.whatsapp.com/…" {...register("whatsappChannelUrl")} />{err("whatsappChannelUrl")}</div>
         <div className="grid grid-cols-2 gap-3">
           <div><Label>Latitude</Label><Input type="number" step="any" {...register("latitude", { setValueAs: (v) => (v === "" || v == null ? null : Number(v)) })} /></div>
           <div><Label>Longitude</Label><Input type="number" step="any" {...register("longitude", { setValueAs: (v) => (v === "" || v == null ? null : Number(v)) })} /></div>

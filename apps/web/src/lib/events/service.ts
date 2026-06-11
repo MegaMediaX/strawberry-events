@@ -32,6 +32,7 @@ function locationData(input: EventInput) {
     mapEmbedUrl: s(input.mapEmbedUrl),
     latitude: input.latitude ?? null,
     longitude: input.longitude ?? null,
+    whatsappChannelUrl: s(input.whatsappChannelUrl),
   };
 }
 
