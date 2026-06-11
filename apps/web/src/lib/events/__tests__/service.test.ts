@@ -182,6 +182,29 @@ describe("updateEvent (D7 live flag)", () => {
     const data = m(prisma.eventMapping.update).mock.calls[0][0].data;
     expect(data.liveOnPretix).toBe(true);
   });
+
+  it("persists location fields (empty strings normalized to null)", async () => {
+    m(prisma.eventMapping.findUnique).mockResolvedValue({
+      id: "e1", organizationId: "orgA", localEventId: "loc1", pretixEventSlug: "expo",
+    });
+    m(prisma.organization.findUnique).mockResolvedValue(org);
+    m(pretixEvents.updateEvent).mockResolvedValue({});
+    m(prisma.eventMapping.update).mockResolvedValue({ id: "e1" });
+
+    await updateEvent(orgAdmin, "e1", {
+      ...(liveInput as Record<string, unknown>),
+      venueName: "Main Hall",
+      address: "1 Expo Rd",
+      city: "Beirut",
+      mapUrl: "",
+    } as never);
+
+    const data = m(prisma.eventMapping.update).mock.calls[0][0].data;
+    expect(data.venueName).toBe("Main Hall");
+    expect(data.address).toBe("1 Expo Rd");
+    expect(data.city).toBe("Beirut");
+    expect(data.mapUrl).toBeNull();
+  });
 });
 
 describe("createTicket", () => {

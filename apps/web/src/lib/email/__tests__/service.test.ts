@@ -1,4 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+
+vi.mock("@/lib/db/client", () => ({ prisma: { emailLog: { create: vi.fn() } } }));
+
+import { prisma } from "@/lib/db/client";
 import { isDevTransport, sendEmail, emailMode } from "@/lib/email/service";
 import {
   pendingEmail,
@@ -10,6 +14,7 @@ import {
 
 const orig = { ...process.env };
 beforeEach(() => {
+  vi.clearAllMocks();
   delete process.env.SMTP_HOST;
 });
 afterEach(() => {
@@ -45,6 +50,32 @@ describe("email service", () => {
     await expect(
       sendEmail({ to: "a@b.com", subject: "Hi", text: "Body" }),
     ).resolves.toBe(false);
+  });
+});
+
+describe("email logging (meta provided)", () => {
+  const mock = <T,>(fn: T) => fn as unknown as ReturnType<typeof vi.fn>;
+  const meta = { templateType: "ticket_issued", organizationId: "orgA", attendeeRef: "ABC12" };
+
+  it("records a 'sent' log via dev-log provider when sending succeeds", async () => {
+    await sendEmail({ to: "a@b.com", subject: "Hi", text: "Body" }, meta);
+    expect(prisma.emailLog.create).toHaveBeenCalledTimes(1);
+    const data = mock(prisma.emailLog.create).mock.calls[0][0].data;
+    expect(data).toMatchObject({ recipient: "a@b.com", status: "sent", provider: "dev_log", templateType: "ticket_issued", organizationId: "orgA" });
+  });
+
+  it("records a 'disabled' log in production with no SMTP (no false success)", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    delete process.env.SMTP_HOST;
+    const ok = await sendEmail({ to: "a@b.com", subject: "Hi", text: "Body" }, meta);
+    expect(ok).toBe(false);
+    const data = mock(prisma.emailLog.create).mock.calls[0][0].data;
+    expect(data.status).toBe("disabled");
+  });
+
+  it("does NOT log when no meta is provided (backward-compatible)", async () => {
+    await sendEmail({ to: "a@b.com", subject: "Hi", text: "Body" });
+    expect(prisma.emailLog.create).not.toHaveBeenCalled();
   });
 });
 

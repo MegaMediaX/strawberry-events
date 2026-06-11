@@ -16,6 +16,7 @@ import { requiresApproval } from "@/lib/approval/state";
 import { tagForItem } from "@/lib/checkin/eligibility";
 import { holdSeats, confirmSeats, releaseSeats } from "@/lib/seats/service";
 import { emit } from "@/lib/webhooks/service";
+import { getEventFields, getFieldsForTicket, validateRequiredAnswers } from "@/lib/admin/custom-fields";
 import { registerInputSchema, type RegisterInput } from "./schema";
 
 export interface RegisterResult {
@@ -66,6 +67,22 @@ export async function register(input: RegisterInput): Promise<RegisterResult> {
   // Seated events require a seat selection.
   if (event.seatSelectionEnabled && (!data.seatIds || data.seatIds.length === 0)) {
     throw new Error("Seat selection is required for this event");
+  }
+
+  // Modular custom fields: validate required answers for the selected tickets
+  // BEFORE any pretix/DB side effects (fail fast). Answers are persisted after
+  // the order is created.
+  const allFields = await getEventFields(event.id);
+  const scopedFields = (() => {
+    const byId = new Map<string, (typeof allFields)[number]>();
+    for (const sel of data.tickets) {
+      for (const f of getFieldsForTicket(allFields, sel.itemId)) byId.set(f.id, f);
+    }
+    return [...byId.values()];
+  })();
+  const missingFields = validateRequiredAnswers(scopedFields, data.answers ?? []);
+  if (missingFields.length) {
+    throw new Error(`Missing required field(s): ${missingFields.join(", ")}`);
   }
 
   const order = await pretixOrders.createOrder(
@@ -135,10 +152,12 @@ export async function register(input: RegisterInput): Promise<RegisterResult> {
       approvalStatus,
       provider,
       totalCents,
-      roleTag: tagForItem(
-        (event.itemTagMap ?? {}) as Record<string, unknown>,
-        data.tickets[0]?.itemId ?? -1,
-      ),
+      roleTag:
+        data.roleTag ??
+        tagForItem(
+          (event.itemTagMap ?? {}) as Record<string, unknown>,
+          data.tickets[0]?.itemId ?? -1,
+        ),
       pretixSecret: order.positions?.[0]?.secret ?? null,
       magicLinkToken,
     },
@@ -167,6 +186,21 @@ export async function register(input: RegisterInput): Promise<RegisterResult> {
     }
   }
 
+  // Persist modular field answers (best-effort; required ones were validated above).
+  if (data.answers?.length) {
+    const scopedIds = new Set(scopedFields.map((f) => f.id));
+    const rows = data.answers
+      .filter((a) => scopedIds.has(a.fieldId) && a.value.trim())
+      .map((a) => ({ fieldId: a.fieldId, attendeeRef: order.code, value: a.value }));
+    if (rows.length) {
+      try {
+        await prisma.customFormAnswer.createMany({ data: rows });
+      } catch (err) {
+        console.error("[register] custom answers write failed:", (err as Error).message);
+      }
+    }
+  }
+
   void emit(event.organizationId, "order.created", { orderCode: order.code, status }, event.id);
   if (status === "paid") {
     void emit(event.organizationId, "order.paid", { orderCode: order.code }, event.id);
@@ -182,7 +216,15 @@ export async function register(input: RegisterInput): Promise<RegisterResult> {
       : status === "paid"
         ? confirmationEmail(data.locale, event.titleEn, order.code, ticketUrl)
         : pendingEmail(data.locale, event.titleEn, order.code);
-    await sendEmail({ to: data.attendee.email, ...msg });
+    const templateType = needsApproval
+      ? "pending_approval"
+      : status === "paid"
+        ? "ticket_issued"
+        : "payment_required";
+    await sendEmail(
+      { to: data.attendee.email, ...msg },
+      { templateType, organizationId: event.organizationId, eventMappingId: event.id, attendeeRef: order.code },
+    );
   } catch {
     // swallow
   }

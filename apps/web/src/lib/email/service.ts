@@ -1,9 +1,46 @@
 import nodemailer, { type Transporter } from "nodemailer";
+import { prisma } from "@/lib/db/client";
 
 export interface OutgoingEmail {
   to: string;
   subject: string;
   text: string;
+}
+
+/** Optional operational context for the email log (recorded only when provided). */
+export interface EmailMeta {
+  templateType?: string;
+  organizationId?: string | null;
+  eventMappingId?: string | null;
+  attendeeRef?: string | null;
+}
+
+/** Persist an email-log row. Best-effort: never throws, never blocks sending. */
+async function logEmail(
+  email: OutgoingEmail,
+  meta: EmailMeta,
+  status: "sent" | "failed" | "disabled",
+  provider: "smtp" | "dev_log",
+  lastError: string | null,
+): Promise<void> {
+  try {
+    await prisma.emailLog.create({
+      data: {
+        recipient: email.to,
+        subject: email.subject,
+        bodyText: email.text,
+        templateType: meta.templateType ?? null,
+        organizationId: meta.organizationId ?? null,
+        eventMappingId: meta.eventMappingId ?? null,
+        attendeeRef: meta.attendeeRef ?? null,
+        status,
+        provider,
+        lastError,
+      },
+    });
+  } catch (err) {
+    console.error("[email] log write failed:", (err as Error).message);
+  }
 }
 
 export type EmailMode = "smtp" | "dev-log" | "disabled";
@@ -53,10 +90,11 @@ function getTransport(): Transporter {
  * (real SMTP, or the dev-log transport in development). In production with
  * email disabled it returns false and does NOT log a false success.
  */
-export async function sendEmail(email: OutgoingEmail): Promise<boolean> {
+export async function sendEmail(email: OutgoingEmail, meta?: EmailMeta): Promise<boolean> {
   const mode = emailMode();
   if (mode === "disabled") {
     console.warn("[email] outbound email is disabled in production; not sending to", email.to);
+    if (meta) await logEmail(email, meta, "disabled", "dev_log", null);
     return false;
   }
 
@@ -70,9 +108,11 @@ export async function sendEmail(email: OutgoingEmail): Promise<boolean> {
       console.info(email.text);
       void info;
     }
+    if (meta) await logEmail(email, meta, "sent", mode === "smtp" ? "smtp" : "dev_log", null);
     return true;
   } catch (err) {
     console.error("[email] send failed:", (err as Error).message);
+    if (meta) await logEmail(email, meta, "failed", "smtp", (err as Error).message);
     return false;
   }
 }

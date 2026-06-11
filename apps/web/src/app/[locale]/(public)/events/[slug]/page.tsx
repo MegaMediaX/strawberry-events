@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import { setRequestLocale } from "next-intl/server";
 import { getPublicEvent } from "@/lib/events/public";
 import { capacityState } from "@/lib/events/capacity";
+import { hasLocation, locationLine, directionsUrl } from "@/lib/events/location";
 import { EventHero } from "@/components/public/event-hero";
 import { TicketRail } from "@/components/public/ticket-rail";
 import { MobileCtaBar } from "@/components/public/mobile-cta-bar";
@@ -42,15 +43,20 @@ export default async function EventDetailPage({
     title: event.titleEn,
     start: dateFrom ?? new Date().toISOString(),
     end: dateTo,
+    location: locationLine(event) || null,
     description: event.descriptionEn,
   };
+
+  const showLoc = hasLocation(event);
+  const locLine = locationLine(event);
+  const dir = directionsUrl(event);
 
   return (
     <main className="mx-auto max-w-5xl px-4 py-8 pb-24 lg:pb-8">
       <EventHero
         title={title}
         dateLabel={fmtDate(dateFrom)}
-        locationLabel={null}
+        locationLabel={event.venueName ?? (locLine || null)}
         statusLabel={
           event.comingSoon ? "Coming soon" : soldOut ? "Sold out" : "Open"
         }
@@ -64,6 +70,31 @@ export default async function EventDetailPage({
               <p className="mt-2 whitespace-pre-line text-muted-foreground">
                 {description}
               </p>
+            </section>
+          )}
+          {showLoc && (
+            <section className="mt-6">
+              <h2 className="text-lg font-semibold">Location</h2>
+              {locLine && <p className="mt-2 text-muted-foreground">{locLine}</p>}
+              {dir && (
+                <a
+                  className="mt-2 inline-block text-primary underline"
+                  href={dir}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  Get directions
+                </a>
+              )}
+              {event.mapEmbedUrl && (
+                <iframe
+                  title="Event location map"
+                  src={event.mapEmbedUrl}
+                  loading="lazy"
+                  referrerPolicy="no-referrer-when-downgrade"
+                  className="mt-3 aspect-video w-full rounded-[var(--radius-lg)] border border-border"
+                />
+              )}
             </section>
           )}
           {event.waitlistEnabled && soldOut && (

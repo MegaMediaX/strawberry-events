@@ -14,6 +14,11 @@ export async function getSessionContext(): Promise<SessionContext | null> {
   const userId = session?.user?.id;
   if (!userId) return null;
 
+  // Suspended users are treated as unauthenticated — they cannot reach any
+  // protected area (requireRole redirects them to login).
+  const account = await prisma.user.findUnique({ where: { id: userId }, select: { status: true } });
+  if (!account || account.status === "suspended") return null;
+
   const memberships = await prisma.organizationMember.findMany({
     where: { userId },
     select: { organizationId: true, role: true, assignedEventIds: true },

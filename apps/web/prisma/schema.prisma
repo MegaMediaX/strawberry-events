@@ -27,6 +27,24 @@ enum OrgStatus {
   suspended
 }
 
+enum UserStatus {
+  active
+  suspended
+}
+
+enum EmailStatus {
+  queued
+  sent
+  failed
+  skipped
+  disabled
+}
+
+enum EmailProvider {
+  smtp
+  dev_log
+}
+
 enum Visibility {
   public
   private
@@ -116,6 +134,7 @@ model User {
   name          String?
   image         String?
   passwordHash  String?
+  status        UserStatus @default(active)
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
@@ -126,6 +145,7 @@ model User {
   apiKeys     ApiKey[]             @relation("ApiKeyCreatedBy")
   auditLogs   AuditLog[]
   attendeeOrders AttendeeOrder[]
+  passwordResetTokens PasswordResetToken[]
 
   @@map("users")
 }
@@ -168,6 +188,22 @@ model VerificationToken {
 
   @@unique([identifier, token])
   @@map("verification_tokens")
+}
+
+model PasswordResetToken {
+  id        String    @id @default(cuid())
+  userId    String
+  // SHA-256 of the random token (deterministic → unique-index lookup). A DB
+  // breach yields no usable reset link; the plaintext exists only in transit.
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([expiresAt])
+  @@map("password_reset_tokens")
 }
 
 // ---------------------------------------------------------------------------
@@ -257,6 +293,16 @@ model EventMapping {
   // AND liveOnPretix=true, so flipping local visibility alone cannot leak a draft.
   // Kept in sync by updateEvent (authoritative) and the inbound pretix webhook.
   liveOnPretix        Boolean      @default(false)
+  // Location (all optional; storefront renders gracefully when absent). No live
+  // Places API required — operators paste a Google Maps URL / embed URL.
+  venueName           String?
+  address             String?
+  city                String?
+  country             String?
+  mapUrl              String?
+  mapEmbedUrl         String?
+  latitude            Float?
+  longitude           Float?
   createdAt           DateTime     @default(now())
   updatedAt           DateTime     @updatedAt
 
@@ -448,6 +494,8 @@ model CustomFormField {
   ticketId       String?
   labelEn        String
   labelAr        String?
+  placeholderEn  String?
+  placeholderAr  String?
   helpTextEn     String?
   helpTextAr     String?
   type           String
@@ -633,6 +681,26 @@ model AuditLog {
   @@index([entityType, entityId])
   @@index([action])
   @@map("audit_logs")
+}
+
+model EmailLog {
+  id             String        @id @default(cuid())
+  recipient      String
+  subject        String
+  bodyText       String        @db.Text
+  templateType   String?
+  organizationId String?
+  eventMappingId String?
+  attendeeRef    String?
+  status         EmailStatus
+  provider       EmailProvider
+  lastError      String?
+  createdAt      DateTime      @default(now())
+
+  @@index([organizationId])
+  @@index([status])
+  @@index([createdAt])
+  @@map("email_logs")
 }
 
 model AttendeeOrder {

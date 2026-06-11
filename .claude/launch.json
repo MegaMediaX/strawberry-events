@@ -7,19 +7,6 @@
       "runtimeArgs": ["run", "dev"],
       "cwd": "apps/web",
       "port": 3000
-    },
-    {
-      "name": "docker dev stack (postgres/pretix/redis/nginx)",
-      "runtimeExecutable": "docker",
-      "runtimeArgs": [
-        "compose",
-        "-f",
-        "compose.yaml",
-        "-f",
-        "compose.dev.yaml",
-        "up"
-      ],
-      "port": 8081
     }
   ]
 }

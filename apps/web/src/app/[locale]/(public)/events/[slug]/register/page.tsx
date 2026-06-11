@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import { setRequestLocale } from "next-intl/server";
 import { getPublicEvent } from "@/lib/events/public";
 import { getSeatMap } from "@/lib/seats/service";
+import { getEventFields } from "@/lib/admin/custom-fields";
 import { RegistrationWizard } from "@/components/registration/registration-wizard";
 import type { SectionNode } from "@/components/seats/seat-selector";
 
@@ -45,6 +46,8 @@ export default async function RegisterPage({
     );
   }
 
+  const customFields = await getEventFields(data.event.id);
+
   return (
     <div>
       <div className="mx-auto max-w-xl px-4 pt-6">
@@ -55,6 +58,7 @@ export default async function RegisterPage({
         slug={slug}
         tickets={tickets}
         seatSections={seatSections}
+        customFields={customFields}
       />
     </div>
   );

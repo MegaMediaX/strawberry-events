@@ -83,9 +83,13 @@ async function audit(session: SessionContext, orgId: string, action: string, id:
   });
 }
 
-async function bestEffortEmail(to: string, msg: { subject: string; text: string }) {
+async function bestEffortEmail(
+  to: string,
+  msg: { subject: string; text: string },
+  meta?: { templateType: string; organizationId: string; eventMappingId: string; attendeeRef: string },
+) {
   try {
-    await sendEmail({ to, ...msg });
+    await sendEmail({ to, ...msg }, meta);
   } catch {
     // swallow
   }
@@ -144,11 +148,13 @@ export async function approve(session: SessionContext, orderId: string) {
     await bestEffortEmail(
       order.email,
       confirmationEmail(locale, order.eventMapping.titleEn, order.orderCode, ticketUrl),
+      { templateType: "ticket_issued", organizationId: org.id, eventMappingId: order.eventMappingId, attendeeRef: order.orderCode },
     );
   } else {
     await bestEffortEmail(
       order.email,
       approvedPaymentEmail(locale, order.eventMapping.titleEn, order.orderCode),
+      { templateType: "approved", organizationId: org.id, eventMappingId: order.eventMappingId, attendeeRef: order.orderCode },
     );
   }
 
@@ -213,6 +219,7 @@ export async function reject(session: SessionContext, orderId: string) {
   await bestEffortEmail(
     order.email,
     rejectedEmail(locale, order.eventMapping.titleEn, order.orderCode),
+    { templateType: "rejected", organizationId: org.id, eventMappingId: order.eventMappingId, attendeeRef: order.orderCode },
   );
   await audit(session, org.id, "registration.rejected", order.id);
   void emit(org.id, "attendee.rejected", { orderCode: order.orderCode }, order.eventMappingId);

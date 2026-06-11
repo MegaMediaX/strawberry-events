@@ -20,6 +20,15 @@ export const eventInputSchema = z.object({
     .default("none"),
   comingSoon: z.boolean().default(false),
   live: z.boolean().default(false),
+  // Location (all optional; storefront renders gracefully when absent).
+  venueName: z.string().optional().nullable(),
+  address: z.string().optional().nullable(),
+  city: z.string().optional().nullable(),
+  country: z.string().optional().nullable(),
+  mapUrl: z.string().url("Enter a valid URL").optional().or(z.literal("")).nullable(),
+  mapEmbedUrl: z.string().url("Enter a valid URL").optional().or(z.literal("")).nullable(),
+  latitude: z.number().optional().nullable(),
+  longitude: z.number().optional().nullable(),
 });
 
 export type EventInput = z.infer<typeof eventInputSchema>;

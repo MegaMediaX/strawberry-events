@@ -120,7 +120,10 @@ export async function markOrderPaid(session: SessionContext, orderId: string) {
       order.orderCode,
       ticketUrl,
     );
-    await sendEmail({ to: order.email, ...msg });
+    await sendEmail(
+      { to: order.email, ...msg },
+      { templateType: "cod_marked_paid", organizationId: order.eventMapping.organizationId, eventMappingId: order.eventMappingId, attendeeRef: order.orderCode },
+    );
   } catch {
     // swallow
   }

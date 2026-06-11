@@ -92,6 +92,19 @@ export function EventForm({
       <div className={tab === "Schedule & Location" ? "flex flex-col gap-3" : "hidden"}>
         <div><Label>Start (ISO date-time)</Label><Input placeholder="2026-09-01T09:00:00Z" {...register("dateFrom")} />{err("dateFrom")}</div>
         <div><Label>End (optional)</Label><Input {...register("dateTo")} /></div>
+        <div className="mt-2 border-t pt-3 text-sm font-medium text-muted-foreground">Location (optional)</div>
+        <div><Label>Venue name</Label><Input {...register("venueName")} /></div>
+        <div><Label>Address</Label><Input {...register("address")} /></div>
+        <div className="grid grid-cols-2 gap-3">
+          <div><Label>City</Label><Input {...register("city")} /></div>
+          <div><Label>Country</Label><Input {...register("country")} /></div>
+        </div>
+        <div><Label>Google Maps URL</Label><Input placeholder="https://maps.google.com/…" {...register("mapUrl")} />{err("mapUrl")}</div>
+        <div><Label>Map embed URL (optional)</Label><Input placeholder="https://www.google.com/maps/embed?…" {...register("mapEmbedUrl")} />{err("mapEmbedUrl")}</div>
+        <div className="grid grid-cols-2 gap-3">
+          <div><Label>Latitude</Label><Input type="number" step="any" {...register("latitude", { setValueAs: (v) => (v === "" || v == null ? null : Number(v)) })} /></div>
+          <div><Label>Longitude</Label><Input type="number" step="any" {...register("longitude", { setValueAs: (v) => (v === "" || v == null ? null : Number(v)) })} /></div>
+        </div>
       </div>
 
       <div className={tab === "Registration" ? "flex flex-col gap-3" : "hidden"}>
