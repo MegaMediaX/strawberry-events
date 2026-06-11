@@ -2,6 +2,20 @@ import { z } from "zod";
 
 const slugRegex = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
+/**
+ * An http(s) URL or empty/nullable. `z.string().url()` alone accepts dangerous
+ * schemes (javascript:, data:, vbscript:) which would become a stored-XSS /
+ * open-redirect vector when rendered as href / iframe src on public pages.
+ */
+const httpUrl = (msg = "Enter a valid http(s) URL") =>
+  z
+    .string()
+    .url(msg)
+    .refine((u) => /^https?:\/\//i.test(u), { message: msg })
+    .optional()
+    .or(z.literal(""))
+    .nullable();
+
 export const eventInputSchema = z.object({
   titleEn: z.string().min(1, "Title (EN) is required"),
   titleAr: z.string().optional().nullable(),
@@ -31,12 +45,12 @@ export const eventInputSchema = z.object({
   address: z.string().optional().nullable(),
   city: z.string().optional().nullable(),
   country: z.string().optional().nullable(),
-  mapUrl: z.string().url("Enter a valid URL").optional().or(z.literal("")).nullable(),
-  mapEmbedUrl: z.string().url("Enter a valid URL").optional().or(z.literal("")).nullable(),
+  mapUrl: httpUrl(),
+  mapEmbedUrl: httpUrl(),
   latitude: z.number().optional().nullable(),
   longitude: z.number().optional().nullable(),
   // Optional WhatsApp channel/group link shown after registration.
-  whatsappChannelUrl: z.string().url("Enter a valid URL").optional().or(z.literal("")).nullable(),
+  whatsappChannelUrl: httpUrl(),
   // Sub-event capacity controls (stage 1).
   maxAttendees: z.number().int().min(0).nullable().optional(),
   ticketsPerUserMain: z.number().int().min(1).optional(),

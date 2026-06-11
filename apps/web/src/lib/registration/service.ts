@@ -75,7 +75,9 @@ export async function register(input: RegisterInput): Promise<RegisterResult> {
   const data = registerInputSchema.parse(input);
 
   const event = await prisma.eventMapping.findFirst({
-    where: { pretixEventSlug: data.eventSlug, visibility: "public" },
+    // Require liveOnPretix to match the public storefront gate (getPublicEvent):
+    // a direct call must not register against a public-but-not-yet-live event.
+    where: { pretixEventSlug: data.eventSlug, visibility: "public", liveOnPretix: true },
   });
   if (!event) throw new Error("Event not found");
   const org = await prisma.organization.findUnique({

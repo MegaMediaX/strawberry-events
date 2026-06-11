@@ -27,7 +27,7 @@ export default async function RegisterPage({
   // Validate invite token and unlock invite-only tickets if valid.
   const rawInvite = typeof sp.invite === "string" ? sp.invite : undefined;
   let inviteToken: string | undefined;
-  let unlockedItemIds: Set<number> = new Set();
+  const unlockedItemIds: Set<number> = new Set();
   if (rawInvite) {
     const payload = verifyInvite(rawInvite);
     if (payload && payload.ev === slug) {
