@@ -50,6 +50,11 @@ export function EventCard({
     <img
       src={event.coverUrl}
       alt=""
+      // The featured cover is the LCP element — load it eagerly with high
+      // priority; grid covers stay lazy.
+      loading={featured ? "eager" : "lazy"}
+      fetchPriority={featured ? "high" : "auto"}
+      decoding="async"
       className="absolute inset-0 h-full w-full object-cover transition-transform duration-500 ease-out will-change-transform group-hover:scale-[1.045] motion-reduce:transition-none motion-reduce:group-hover:scale-100"
     />
   ) : (
@@ -86,7 +91,7 @@ export function EventCard({
             "mt-1 inline-flex items-center gap-1.5 text-sm font-semibold text-white",
             // CTA is always visible on touch; on pointer devices it reveals on hover.
             "sm:translate-y-1 sm:opacity-0 sm:transition-all sm:duration-300",
-            "sm:group-hover:translate-y-0 sm:group-hover:opacity-100 sm:group-focus-visible:translate-y-0 sm:group-focus-visible:opacity-100",
+            "sm:group-hover:translate-y-0 sm:group-hover:opacity-100 sm:group-focus-visible/card:translate-y-0 sm:group-focus-visible/card:opacity-100",
             "motion-reduce:translate-y-0 motion-reduce:transition-none",
           ].join(" ")}
         >
@@ -100,8 +105,8 @@ export function EventCard({
   const frame = (
     <div
       className={[
-        "group relative block overflow-hidden rounded-[var(--radius-xl)] shadow-sm outline-none transition-shadow duration-300",
-        "hover:shadow-2xl focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-black",
+        "group relative block overflow-hidden rounded-[var(--radius-xl)] shadow-sm transition-shadow duration-300",
+        "hover:shadow-2xl",
         featured ? "aspect-[16/10] sm:aspect-[2/1]" : "aspect-[4/3] sm:aspect-[3/2]",
         event.comingSoon ? "cursor-default" : "",
       ].join(" ")}
@@ -131,7 +136,11 @@ export function EventCard({
       {event.comingSoon ? (
         <div className="opacity-90">{frame}</div>
       ) : (
-        <Link href={href} aria-label={title} className="block rounded-[var(--radius-xl)]">
+        <Link
+          href={href}
+          aria-label={title}
+          className="group/card block rounded-[var(--radius-xl)] outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-black"
+        >
           {frame}
         </Link>
       )}
