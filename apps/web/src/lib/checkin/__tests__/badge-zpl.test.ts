@@ -30,12 +30,12 @@ describe("sanitizeZplText", () => {
 });
 
 describe("buildBadgeZpl", () => {
-  it("wraps the label in ^XA/^XZ with 6x4 landscape @203dpi dimensions", () => {
+  it("wraps the label in ^XA/^XZ with 60x40mm landscape @203dpi dimensions", () => {
     const zpl = buildBadgeZpl(badge());
     expect(zpl.startsWith("^XA")).toBe(true);
     expect(zpl.trimEnd().endsWith("^XZ")).toBe(true);
-    expect(LABEL_WIDTH).toBe(1218); // 6in wide
-    expect(LABEL_HEIGHT).toBe(812); // 4in tall
+    expect(LABEL_WIDTH).toBe(480); // 60mm wide
+    expect(LABEL_HEIGHT).toBe(320); // 40mm tall
     expect(zpl).toContain(`^PW${LABEL_WIDTH}`);
     expect(zpl).toContain(`^LL${LABEL_HEIGHT}`);
   });
@@ -53,10 +53,9 @@ describe("buildBadgeZpl", () => {
     expect(zpl).toContain("^FDStrawberry Agency^FS");
   });
 
-  it("encodes the QR with the pretix secret payload", () => {
-    const zpl = buildBadgeZpl(badge({ qrValue: "SEC999" }));
-    expect(zpl).toContain("^BQN,2,");
-    expect(zpl).toContain("^FDLA,SEC999^FS");
+  it("does not render a QR code", () => {
+    const zpl = buildBadgeZpl(badge());
+    expect(zpl).not.toContain("^BQ");
   });
 
   it("omits the company line when there is no company", () => {
