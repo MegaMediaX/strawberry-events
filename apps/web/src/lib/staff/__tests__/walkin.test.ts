@@ -70,6 +70,23 @@ describe("createWalkIn — permission boundaries", () => {
     expect(arg.attendee.phoneCC).toBe("");
   });
 
+  it("walk-in without an email gets a synthesized placeholder address", async () => {
+    const noEmail = {
+      eventId: "e1",
+      itemId: 7,
+      roleTag: "visitor" as const,
+      attendee: { firstName: "A", lastName: "B" },
+    };
+    await createWalkIn(staff, noEmail);
+    const arg = mock(register).mock.calls[0][0];
+    expect(arg.attendee.email).toMatch(/^walkin-.+@walk-in\.invalid$/);
+  });
+
+  it("a provided walk-in email is preserved", async () => {
+    await createWalkIn(staff, input);
+    expect(mock(register).mock.calls[0][0].attendee.email).toBe("a@b.com");
+  });
+
   it("check-in staff cannot create a walk-in for an UNassigned event", async () => {
     const otherStaff: SessionContext = {
       userId: "s2", isSuperAdmin: false,

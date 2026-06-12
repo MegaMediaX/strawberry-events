@@ -8,9 +8,9 @@ export const registerInputSchema = z
     attendee: z.object({
       firstName: z.string().min(1, "Required"),
       lastName: z.string().min(1, "Required"),
-      email: z.string().email("Enter a valid email address"),
-      // Phone is optional at the type level; it is REQUIRED for the public
-      // wizard and OPTIONAL for staff walk-ins (see superRefine below).
+      // Email and phone are optional at the type level; they are REQUIRED for
+      // the public wizard and OPTIONAL for staff walk-ins (see superRefine).
+      email: z.string().optional().default(""),
       phoneCC: z.string().optional().default(""),
       phone: z.string().optional().default(""),
       company: z.string().optional().nullable(),
@@ -33,7 +33,17 @@ export const registerInputSchema = z
     consentPrivacy: z.literal(true, { message: "You must accept the Privacy Policy" }),
   })
   .superRefine((val, ctx) => {
-    if (val.staffWalkIn) return; // walk-ins may omit phone
+    const email = val.attendee.email;
+    // A provided email must always be well-formed (it flows to the pretix order).
+    if (email.length > 0 && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      ctx.addIssue({ code: "custom", path: ["attendee", "email"], message: "Enter a valid email address" });
+    }
+
+    if (val.staffWalkIn) return; // walk-ins may omit email + phone
+
+    if (email.length === 0) {
+      ctx.addIssue({ code: "custom", path: ["attendee", "email"], message: "Required" });
+    }
     if (val.attendee.phoneCC.length < 1) {
       ctx.addIssue({ code: "custom", path: ["attendee", "phoneCC"], message: "Required" });
     }

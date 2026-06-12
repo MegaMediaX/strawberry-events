@@ -29,11 +29,42 @@ describe("registerInputSchema — phone requirement", () => {
   });
 
   it("staff walk-in may omit phone", () => {
-    const r = registerInputSchema.safeParse({ ...base, staffWalkIn: true });
+    const r = registerInputSchema.safeParse({
+      ...base,
+      staffWalkIn: true,
+      attendee: { ...base.attendee, email: "a@b.com" },
+    });
     expect(r.success).toBe(true);
     if (r.success) {
       expect(r.data.attendee.phone).toBe("");
       expect(r.data.attendee.phoneCC).toBe("");
     }
+  });
+});
+
+describe("registerInputSchema — email requirement", () => {
+  it("public registration requires email", () => {
+    const r = registerInputSchema.safeParse({
+      ...base,
+      attendee: { ...base.attendee, email: "", phoneCC: "+961", phone: "70123456" },
+    });
+    expect(r.success).toBe(false);
+    if (!r.success) {
+      expect(r.error.issues.map((i) => i.path.join("."))).toContain("attendee.email");
+    }
+  });
+
+  it("staff walk-in may omit email entirely", () => {
+    const r = registerInputSchema.safeParse({ ...base, staffWalkIn: true });
+    expect(r.success).toBe(true);
+  });
+
+  it("a provided email must be well-formed, even for a walk-in", () => {
+    const r = registerInputSchema.safeParse({
+      ...base,
+      staffWalkIn: true,
+      attendee: { ...base.attendee, email: "not-an-email" },
+    });
+    expect(r.success).toBe(false);
   });
 });
