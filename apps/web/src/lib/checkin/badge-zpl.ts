@@ -57,12 +57,14 @@ export function buildBadgeZpl(badge: BadgeData): string {
   const tag = sanitizeZplText(badge.tag).toUpperCase();
   const company = badge.company ? sanitizeZplText(badge.company) : null;
 
-  // Tag band: a filled black box with reversed (white) centered text.
-  const bandY = 12;
-  const bandHeight = 48;
+  // Tag band: a filled black box with reversed (white) centered text. The tag
+  // is the most prominent element, so it gets a tall band and large font.
+  const bandY = 10;
+  const bandHeight = 76;
+  const tagFont = 50;
   const band =
     `^FO0,${bandY}^GB${LABEL_WIDTH},${bandHeight},${bandHeight},B,0^FS` +
-    `^FO${MARGIN},${bandY + 11}^A0N,28,28^FR^FB${LABEL_WIDTH - MARGIN * 2},1,0,C,0^FD${tag}^FS`;
+    `^FO${MARGIN},${bandY + Math.round((bandHeight - tagFont) / 2)}^A0N,${tagFont},${tagFont}^FR^FB${LABEL_WIDTH - MARGIN * 2},1,0,C,0^FD${tag}^FS`;
 
   return [
     "^XA",
@@ -70,8 +72,8 @@ export function buildBadgeZpl(badge: BadgeData): string {
     `^LL${LABEL_HEIGHT}`,
     "^LH0,0",
     band,
-    centeredBlock(120, 44, badge.fullName, 2),
-    company ? centeredBlock(230, 28, company, 1) : "",
+    centeredBlock(140, 44, badge.fullName, 2),
+    company ? centeredBlock(248, 28, company, 1) : "",
     "^XZ",
   ]
     .filter(Boolean)
