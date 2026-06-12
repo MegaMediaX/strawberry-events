@@ -31,6 +31,7 @@
     "next-intl": "^4.13.0",
     "nodemailer": "^7.0.13",
     "qrcode": "^1.5.4",
+    "qz-tray": "^2.2.6",
     "react": "19.2.4",
     "react-dom": "19.2.4",
     "react-hook-form": "^7.78.0",
