@@ -19,6 +19,8 @@ function buildCsp(isProd: boolean): string {
     scriptSrc,
     "connect-src 'self'",
     "font-src 'self' data:",
+    // Allow embedding Google Maps (event location iframe); we still frame nothing else.
+    "frame-src 'self' https://www.google.com https://maps.google.com",
     "frame-ancestors 'none'",
     "base-uri 'self'",
     "form-action 'self'",
