@@ -9,6 +9,7 @@ import type { CheckInResult } from "@/lib/checkin/service";
 import { buildBadgeZpl } from "@/lib/checkin/badge-zpl";
 import { printZpl, PrintError } from "@/lib/checkin/print-client";
 import { QrScanner } from "./qr-scanner";
+import { PrinterSettings } from "./printer-settings";
 import {
   searchAction,
   checkInAction,
@@ -95,6 +96,8 @@ export function CheckinPanel({
 
   return (
     <div className="max-w-xl">
+      <PrinterSettings />
+
       <div className="mb-4 flex gap-2">
         <Button variant={mode === "search" ? "default" : "outline"} size="sm" onClick={() => setMode("search")}>
           Search
