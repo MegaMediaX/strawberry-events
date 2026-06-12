@@ -35,8 +35,8 @@ export function WalkInForm({
     setErr(null);
     setResult(null);
     if (itemId === "") return setErr("Select a ticket type.");
-    if (!a.firstName || !a.lastName || !a.email || !a.phone) {
-      return setErr("First name, last name, email and phone are required.");
+    if (!a.firstName || !a.lastName) {
+      return setErr("First name and last name are required.");
     }
     setBusy(true);
     const res = await walkInAction(eventId, {
@@ -110,7 +110,7 @@ export function WalkInForm({
         </div>
       </div>
       <div>
-        <Label>Email</Label>
+        <Label>Email (optional)</Label>
         <Input type="email" value={a.email} onChange={(e) => setA({ ...a, email: e.target.value })} />
       </div>
       <div className="grid grid-cols-[100px_1fr] gap-3">
@@ -119,7 +119,7 @@ export function WalkInForm({
           <Input value={a.phoneCC} onChange={(e) => setA({ ...a, phoneCC: e.target.value })} />
         </div>
         <div>
-          <Label>Phone</Label>
+          <Label>Phone (optional)</Label>
           <Input value={a.phone} onChange={(e) => setA({ ...a, phone: e.target.value })} />
         </div>
       </div>

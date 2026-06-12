@@ -10,9 +10,9 @@ export interface WalkInActionInput {
   attendee: {
     firstName: string;
     lastName: string;
-    email: string;
-    phoneCC: string;
-    phone: string;
+    email?: string;
+    phoneCC?: string;
+    phone?: string;
     company?: string | null;
   };
   seatIds?: string[];

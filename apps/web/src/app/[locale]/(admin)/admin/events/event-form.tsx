@@ -1,7 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useForm, Controller } from "react-hook-form";
+import { toast } from "@/components/ui/toast";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { DateTimeField } from "@/components/ui/datetime-field";
 import {
@@ -28,6 +30,19 @@ export function EventForm({
 }) {
   const [tab, setTab] = useState<Tab>("Details");
   const [serverError, setServerError] = useState<string | null>(null);
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+
+  // After a create, the action redirects here with `?saved=1`; surface the
+  // confirmation toast on arrival, then strip the flag from the URL.
+  useEffect(() => {
+    if (searchParams.get("saved")) {
+      toast.success("Saved");
+      router.replace(pathname);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const {
     register,
@@ -56,13 +71,14 @@ export function EventForm({
     const res: ActionResult = eventId
       ? await updateEventAction(locale, eventId, values)
       : await createEventAction(locale, values);
-    // On success the action redirects; we only get here on error.
+    // Create redirects on success; update returns { ok: true } and stays here.
     if (res?.fieldErrors) {
       for (const [k, msgs] of Object.entries(res.fieldErrors)) {
         setError(k as keyof EventFormValues, { message: msgs.join(", ") });
       }
     }
     if (res?.error) setServerError(res.error);
+    if (res?.ok) toast.success("Saved");
   }
 
   const err = (k: keyof EventFormValues) =>

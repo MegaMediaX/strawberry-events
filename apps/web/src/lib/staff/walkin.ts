@@ -15,9 +15,12 @@ export interface WalkInInput {
   attendee: {
     firstName: string;
     lastName: string;
-    email: string;
-    phoneCC: string;
-    phone: string;
+    /** Optional for walk-ins; a placeholder is synthesized when omitted. */
+    email?: string;
+    /** Optional for walk-ins. */
+    phoneCC?: string;
+    /** Optional for walk-ins. */
+    phone?: string;
     company?: string | null;
   };
   /** Required only for seated events. */
@@ -55,15 +58,29 @@ export async function createWalkIn(
     throw new ForbiddenError("Event not found or access denied");
   }
 
+  // pretix orders and our non-null email column need a value, so synthesize a
+  // unique placeholder when a walk-in has no email. The `.invalid` TLD (RFC 2606)
+  // guarantees it can never reach a real inbox.
+  const email = input.attendee.email?.trim()
+    ? input.attendee.email.trim()
+    : `walkin-${crypto.randomUUID()}@walk-in.invalid`;
+
   // register() validates ticket availability, seating, and approval, and throws
   // on failure — we propagate that (and do NOT audit a failed attempt).
   const result = await register({
     eventSlug: mapping.pretixEventSlug,
     locale: input.locale ?? "en",
-    attendee: input.attendee,
+    attendee: {
+      ...input.attendee,
+      email,
+      phoneCC: input.attendee.phoneCC ?? "",
+      phone: input.attendee.phone ?? "",
+    },
     tickets: [{ itemId: input.itemId, quantity: 1 }],
     seatIds: input.seatIds,
     roleTag: input.roleTag,
+    // Staff walk-ins may omit phone (the public wizard still requires it).
+    staffWalkIn: true,
     consentTerms: true,
     consentPrivacy: true,
     userId: null,

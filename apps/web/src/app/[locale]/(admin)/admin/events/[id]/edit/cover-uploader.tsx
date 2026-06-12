@@ -2,6 +2,7 @@
 
 import { useState, useRef } from "react";
 import { Button } from "@/components/ui/button";
+import { toast } from "@/components/ui/toast";
 import { uploadCoverAction, removeCoverAction } from "./cover-actions";
 
 export function CoverUploader({
@@ -29,8 +30,10 @@ export function CoverUploader({
       // Cache-bust so the swapped image refreshes immediately.
       setUrl(res.url ? `${res.url}?t=${Date.now()}` : null);
       setMsg("Cover updated.");
+      toast.success("Cover updated");
     } else {
       setMsg(res.error ?? "Upload failed");
+      toast.error(res.error ?? "Upload failed");
     }
     if (inputRef.current) inputRef.current.value = "";
   }
@@ -42,6 +45,8 @@ export function CoverUploader({
     setBusy(false);
     setUrl(res.ok ? null : url);
     setMsg(res.ok ? "Cover removed." : res.error ?? "Failed");
+    if (res.ok) toast.success("Cover removed");
+    else toast.error(res.error ?? "Failed");
   }
 
   return (

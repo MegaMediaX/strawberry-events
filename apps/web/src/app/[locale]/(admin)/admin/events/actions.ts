@@ -9,6 +9,7 @@ import { eventInputSchema, ticketInputSchema, subEventInputSchema } from "@/lib/
 import { PretixValidationError } from "@/lib/pretix/errors";
 
 export interface ActionResult {
+  ok?: boolean;
   error?: string;
   fieldErrors?: Record<string, string[]>;
 }
@@ -38,8 +39,9 @@ export async function createEventAction(
     return { fieldErrors: zodToFieldErrors(parsed.error.issues) };
   }
 
+  let mapping;
   try {
-    await service.createEvent(session, org, parsed.data);
+    mapping = await service.createEvent(session, org, parsed.data);
   } catch (err) {
     if (err instanceof PretixValidationError) {
       return { fieldErrors: err.fieldErrors };
@@ -48,7 +50,9 @@ export async function createEventAction(
   }
 
   revalidatePath(`/${locale}/admin/events`);
-  redirect(`/${locale}/admin/events`);
+  // Land on the new event's edit page so the user can add tickets next; the
+  // `saved` flag tells the form to surface a confirmation toast on arrival.
+  redirect(`/${locale}/admin/events/${mapping.id}/edit?saved=1`);
 }
 
 export async function updateEventAction(
@@ -74,7 +78,8 @@ export async function updateEventAction(
   }
 
   revalidatePath(`/${locale}/admin/events`);
-  redirect(`/${locale}/admin/events`);
+  // Stay on the edit page; the client surfaces a "Saved" toast on success.
+  return { ok: true };
 }
 
 export async function createTicketAction(

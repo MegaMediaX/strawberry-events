@@ -7,6 +7,7 @@ import { prisma } from "@/lib/db/client";
 import { LanguageSwitcher } from "@/components/language-switcher";
 import { OrganizerSwitcher } from "./_components/organizer-switcher";
 import { NavItem } from "@/components/admin/nav-item";
+import { Toaster } from "@/components/ui/toast";
 
 export default async function AdminLayout({
   children,
@@ -118,6 +119,7 @@ export default async function AdminLayout({
         </header>
         <main className="flex-1 overflow-y-auto p-6">{children}</main>
       </div>
+      <Toaster />
     </div>
   );
 }

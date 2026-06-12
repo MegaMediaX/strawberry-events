@@ -18,7 +18,13 @@ vi.mock("@/lib/pretix/checkin", () => ({
 
 import { prisma } from "@/lib/db/client";
 import * as pretixCheckin from "@/lib/pretix/checkin";
-import { checkInOrder, searchAttendees, NAME_SIMILARITY_THRESHOLD } from "@/lib/checkin/service";
+import {
+  checkInOrder,
+  checkInBySecret,
+  reprintBadge,
+  searchAttendees,
+  NAME_SIMILARITY_THRESHOLD,
+} from "@/lib/checkin/service";
 
 const mock = <T,>(fn: T) => fn as unknown as ReturnType<typeof vi.fn>;
 
@@ -63,6 +69,9 @@ beforeEach(() => {
     id: "orgA", pretixOrganizerSlug: "acme", pretixApiToken: null,
   });
   mock(prisma.attendeeOrder.findFirst).mockResolvedValue(order());
+  // clearAllMocks() resets call history but NOT implementations, so re-assert
+  // the happy-path redeem to keep tests isolated from the duplicate-case test.
+  mock(pretixCheckin.redeemCheckin).mockResolvedValue({ status: "ok" });
 });
 
 describe("checkInOrder", () => {
@@ -127,6 +136,59 @@ function rawValues(callIndex = 0): unknown[] {
   visit(call.slice(1));
   return out;
 }
+
+describe("checkInBySecret (camera scan)", () => {
+  it("resolves by pretixSecret → redeem + badge", async () => {
+    const res = await checkInBySecret(staff, "e1", "SEC1", 5);
+    expect(res.ok).toBe(true);
+    expect(prisma.attendeeOrder.findFirst).toHaveBeenCalledWith({
+      where: { eventMappingId: "e1", pretixSecret: "SEC1" },
+    });
+    expect(pretixCheckin.redeemCheckin).toHaveBeenCalled();
+  });
+
+  it("unknown QR → not recognized, no redeem", async () => {
+    mock(prisma.attendeeOrder.findFirst).mockResolvedValue(null);
+    const res = await checkInBySecret(staff, "e1", "NOPE", 5);
+    expect(res.ok).toBe(false);
+    expect(res.reason).toMatch(/not recognized/i);
+    expect(pretixCheckin.redeemCheckin).not.toHaveBeenCalled();
+  });
+
+  it("empty QR → rejected", async () => {
+    const res = await checkInBySecret(staff, "e1", "   ", 5);
+    expect(res.ok).toBe(false);
+    expect(prisma.attendeeOrder.findFirst).not.toHaveBeenCalled();
+  });
+
+  it("finance cannot scan-check-in", async () => {
+    await expect(checkInBySecret(finance, "e1", "SEC1", 5)).rejects.toThrow();
+  });
+});
+
+describe("reprintBadge", () => {
+  it("issued order → reprint logged, NO pretix redeem", async () => {
+    const res = await reprintBadge(staff, "e1", "ABC12");
+    expect(res.ok).toBe(true);
+    expect(pretixCheckin.redeemCheckin).not.toHaveBeenCalled();
+    expect(prisma.badgePrintLog.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ reprint: true }) }),
+    );
+  });
+
+  it("ineligible (pending payment) → no reprint", async () => {
+    mock(prisma.attendeeOrder.findFirst).mockResolvedValue(
+      order({ status: "pending", approvalStatus: "not_required" }),
+    );
+    const res = await reprintBadge(staff, "e1", "ABC12");
+    expect(res.ok).toBe(false);
+    expect(prisma.badgePrintLog.create).not.toHaveBeenCalled();
+  });
+
+  it("finance cannot reprint", async () => {
+    await expect(reprintBadge(finance, "e1", "ABC12")).rejects.toThrow();
+  });
+});
 
 describe("searchAttendees (fuzzy)", () => {
   beforeEach(() => mock(prisma.$queryRaw).mockResolvedValue([order()]));
