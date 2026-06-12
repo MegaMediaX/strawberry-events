@@ -1,4 +1,5 @@
-import type { AttendeeTag } from "@prisma/client";
+import type { AttendeeOrder, AttendeeTag } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db/client";
 import { canAccessEvent } from "@/lib/auth/org-scope";
 import { hasAnyRole, ForbiddenError } from "@/lib/auth/guards";
@@ -51,17 +52,59 @@ export async function searchAttendees(
   // otherwise harvest attendee PII (orderCode/email/name) through searchAction.
   assertCanCheckin(session);
   const mapping = await resolveEvent(session, eventId);
-  return prisma.attendeeOrder.findMany({
-    where: {
-      eventMappingId: mapping.id,
-      OR: [
-        { orderCode: { contains: query, mode: "insensitive" } },
-        { email: { contains: query, mode: "insensitive" } },
-      ],
-    },
-    take: 25,
-    orderBy: { createdAt: "desc" },
-  });
+  return searchAttendeeOrders(mapping.id, query);
+}
+
+/**
+ * Minimum trigram word-similarity for a name to count as a fuzzy match.
+ * "mohamad" vs "mouhamad" scores ~0.55, so 0.3 catches typos/spelling variants
+ * comfortably while keeping unrelated names out. Tunable.
+ */
+export const NAME_SIMILARITY_THRESHOLD = 0.3;
+
+/**
+ * Search attendees within one event, typo-tolerantly.
+ *
+ * - order code / email / name: case-insensitive substring (exact-ish hits)
+ * - name also: pg_trgm word_similarity, so "mohamad" matches "mouhamad"
+ * - phone: digit-normalized on BOTH sides, so "+961 70 123 456", "70-123-456"
+ *   and "70123456" all match a stored "70 123 456"
+ *
+ * Results are ranked by best name similarity first (exact substring = 1),
+ * then most recent. Trigram GIN indexes (see the add_trgm_fuzzy_search
+ * migration) keep this fast.
+ */
+export function searchAttendeeOrders(
+  eventMappingId: string,
+  query: string,
+): Promise<AttendeeOrder[]> {
+  const q = query.trim();
+  const like = `%${q}%`;
+  const digits = q.replace(/\D/g, "");
+  const phoneClause =
+    digits.length >= 3
+      ? Prisma.sql`OR regexp_replace(coalesce("phone", ''), '\D', '', 'g') LIKE ${`%${digits}%`}`
+      : Prisma.empty;
+
+  return prisma.$queryRaw<AttendeeOrder[]>`
+    SELECT *
+    FROM "attendee_orders"
+    WHERE "eventMappingId" = ${eventMappingId}
+      AND (
+        "orderCode" ILIKE ${like}
+        OR "email" ILIKE ${like}
+        OR "attendeeName" ILIKE ${like}
+        OR word_similarity(${q}, coalesce("attendeeName", '')) >= ${NAME_SIMILARITY_THRESHOLD}
+        ${phoneClause}
+      )
+    ORDER BY
+      GREATEST(
+        CASE WHEN "attendeeName" ILIKE ${like} THEN 1 ELSE 0 END,
+        word_similarity(${q}, coalesce("attendeeName", ''))
+      ) DESC,
+      "createdAt" DESC
+    LIMIT 25
+  `;
 }
 
 /**

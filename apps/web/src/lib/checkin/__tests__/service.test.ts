@@ -8,6 +8,7 @@ vi.mock("@/lib/db/client", () => ({
     organization: { findUnique: vi.fn() },
     badgePrintLog: { create: vi.fn() },
     auditLog: { create: vi.fn() },
+    $queryRaw: vi.fn(),
   },
 }));
 vi.mock("@/lib/pretix/checkin", () => ({
@@ -17,7 +18,7 @@ vi.mock("@/lib/pretix/checkin", () => ({
 
 import { prisma } from "@/lib/db/client";
 import * as pretixCheckin from "@/lib/pretix/checkin";
-import { checkInOrder, searchAttendees } from "@/lib/checkin/service";
+import { checkInOrder, searchAttendees, NAME_SIMILARITY_THRESHOLD } from "@/lib/checkin/service";
 
 const mock = <T,>(fn: T) => fn as unknown as ReturnType<typeof vi.fn>;
 
@@ -107,24 +108,45 @@ describe("checkInOrder", () => {
   });
 });
 
-describe("searchAttendees", () => {
+/**
+ * Flatten the interpolated values of a tagged-template $queryRaw call,
+ * descending into nested Prisma.sql fragments (e.g. the optional phone clause).
+ */
+function rawValues(callIndex = 0): unknown[] {
+  const call = mock(prisma.$queryRaw).mock.calls[callIndex];
+  const out: unknown[] = [];
+  const visit = (vals: unknown[]) => {
+    for (const v of vals) {
+      if (v && typeof v === "object" && Array.isArray((v as { values?: unknown[] }).values)) {
+        visit((v as { values: unknown[] }).values);
+      } else {
+        out.push(v);
+      }
+    }
+  };
+  visit(call.slice(1));
+  return out;
+}
+
+describe("searchAttendees (fuzzy)", () => {
+  beforeEach(() => mock(prisma.$queryRaw).mockResolvedValue([order()]));
+
   it("finance role cannot search attendees (PII exposure)", async () => {
     await expect(searchAttendees(finance, "e1", "abc")).rejects.toThrow();
-    expect(prisma.attendeeOrder.findMany).not.toHaveBeenCalled();
+    expect(prisma.$queryRaw).not.toHaveBeenCalled();
   });
 
   it("impersonating session cannot search attendees", async () => {
     await expect(
       searchAttendees({ ...staff, impersonating: true }, "e1", "abc"),
     ).rejects.toThrow();
-    expect(prisma.attendeeOrder.findMany).not.toHaveBeenCalled();
+    expect(prisma.$queryRaw).not.toHaveBeenCalled();
   });
 
   it("checkin_staff can search attendees", async () => {
-    mock(prisma.attendeeOrder.findMany).mockResolvedValue([order()]);
     const res = await searchAttendees(staff, "e1", "abc");
     expect(res).toEqual([order()]);
-    expect(prisma.attendeeOrder.findMany).toHaveBeenCalledTimes(1);
+    expect(prisma.$queryRaw).toHaveBeenCalledTimes(1);
   });
 
   it("organizer_admin can search attendees", async () => {
@@ -133,9 +155,33 @@ describe("searchAttendees", () => {
       isSuperAdmin: false,
       memberships: [{ organizationId: "orgA", role: "organizer_admin", assignedEventIds: [] }],
     };
-    mock(prisma.attendeeOrder.findMany).mockResolvedValue([order()]);
     const res = await searchAttendees(orgAdmin, "e1", "abc");
     expect(res).toEqual([order()]);
-    expect(prisma.attendeeOrder.findMany).toHaveBeenCalledTimes(1);
+    expect(prisma.$queryRaw).toHaveBeenCalledTimes(1);
+  });
+
+  it("scopes the query to the resolved event mapping", async () => {
+    await searchAttendees(staff, "e1", "mohamad");
+    expect(rawValues()).toContain("e1");
+  });
+
+  it("passes a name LIKE pattern and the similarity threshold for typo matching", async () => {
+    await searchAttendees(staff, "e1", "mohamad");
+    const values = rawValues();
+    expect(values).toContain("%mohamad%"); // substring branch
+    expect(values).toContain(NAME_SIMILARITY_THRESHOLD); // word_similarity branch ("mouhamad")
+  });
+
+  it("digit-normalizes a phone query", async () => {
+    await searchAttendees(staff, "e1", "+961 70 123 456");
+    expect(rawValues()).toContain("%96170123456%");
+  });
+
+  it("omits the phone clause for short/no-digit queries", async () => {
+    await searchAttendees(staff, "e1", "jo");
+    const hasPhonePattern = rawValues().some(
+      (v) => typeof v === "string" && /%\d{3,}%/.test(v),
+    );
+    expect(hasPhonePattern).toBe(false);
   });
 });

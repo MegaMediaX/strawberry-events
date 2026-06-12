@@ -48,7 +48,7 @@ export function CheckinPanel({
     <div className="max-w-xl">
       <div className="flex gap-2">
         <Input
-          placeholder="Search name / email / order code"
+          placeholder="Search name / email / phone / order code"
           value={q}
           onChange={(e) => setQ(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && doSearch()}
@@ -66,7 +66,10 @@ export function CheckinPanel({
           >
             <div>
               <div className="font-medium">{r.name ?? r.email}</div>
-              <div className="text-sm text-muted-foreground">{r.orderCode}</div>
+              <div className="text-sm text-muted-foreground">
+                {r.orderCode}
+                {r.phone ? ` · ${r.phone}` : ""}
+              </div>
             </div>
             <Button size="sm" onClick={() => doCheckIn(r.orderCode)} disabled={pending}>
               Check in
