@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { toast } from "@/components/ui/toast";
 import { createSubEventAction } from "../../actions";
 
 export function SubEventBuilder({
@@ -59,6 +60,7 @@ export function SubEventBuilder({
     setPrice("0.00");
     setMaxAttendees("");
     setTicketsPerUser("1");
+    toast.success("Sub-event added");
     router.refresh();
   }
 
