@@ -56,6 +56,20 @@ describe("createWalkIn — permission boundaries", () => {
     expect(register).toHaveBeenCalledTimes(1);
   });
 
+  it("walk-in without a phone passes staffWalkIn=true and empty phone to register", async () => {
+    const noPhone = {
+      eventId: "e1",
+      itemId: 7,
+      roleTag: "visitor" as const,
+      attendee: { firstName: "A", lastName: "B", email: "a@b.com" },
+    };
+    await createWalkIn(staff, noPhone);
+    const arg = mock(register).mock.calls[0][0];
+    expect(arg.staffWalkIn).toBe(true);
+    expect(arg.attendee.phone).toBe("");
+    expect(arg.attendee.phoneCC).toBe("");
+  });
+
   it("check-in staff cannot create a walk-in for an UNassigned event", async () => {
     const otherStaff: SessionContext = {
       userId: "s2", isSuperAdmin: false,

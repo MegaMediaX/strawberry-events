@@ -11,8 +11,8 @@ export interface WalkInActionInput {
     firstName: string;
     lastName: string;
     email: string;
-    phoneCC: string;
-    phone: string;
+    phoneCC?: string;
+    phone?: string;
     company?: string | null;
   };
   seatIds?: string[];

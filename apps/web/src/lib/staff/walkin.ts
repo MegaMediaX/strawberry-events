@@ -16,8 +16,10 @@ export interface WalkInInput {
     firstName: string;
     lastName: string;
     email: string;
-    phoneCC: string;
-    phone: string;
+    /** Optional for walk-ins. */
+    phoneCC?: string;
+    /** Optional for walk-ins. */
+    phone?: string;
     company?: string | null;
   };
   /** Required only for seated events. */
@@ -60,10 +62,16 @@ export async function createWalkIn(
   const result = await register({
     eventSlug: mapping.pretixEventSlug,
     locale: input.locale ?? "en",
-    attendee: input.attendee,
+    attendee: {
+      ...input.attendee,
+      phoneCC: input.attendee.phoneCC ?? "",
+      phone: input.attendee.phone ?? "",
+    },
     tickets: [{ itemId: input.itemId, quantity: 1 }],
     seatIds: input.seatIds,
     roleTag: input.roleTag,
+    // Staff walk-ins may omit phone (the public wizard still requires it).
+    staffWalkIn: true,
     consentTerms: true,
     consentPrivacy: true,
     userId: null,
