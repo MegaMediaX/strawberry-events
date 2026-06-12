@@ -107,24 +107,28 @@ export function searchAttendeeOrders(
   `;
 }
 
+/** Badge payload for the print template (ZPL + on-screen) from an order. */
+function badgeOf(order: AttendeeOrder): NonNullable<CheckInResult["badge"]> {
+  return {
+    orderCode: order.orderCode,
+    tag: order.roleTag,
+    secret: order.pretixSecret,
+    fullName: order.attendeeName ?? order.email,
+    company: order.company,
+  };
+}
+
 /**
- * Check in an attendee: validates eligibility, redeems against the pretix
- * check-in list (source of truth), logs the badge print, and audits.
+ * Core check-in for an already-resolved order: validates eligibility, redeems
+ * against the pretix check-in list (source of truth), logs the badge print,
+ * audits, and emits webhooks. Shared by order-code and QR-secret entry points.
  */
-export async function checkInOrder(
+async function checkInResolvedOrder(
   session: SessionContext,
-  eventId: string,
-  orderCode: string,
+  mapping: { id: string; organizationId: string; pretixEventSlug: string },
+  order: AttendeeOrder,
   listId: number,
 ): Promise<CheckInResult> {
-  assertCanCheckin(session);
-  const mapping = await resolveEvent(session, eventId);
-
-  const order = await prisma.attendeeOrder.findFirst({
-    where: { eventMappingId: mapping.id, orderCode },
-  });
-  if (!order) throw new ForbiddenError("Registration not found");
-
   const elig = checkinEligibility(order);
   if (!elig.ok) return { ok: false, reason: elig.reason };
 
@@ -166,16 +170,98 @@ export async function checkInOrder(
   void emit(mapping.organizationId, "checkin.created", { orderCode: order.orderCode }, mapping.id);
   void emit(mapping.organizationId, "badge.printed", { orderCode: order.orderCode }, mapping.id);
 
-  return {
-    ok: true,
-    badge: {
-      orderCode: order.orderCode,
-      tag: order.roleTag,
-      secret: order.pretixSecret,
-      fullName: order.attendeeName ?? order.email,
-      company: order.company,
+  return { ok: true, badge: badgeOf(order) };
+}
+
+/**
+ * Check in an attendee by order code (manual search → Check in / Print).
+ */
+export async function checkInOrder(
+  session: SessionContext,
+  eventId: string,
+  orderCode: string,
+  listId: number,
+): Promise<CheckInResult> {
+  assertCanCheckin(session);
+  const mapping = await resolveEvent(session, eventId);
+
+  const order = await prisma.attendeeOrder.findFirst({
+    where: { eventMappingId: mapping.id, orderCode },
+  });
+  if (!order) throw new ForbiddenError("Registration not found");
+
+  return checkInResolvedOrder(session, mapping, order, listId);
+}
+
+/**
+ * Check in an attendee by their QR/pretix secret (camera scan path). The QR on
+ * the badge encodes `pretixSecret`; this resolves the order by that secret,
+ * scoped to the event, then runs the shared check-in core.
+ */
+export async function checkInBySecret(
+  session: SessionContext,
+  eventId: string,
+  secret: string,
+  listId: number,
+): Promise<CheckInResult> {
+  assertCanCheckin(session);
+  const mapping = await resolveEvent(session, eventId);
+
+  const trimmed = secret.trim();
+  if (!trimmed) return { ok: false, reason: "Empty QR code" };
+
+  const order = await prisma.attendeeOrder.findFirst({
+    where: { eventMappingId: mapping.id, pretixSecret: trimmed },
+  });
+  if (!order) {
+    return { ok: false, reason: "QR not recognized for this event" };
+  }
+
+  return checkInResolvedOrder(session, mapping, order, listId);
+}
+
+/**
+ * Reprint a badge WITHOUT re-checking-in. For someone already checked in whose
+ * badge was lost/misprinted: no pretix redeem, logs the print as a reprint, and
+ * audits. Still requires the registration to be issued (eligible).
+ */
+export async function reprintBadge(
+  session: SessionContext,
+  eventId: string,
+  orderCode: string,
+): Promise<CheckInResult> {
+  assertCanCheckin(session);
+  const mapping = await resolveEvent(session, eventId);
+
+  const order = await prisma.attendeeOrder.findFirst({
+    where: { eventMappingId: mapping.id, orderCode },
+  });
+  if (!order) throw new ForbiddenError("Registration not found");
+
+  const elig = checkinEligibility(order);
+  if (!elig.ok) return { ok: false, reason: elig.reason };
+
+  await prisma.badgePrintLog.create({
+    data: {
+      eventMappingId: mapping.id,
+      attendeeRef: order.orderCode,
+      printedByUserId: session.userId,
+      reprint: true,
     },
-  };
+  });
+  await prisma.auditLog.create({
+    data: {
+      organizationId: mapping.organizationId,
+      actorUserId: session.userId,
+      action: "badge.reprinted",
+      entityType: "order",
+      entityId: order.id,
+    },
+  });
+
+  void emit(mapping.organizationId, "badge.printed", { orderCode: order.orderCode }, mapping.id);
+
+  return { ok: true, badge: badgeOf(order) };
 }
 
 /** Live counters for a check-in list (pretix source of truth). */
