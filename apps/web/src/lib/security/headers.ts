@@ -11,7 +11,7 @@ function buildCsp(isProd: boolean): string {
   const scriptSrc = isProd
     ? "script-src 'self' 'unsafe-inline'"
     : "script-src 'self' 'unsafe-inline' 'unsafe-eval'";
-  return [
+  const directives = [
     "default-src 'self'",
     "img-src 'self' data: blob:",
     // Tailwind v4 + component inline styles require 'unsafe-inline' for styles.
@@ -23,7 +23,12 @@ function buildCsp(isProd: boolean): string {
     "base-uri 'self'",
     "form-action 'self'",
     "object-src 'none'",
-  ].join("; ");
+  ];
+  // In production, auto-upgrade any stray http:// subresource to https so an
+  // admin-supplied http map/cover URL can never make a page "mixed content".
+  // Omitted in dev, where the app is served over http://localhost.
+  if (isProd) directives.push("upgrade-insecure-requests");
+  return directives.join("; ");
 }
 
 /**
