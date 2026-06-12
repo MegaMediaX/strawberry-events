@@ -7,6 +7,7 @@ export interface AttendeeRow {
   orderCode: string;
   email: string;
   name: string | null;
+  phone: string | null;
 }
 
 export async function searchAction(
@@ -16,7 +17,12 @@ export async function searchAction(
   const session = await getSessionContext();
   if (!session || !query.trim()) return [];
   const rows = await searchAttendees(session, eventId, query.trim());
-  return rows.map((r) => ({ orderCode: r.orderCode, email: r.email, name: r.attendeeName }));
+  return rows.map((r) => ({
+    orderCode: r.orderCode,
+    email: r.email,
+    name: r.attendeeName,
+    phone: r.phone,
+  }));
 }
 
 export async function checkInAction(
