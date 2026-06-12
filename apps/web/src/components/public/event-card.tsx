@@ -1,4 +1,8 @@
+"use client";
+
 import Link from "next/link";
+import { motion, useReducedMotion } from "framer-motion";
+import { ArrowRight } from "lucide-react";
 
 export interface EventCardData {
   slug: string;
@@ -9,43 +13,137 @@ export interface EventCardData {
   coverUrl?: string | null;
 }
 
+const EASE = [0.22, 1, 0.36, 1] as const;
+
 export function EventCard({
   event,
   locale,
+  featured = false,
+  index = 0,
 }: {
   event: EventCardData;
   locale: string;
+  /** Full-bleed spotlight treatment — used for the first / only event. */
+  featured?: boolean;
+  /** Position in its group, drives the entry stagger. */
+  index?: number;
 }) {
-  const title = locale === "ar" && event.titleAr ? event.titleAr : event.titleEn;
+  const reduce = useReducedMotion();
+  const isAr = locale === "ar";
+  const title = isAr && event.titleAr ? event.titleAr : event.titleEn;
   const href = `/${locale}/events/${event.slug}`;
+  const viewLabel = isAr ? "عرض الفعالية" : "View event";
 
-  const inner = (
-    <div className="group overflow-hidden rounded-[var(--radius-lg)] border border-border bg-card shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg">
-      <div
-        className="h-36 w-full bg-cover bg-center"
-        style={
-          event.coverUrl
-            ? { backgroundImage: `url("${event.coverUrl}")` }
-            : { backgroundImage: "var(--gradient-hero)" }
-        }
-      />
-      <div className="p-4">
-        <h3 className="text-lg font-semibold leading-snug tracking-tight">{title}</h3>
-        <div className="mt-2">
-          {event.comingSoon ? (
-            <span className="inline-flex items-center rounded-full bg-secondary px-2.5 py-0.5 text-xs font-medium text-secondary-foreground">
-              Coming soon
-            </span>
-          ) : (
-            <span className="inline-flex items-center rounded-full bg-primary/10 px-2.5 py-0.5 text-xs font-medium text-primary">
-              Open
-            </span>
-          )}
-        </div>
-      </div>
+  const statusPill = event.comingSoon ? (
+    <span className="inline-flex w-fit items-center rounded-full bg-white/15 px-2.5 py-0.5 text-xs font-semibold uppercase tracking-wide text-white ring-1 ring-white/25 backdrop-blur">
+      {isAr ? "قريباً" : "Coming soon"}
+    </span>
+  ) : (
+    <span className="inline-flex w-fit items-center rounded-full bg-emerald-500/25 px-2.5 py-0.5 text-xs font-semibold uppercase tracking-wide text-emerald-50 ring-1 ring-emerald-300/40 backdrop-blur">
+      {isAr ? "مفتوح" : "Open"}
+    </span>
+  );
+
+  // Cover image layer — real <img> so it can zoom on hover, clipped by the card.
+  const cover = event.coverUrl ? (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      src={event.coverUrl}
+      alt=""
+      // The featured cover is the LCP element — load it eagerly with high
+      // priority; grid covers stay lazy.
+      loading={featured ? "eager" : "lazy"}
+      fetchPriority={featured ? "high" : "auto"}
+      decoding="async"
+      className="absolute inset-0 h-full w-full object-cover transition-transform duration-500 ease-out will-change-transform group-hover:scale-[1.045] motion-reduce:transition-none motion-reduce:group-hover:scale-100"
+    />
+  ) : (
+    <div
+      className="absolute inset-0 transition-transform duration-500 ease-out group-hover:scale-[1.045] motion-reduce:group-hover:scale-100"
+      style={{ backgroundImage: "var(--gradient-hero-strong)" }}
+    />
+  );
+
+  // Scrim: a constant dark base + a directional gradient anchored to the text,
+  // tuned so white text clears WCAG AA over any cover (even bright artwork).
+  const scrim = (
+    <>
+      <div className="absolute inset-0 bg-black/20" />
+      <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/35 to-transparent" />
+    </>
+  );
+
+  const content = (
+    <div className="absolute inset-x-0 bottom-0 flex flex-col items-start gap-2 p-5 text-start sm:p-6">
+      {statusPill}
+      <h2
+        dir="auto"
+        className={[
+          "max-w-2xl font-extrabold leading-[1.08] tracking-tight text-white drop-shadow-sm",
+          featured ? "text-2xl sm:text-4xl lg:text-5xl" : "text-lg sm:text-xl",
+        ].join(" ")}
+      >
+        {title}
+      </h2>
+      {!event.comingSoon && (
+        <span
+          className={[
+            "mt-1 inline-flex items-center gap-1.5 text-sm font-semibold text-white",
+            // CTA is always visible on touch; on pointer devices it reveals on hover.
+            "sm:translate-y-1 sm:opacity-0 sm:transition-all sm:duration-300",
+            "sm:group-hover:translate-y-0 sm:group-hover:opacity-100 sm:group-focus-visible/card:translate-y-0 sm:group-focus-visible/card:opacity-100",
+            "motion-reduce:translate-y-0 motion-reduce:transition-none",
+          ].join(" ")}
+        >
+          {viewLabel}
+          <ArrowRight className="h-4 w-4 rtl:-scale-x-100" />
+        </span>
+      )}
     </div>
   );
 
-  if (event.comingSoon) return <div className="cursor-default opacity-75">{inner}</div>;
-  return <Link href={href}>{inner}</Link>;
+  const frame = (
+    <div
+      className={[
+        "group relative block overflow-hidden rounded-[var(--radius-xl)] shadow-sm transition-shadow duration-300",
+        "hover:shadow-2xl",
+        featured ? "aspect-[16/10] sm:aspect-[2/1]" : "aspect-[4/3] sm:aspect-[3/2]",
+        event.comingSoon ? "cursor-default" : "",
+      ].join(" ")}
+    >
+      {cover}
+      {scrim}
+      {content}
+    </div>
+  );
+
+  const entry = reduce
+    ? { initial: { opacity: 0 }, animate: { opacity: 1 }, transition: { duration: 0.3 } }
+    : featured
+      ? {
+          initial: { opacity: 0, scale: 0.97 },
+          animate: { opacity: 1, scale: 1 },
+          transition: { duration: 0.55, ease: EASE, delay: 0.1 },
+        }
+      : {
+          initial: { opacity: 0, y: 24 },
+          animate: { opacity: 1, y: 0 },
+          transition: { duration: 0.45, ease: EASE, delay: 0.15 + index * 0.08 },
+        };
+
+  return (
+    <motion.div {...entry}>
+      {event.comingSoon ? (
+        <div className="opacity-90">{frame}</div>
+      ) : (
+        <Link
+          href={href}
+          aria-label={title}
+          className="group/card block rounded-[var(--radius-xl)] outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-black"
+        >
+          {frame}
+        </Link>
+      )}
+    </motion.div>
+  );
 }
