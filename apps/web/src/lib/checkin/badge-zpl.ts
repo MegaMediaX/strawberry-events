@@ -1,8 +1,8 @@
 import type { BadgeData } from "@/components/badges/badge-template";
 
 /**
- * Generate ZPL II for a 4×6 inch attendee badge, targeting the Honeywell PC42d
- * (203 dpi, ZSim2 / ZPL emulation). Sent raw to the printer via QZ Tray.
+ * Generate ZPL II for a 6×4 inch (landscape) attendee badge, targeting the
+ * Honeywell PC42d (203 dpi, ZSim2 / ZPL emulation). Sent raw via QZ Tray.
  *
  * Layout (top → bottom, centered):
  *   - role tag band across the top (solid black band, reversed white text —
@@ -11,12 +11,12 @@ import type { BadgeData } from "@/components/badges/badge-template";
  *   - company (smaller, optional)
  *   - QR code at the bottom, encoding the pretix secret (the check-in payload)
  *
- * 4in × 6in at 203 dpi = 812 × 1218 dots.
+ * Stock is 6in wide × 4in tall at 203 dpi = 1218 × 812 dots.
  */
 
 export const DPI = 203;
-export const LABEL_WIDTH = 4 * DPI; // 812
-export const LABEL_HEIGHT = 6 * DPI; // 1218
+export const LABEL_WIDTH = 6 * DPI; // 1218 (6in wide, landscape)
+export const LABEL_HEIGHT = 4 * DPI; // 812 (4in tall)
 
 /**
  * Make text safe for a ZPL field: replace the control prefixes ^ and ~ with a
@@ -56,17 +56,18 @@ export function buildBadgeZpl(badge: BadgeData): string {
   const qr = sanitizeZplText(badge.qrValue);
 
   // Tag band: a filled black box with reversed (white) centered text.
-  const bandY = 40;
-  const bandHeight = 110;
+  const bandY = 36;
+  const bandHeight = 96;
   const band =
     `^FO0,${bandY}^GB${LABEL_WIDTH},${bandHeight},${bandHeight},B,0^FS` +
-    `^FO32,${bandY + 30}^A0N,60,60^FR^FB${LABEL_WIDTH - 64},1,0,C,0^FD${tag}^FS`;
+    `^FO32,${bandY + 24}^A0N,56,56^FR^FB${LABEL_WIDTH - 64},1,0,C,0^FD${tag}^FS`;
 
-  // QR centered near the bottom. Magnitude 8 at 203 dpi is comfortably scannable.
-  const qrMagnitude = 8;
-  const qrY = 760;
+  // QR centered near the bottom. Magnitude 7 at 203 dpi is comfortably scannable
+  // and fits the shorter 812-dot height.
+  const qrMagnitude = 7;
+  const qrY = 560;
   // ^BQ has no built-in centering; approximate center for a typical secret length.
-  const qrX = Math.round((LABEL_WIDTH - 230) / 2);
+  const qrX = Math.round((LABEL_WIDTH - 200) / 2);
   const qrBlock = `^FO${qrX},${qrY}^BQN,2,${qrMagnitude}^FDLA,${qr}^FS`;
 
   return [
@@ -75,8 +76,8 @@ export function buildBadgeZpl(badge: BadgeData): string {
     `^LL${LABEL_HEIGHT}`,
     "^LH0,0",
     band,
-    centeredBlock(260, 80, badge.fullName, 2),
-    company ? centeredBlock(460, 44, company, 2) : "",
+    centeredBlock(210, 90, badge.fullName, 2),
+    company ? centeredBlock(380, 50, company, 1) : "",
     qrBlock,
     "^XZ",
   ]

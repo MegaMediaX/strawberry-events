@@ -30,12 +30,14 @@ describe("sanitizeZplText", () => {
 });
 
 describe("buildBadgeZpl", () => {
-  it("wraps the label in ^XA/^XZ with 4x6 @203dpi dimensions", () => {
+  it("wraps the label in ^XA/^XZ with 6x4 landscape @203dpi dimensions", () => {
     const zpl = buildBadgeZpl(badge());
     expect(zpl.startsWith("^XA")).toBe(true);
     expect(zpl.trimEnd().endsWith("^XZ")).toBe(true);
-    expect(zpl).toContain(`^PW${LABEL_WIDTH}`); // 812
-    expect(zpl).toContain(`^LL${LABEL_HEIGHT}`); // 1218
+    expect(LABEL_WIDTH).toBe(1218); // 6in wide
+    expect(LABEL_HEIGHT).toBe(812); // 4in tall
+    expect(zpl).toContain(`^PW${LABEL_WIDTH}`);
+    expect(zpl).toContain(`^LL${LABEL_HEIGHT}`);
   });
 
   it("renders the tag uppercased in a reversed band", () => {
