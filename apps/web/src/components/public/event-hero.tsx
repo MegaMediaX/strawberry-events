@@ -63,12 +63,12 @@ export function EventHero({
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.4, ease: "easeOut" }}
       >
-        <div className="relative w-full overflow-hidden rounded-[var(--radius-xl)] bg-muted/30">
+        <div className="relative aspect-[16/6] w-full overflow-hidden rounded-[var(--radius-xl)] bg-muted/30">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src={coverUrl}
             alt={title}
-            className="mx-auto block h-auto max-h-[70vh] w-full object-contain"
+            className="absolute inset-0 h-full w-full object-cover"
           />
           {badge}
         </div>
