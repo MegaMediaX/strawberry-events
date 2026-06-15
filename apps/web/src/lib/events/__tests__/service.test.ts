@@ -11,7 +11,8 @@ vi.mock("@/lib/db/client", () => ({
       update: vi.fn(),
     },
     organization: { findUnique: vi.fn() },
-    pretixObjectMapping: { create: vi.fn() },
+    pretixObjectMapping: { create: vi.fn(), deleteMany: vi.fn() },
+    subEvent: { findFirst: vi.fn(), update: vi.fn(), delete: vi.fn() },
     auditLog: { create: vi.fn() },
   },
 }));
@@ -24,6 +25,11 @@ vi.mock("@/lib/pretix/events", () => ({
 vi.mock("@/lib/pretix/products", () => ({
   createItem: vi.fn(),
   createQuota: vi.fn(),
+  updateItem: vi.fn(),
+  deleteItem: vi.fn(),
+  updateQuota: vi.fn(),
+  deleteQuota: vi.fn(),
+  listQuotasWithItems: vi.fn(),
 }));
 
 import { prisma } from "@/lib/db/client";
@@ -35,7 +41,12 @@ import {
   createEvent,
   updateEvent,
   createTicket,
+  updateTicket,
+  deleteTicket,
+  updateSubEvent,
+  deleteSubEvent,
 } from "@/lib/events/service";
+import { PretixError } from "@/lib/pretix/errors";
 
 const superAdmin: SessionContext = {
   userId: "u1",
@@ -123,6 +134,8 @@ describe("createEvent", () => {
     seatSelectionEnabled: false,
     badgeAutoPrint: false,
     payBeforeApproval: false,
+    attendeeTypeEnabled: false,
+    attendeeTypeRequired: false,
   };
 
   it("creates in pretix then writes a scoped mapping + audit", async () => {
@@ -270,6 +283,107 @@ describe("createTicket", () => {
       }),
     ).rejects.toThrow();
     expect(pretixProducts.createItem).not.toHaveBeenCalled();
+  });
+});
+
+describe("updateTicket / deleteTicket", () => {
+  const m = <T,>(fn: T) => fn as unknown as ReturnType<typeof vi.fn>;
+  const mapping = { id: "e1", organizationId: "orgA", localEventId: "loc1", pretixEventSlug: "expo" };
+
+  beforeEach(() => {
+    m(prisma.eventMapping.findUnique).mockResolvedValue(mapping);
+    m(prisma.organization.findUnique).mockResolvedValue(org);
+    m(pretixProducts.deleteItem).mockResolvedValue(undefined);
+    m(pretixProducts.deleteQuota).mockResolvedValue(undefined);
+  });
+
+  it("updateTicket patches the item and resizes its backing quota", async () => {
+    m(pretixProducts.listQuotasWithItems).mockResolvedValue([
+      { id: 9, name: "Visitor quota", size: 100, items: [7] },
+      { id: 10, name: "Other", size: 5, items: [99] },
+    ]);
+    await updateTicket(orgAdmin, "e1", 7, { titleEn: "VIP", titleAr: null, priceCents: 5000, quotaSize: 50 });
+
+    expect(pretixProducts.updateItem).toHaveBeenCalledWith(
+      "acme", "expo", 7, expect.objectContaining({ titleEn: "VIP", priceCents: 5000 }), "env_tok",
+    );
+    expect(pretixProducts.updateQuota).toHaveBeenCalledWith(
+      "acme", "expo", 9, { size: 50 }, "env_tok",
+    );
+  });
+
+  it("deleteTicket removes the quota then the item", async () => {
+    m(pretixProducts.listQuotasWithItems).mockResolvedValue([{ id: 9, name: "q", size: 100, items: [7] }]);
+    await deleteTicket(orgAdmin, "e1", 7, "Visitor");
+    expect(pretixProducts.deleteQuota).toHaveBeenCalledWith("acme", "expo", 9, "env_tok");
+    expect(pretixProducts.deleteItem).toHaveBeenCalledWith("acme", "expo", 7, "env_tok");
+  });
+
+  it("deleteTicket surfaces a friendly error when pretix blocks (409 has orders)", async () => {
+    m(pretixProducts.listQuotasWithItems).mockResolvedValue([]);
+    m(pretixProducts.deleteItem).mockRejectedValue(new PretixError("blocked", 409));
+    await expect(deleteTicket(orgAdmin, "e1", 7, "Visitor")).rejects.toThrow(/has registrations/i);
+  });
+
+  it("deleteTicket re-throws unrelated pretix errors (e.g. 401) untranslated", async () => {
+    m(pretixProducts.listQuotasWithItems).mockResolvedValue([]);
+    m(pretixProducts.deleteItem).mockRejectedValue(new PretixError("unauthorized", 401));
+    await expect(deleteTicket(orgAdmin, "e1", 7, "Visitor")).rejects.toThrow(/unauthorized/i);
+  });
+
+  it("denies updating a ticket on another org's event", async () => {
+    m(prisma.eventMapping.findUnique).mockResolvedValue({ ...mapping, organizationId: "orgB" });
+    await expect(
+      updateTicket(orgAdmin, "e1", 7, { titleEn: "X", titleAr: null, priceCents: 0, quotaSize: null }),
+    ).rejects.toThrow();
+    expect(pretixProducts.updateItem).not.toHaveBeenCalled();
+  });
+});
+
+describe("updateSubEvent / deleteSubEvent", () => {
+  const m = <T,>(fn: T) => fn as unknown as ReturnType<typeof vi.fn>;
+  const mapping = { id: "e1", organizationId: "orgA", localEventId: "loc1", pretixEventSlug: "expo" };
+  const sub = { id: "s1", eventMappingId: "e1", titleEn: "Workshop", pretixItemId: 7, pretixQuotaId: 9 };
+  const subInput = {
+    titleEn: "Workshop 2", titleAr: null, category: "talk", location: null,
+    dateFrom: "2026-09-01T09:00:00Z", dateTo: "2026-09-01T11:00:00Z",
+    priceCents: 1000, maxAttendees: 20, ticketsPerUser: 1,
+  };
+
+  beforeEach(() => {
+    m(prisma.eventMapping.findUnique).mockResolvedValue(mapping);
+    m(prisma.organization.findUnique).mockResolvedValue(org);
+    m(prisma.subEvent.findFirst).mockResolvedValue(sub);
+    m(pretixProducts.deleteItem).mockResolvedValue(undefined);
+    m(pretixProducts.deleteQuota).mockResolvedValue(undefined);
+    m(pretixProducts.updateItem).mockResolvedValue(undefined);
+    m(pretixProducts.updateQuota).mockResolvedValue(undefined);
+  });
+
+  it("updateSubEvent patches pretix item+quota and the local row", async () => {
+    await updateSubEvent(orgAdmin, "e1", "s1", subInput);
+    expect(pretixProducts.updateItem).toHaveBeenCalledWith("acme", "expo", 7, expect.objectContaining({ titleEn: "Workshop 2" }), "env_tok");
+    expect(pretixProducts.updateQuota).toHaveBeenCalledWith("acme", "expo", 9, expect.objectContaining({ size: 20 }), "env_tok");
+    expect(prisma.subEvent.update).toHaveBeenCalled();
+  });
+
+  it("deleteSubEvent removes pretix objects, mappings, and the row", async () => {
+    await deleteSubEvent(orgAdmin, "e1", "s1");
+    expect(pretixProducts.deleteQuota).toHaveBeenCalledWith("acme", "expo", 9, "env_tok");
+    expect(pretixProducts.deleteItem).toHaveBeenCalledWith("acme", "expo", 7, "env_tok");
+    expect(prisma.pretixObjectMapping.deleteMany).toHaveBeenCalled();
+    expect(prisma.subEvent.delete).toHaveBeenCalledWith({ where: { id: "s1" } });
+  });
+
+  it("deleteSubEvent surfaces a friendly error when pretix blocks", async () => {
+    m(pretixProducts.deleteItem).mockRejectedValue(new PretixError("blocked", 403));
+    await expect(deleteSubEvent(orgAdmin, "e1", "s1")).rejects.toThrow(/has registrations/i);
+    expect(prisma.subEvent.delete).not.toHaveBeenCalled();
+  });
+
+  it("finance cannot update a sub-event", async () => {
+    await expect(updateSubEvent(finance, "e1", "s1", subInput)).rejects.toThrow();
+    expect(pretixProducts.updateItem).not.toHaveBeenCalled();
   });
 });
 

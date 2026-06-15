@@ -13,7 +13,10 @@ export const registerInputSchema = z
       email: z.string().optional().default(""),
       phoneCC: z.string().optional().default(""),
       phone: z.string().optional().default(""),
-      company: z.string().optional().nullable(),
+      company: z.string().trim().optional().nullable(),
+      // Attendee type (Student / Company / Freelancer). `company` carries the
+      // free-text company name when attendeeType = "company".
+      attendeeType: z.enum(["student", "company", "freelancer"]).optional().nullable(),
     }),
     tickets: z
       .array(z.object({ itemId: z.number().int(), quantity: z.number().int().min(1) }))
@@ -33,6 +36,14 @@ export const registerInputSchema = z
     consentPrivacy: z.literal(true, { message: "You must accept the Privacy Policy" }),
   })
   .superRefine((val, ctx) => {
+    // Company attendees must supply a company name (the free-text `company`).
+    if (
+      val.attendee.attendeeType === "company" &&
+      !val.attendee.company?.trim()
+    ) {
+      ctx.addIssue({ code: "custom", path: ["attendee", "company"], message: "Company name is required" });
+    }
+
     const email = val.attendee.email;
     // A provided email must always be well-formed (it flows to the pretix order).
     if (email.length > 0 && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {

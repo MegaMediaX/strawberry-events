@@ -9,6 +9,8 @@ const base = {
   consentPrivacy: true as const,
 };
 
+const validPhone = { phoneCC: "+961", phone: "70123456" };
+
 describe("registerInputSchema — phone requirement", () => {
   it("public registration (no staffWalkIn) requires phone", () => {
     const r = registerInputSchema.safeParse(base);
@@ -64,6 +66,53 @@ describe("registerInputSchema — email requirement", () => {
       ...base,
       staffWalkIn: true,
       attendee: { ...base.attendee, email: "not-an-email" },
+    });
+    expect(r.success).toBe(false);
+  });
+});
+
+describe("registerInputSchema — attendee type", () => {
+  it("Company attendee type requires a company name", () => {
+    const r = registerInputSchema.safeParse({
+      ...base,
+      attendee: { ...base.attendee, ...validPhone, attendeeType: "company", company: "" },
+    });
+    expect(r.success).toBe(false);
+    if (!r.success) {
+      expect(r.error.issues.map((i) => i.path.join("."))).toContain("attendee.company");
+    }
+  });
+
+  it("Company attendee type with a company name passes", () => {
+    const r = registerInputSchema.safeParse({
+      ...base,
+      attendee: { ...base.attendee, ...validPhone, attendeeType: "company", company: "Acme" },
+    });
+    expect(r.success).toBe(true);
+  });
+
+  it("Student / Freelancer do not require a company name", () => {
+    for (const attendeeType of ["student", "freelancer"] as const) {
+      const r = registerInputSchema.safeParse({
+        ...base,
+        attendee: { ...base.attendee, ...validPhone, attendeeType },
+      });
+      expect(r.success).toBe(true);
+    }
+  });
+
+  it("omitting attendee type is allowed (field disabled / optional)", () => {
+    const r = registerInputSchema.safeParse({
+      ...base,
+      attendee: { ...base.attendee, ...validPhone },
+    });
+    expect(r.success).toBe(true);
+  });
+
+  it("rejects an unknown attendee type value", () => {
+    const r = registerInputSchema.safeParse({
+      ...base,
+      attendee: { ...base.attendee, ...validPhone, attendeeType: "investor" },
     });
     expect(r.success).toBe(false);
   });

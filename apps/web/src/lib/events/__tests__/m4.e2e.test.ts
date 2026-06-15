@@ -103,6 +103,8 @@ describe.skipIf(!run)("M4 live e2e", () => {
       seatSelectionEnabled: false,
       badgeAutoPrint: false,
       payBeforeApproval: false,
+      attendeeTypeEnabled: false,
+      attendeeTypeRequired: false,
     });
     createdMappingIds.push(mapping.id);
 
@@ -134,6 +136,8 @@ describe.skipIf(!run)("M4 live e2e", () => {
       seatSelectionEnabled: false,
       badgeAutoPrint: false,
       payBeforeApproval: false,
+      attendeeTypeEnabled: false,
+      attendeeTypeRequired: false,
     });
     expect(updated.titleEn).toBe("E2E Live A (edited)");
   }, 60000);
@@ -160,6 +164,8 @@ describe.skipIf(!run)("M4 live e2e", () => {
       seatSelectionEnabled: false,
       badgeAutoPrint: false,
       payBeforeApproval: false,
+      attendeeTypeEnabled: false,
+      attendeeTypeRequired: false,
     });
     createdMappingIds.push(mapping.id);
 

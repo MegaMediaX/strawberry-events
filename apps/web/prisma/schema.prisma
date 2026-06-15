@@ -290,6 +290,11 @@ model EventMapping {
   waitlistEnabled     Boolean      @default(false)
   badgeAutoPrint      Boolean      @default(false)
   comingSoon          Boolean      @default(false)
+  // Registration "attendee type" field (Student / Company / Freelancer). When
+  // enabled, the public registration Details step shows the dropdown; when
+  // required, the attendee must pick one (and supply a company name if Company).
+  attendeeTypeEnabled  Boolean     @default(false)
+  attendeeTypeRequired Boolean     @default(false)
   // Mirror of the pretix `live` flag. The storefront requires visibility=public
   // AND liveOnPretix=true, so flipping local visibility alone cannot leak a draft.
   // Kept in sync by updateEvent (authoritative) and the inbound pretix webhook.
@@ -752,6 +757,9 @@ model AttendeeOrder {
   email          String
   attendeeName   String?
   company        String?
+  // Optional attendee type: "student" | "company" | "freelancer". `company`
+  // (above) holds the free-text company name when attendeeType = "company".
+  attendeeType   String?
   phone          String?
   phoneCC        String?
   consentAt      DateTime?

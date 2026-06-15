@@ -74,6 +74,8 @@ describe.skipIf(!run)("events service integration", () => {
       seatSelectionEnabled: false,
       badgeAutoPrint: false,
       payBeforeApproval: false,
+      attendeeTypeEnabled: false,
+      attendeeTypeRequired: false,
     });
 
     expect(mapping.organizationId).toBe(orgAId);
