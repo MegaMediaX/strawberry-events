@@ -314,6 +314,50 @@ export async function removeEventCover(
 }
 
 /**
+ * Permanently delete an event: removes it from pretix, then deletes the local
+ * mapping (cascading sub-events, fields, invites, seat maps, etc.). Refuses when
+ * the event still has registrations — hide it or remove them first — so attendee
+ * data is never silently destroyed. Restricted to org/super admins.
+ */
+export async function deleteEvent(
+  session: SessionContext,
+  eventId: string,
+): Promise<void> {
+  const { mapping, org, ctx } = await manageCtx(session, eventId);
+
+  const registrations = await prisma.attendeeOrder.count({
+    where: { eventMappingId: mapping.id },
+  });
+  if (registrations > 0) {
+    throw new Error(
+      `This event has ${registrations} registration(s). Hide it instead, or remove the registrations first.`,
+    );
+  }
+
+  // Remove from pretix first so a failure there aborts before we touch local
+  // data (keeps the two stores consistent). A 404 means it's already gone.
+  try {
+    await pretixEvents.deleteEvent(ctx.organizerSlug, mapping.pretixEventSlug, ctx.token);
+  } catch (err) {
+    if (err instanceof PretixError && err.status === 404) {
+      // already gone on pretix — proceed to clean up locally
+    } else if (err instanceof PretixError) {
+      throw new Error(
+        "Couldn't delete this event from pretix. Make sure it isn't live and has no orders, then try again.",
+      );
+    } else {
+      throw err;
+    }
+  }
+
+  await prisma.eventMapping.delete({ where: { id: mapping.id } });
+  if (mapping.coverImagePath) {
+    await deleteCoverImage(mapping.coverImagePath);
+  }
+  await writeAudit(session, org.id, "event.deleted", "event", mapping.id);
+}
+
+/**
  * Create a ticket (pretix item + quota) on an event the session can access.
  * Records the pretix object ids locally and writes an audit entry.
  */

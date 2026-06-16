@@ -25,6 +25,21 @@ function zodToFieldErrors(
   return out;
 }
 
+export async function deleteEventAction(
+  locale: string,
+  eventId: string,
+): Promise<ActionResult> {
+  const session = await getSessionContext();
+  if (!session) return { error: "Not authenticated" };
+  try {
+    await service.deleteEvent(session, eventId);
+  } catch (err) {
+    return { error: (err as Error).message };
+  }
+  revalidatePath(`/${locale}/admin/events`);
+  return { ok: true };
+}
+
 export async function createEventAction(
   locale: string,
   values: unknown,

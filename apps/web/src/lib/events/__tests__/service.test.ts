@@ -9,10 +9,12 @@ vi.mock("@/lib/db/client", () => ({
       findUnique: vi.fn(),
       create: vi.fn(),
       update: vi.fn(),
+      delete: vi.fn(),
     },
     organization: { findUnique: vi.fn() },
     pretixObjectMapping: { create: vi.fn(), deleteMany: vi.fn() },
     subEvent: { findFirst: vi.fn(), update: vi.fn(), delete: vi.fn() },
+    attendeeOrder: { count: vi.fn() },
     auditLog: { create: vi.fn() },
   },
 }));
@@ -40,6 +42,7 @@ import {
   getEventForSession,
   createEvent,
   updateEvent,
+  deleteEvent,
   createTicket,
   updateTicket,
   deleteTicket,
@@ -384,6 +387,59 @@ describe("updateSubEvent / deleteSubEvent", () => {
   it("finance cannot update a sub-event", async () => {
     await expect(updateSubEvent(finance, "e1", "s1", subInput)).rejects.toThrow();
     expect(pretixProducts.updateItem).not.toHaveBeenCalled();
+  });
+});
+
+describe("deleteEvent", () => {
+  const m = <T,>(fn: T) => fn as unknown as ReturnType<typeof vi.fn>;
+  const mapping = {
+    id: "e1", organizationId: "orgA", localEventId: "loc1",
+    pretixEventSlug: "expo", coverImagePath: null,
+  };
+
+  beforeEach(() => {
+    m(prisma.eventMapping.findUnique).mockResolvedValue(mapping);
+    m(prisma.organization.findUnique).mockResolvedValue(org);
+    m(prisma.attendeeOrder.count).mockResolvedValue(0);
+    m(prisma.eventMapping.delete).mockResolvedValue(mapping);
+    m(pretixEvents.deleteEvent).mockResolvedValue(undefined);
+  });
+
+  it("deletes from pretix then removes the local mapping when there are no registrations", async () => {
+    await deleteEvent(orgAdmin, "e1");
+    expect(pretixEvents.deleteEvent).toHaveBeenCalledWith("acme", "expo", "env_tok");
+    expect(prisma.eventMapping.delete).toHaveBeenCalledWith({ where: { id: "e1" } });
+    expect(prisma.auditLog.create).toHaveBeenCalled();
+  });
+
+  it("refuses to delete an event that has registrations", async () => {
+    m(prisma.attendeeOrder.count).mockResolvedValue(3);
+    await expect(deleteEvent(orgAdmin, "e1")).rejects.toThrow(/registration/i);
+    expect(pretixEvents.deleteEvent).not.toHaveBeenCalled();
+    expect(prisma.eventMapping.delete).not.toHaveBeenCalled();
+  });
+
+  it("tolerates a pretix 404 (already gone) and still cleans up locally", async () => {
+    m(pretixEvents.deleteEvent).mockRejectedValue(new PretixError("gone", 404));
+    await deleteEvent(orgAdmin, "e1");
+    expect(prisma.eventMapping.delete).toHaveBeenCalled();
+  });
+
+  it("aborts (keeps local mapping) on other pretix failures", async () => {
+    m(pretixEvents.deleteEvent).mockRejectedValue(new PretixError("live", 403));
+    await expect(deleteEvent(orgAdmin, "e1")).rejects.toThrow(/pretix/i);
+    expect(prisma.eventMapping.delete).not.toHaveBeenCalled();
+  });
+
+  it("denies deleting another org's event", async () => {
+    m(prisma.eventMapping.findUnique).mockResolvedValue({ ...mapping, organizationId: "orgB" });
+    await expect(deleteEvent(orgAdmin, "e1")).rejects.toThrow();
+    expect(pretixEvents.deleteEvent).not.toHaveBeenCalled();
+  });
+
+  it("finance cannot delete an event", async () => {
+    await expect(deleteEvent(finance, "e1")).rejects.toThrow();
+    expect(prisma.eventMapping.delete).not.toHaveBeenCalled();
   });
 });
 
