@@ -40,6 +40,8 @@ export function RegistrationWizard({
   ticketsPerUserMain = 1,
   ticketsPerUserTotal = 1,
   inviteToken,
+  attendeeTypeEnabled = false,
+  attendeeTypeRequired = false,
 }: {
   locale: string;
   slug: string;
@@ -50,6 +52,8 @@ export function RegistrationWizard({
   ticketsPerUserMain?: number;
   ticketsPerUserTotal?: number;
   inviteToken?: string;
+  attendeeTypeEnabled?: boolean;
+  attendeeTypeRequired?: boolean;
 }) {
   const hasSubEvents = subEvents.length > 0;
   const STEPS = buildSteps(hasSubEvents);
@@ -68,6 +72,7 @@ export function RegistrationWizard({
     phoneCC: "+961",
     phone: "",
     company: "",
+    attendeeType: "",
   });
   const [qty, setQty] = useState<Record<number, number>>({});
   const [subEventSelection, setSubEventSelection] = useState<SubEventSelection[]>([]);
@@ -111,6 +116,16 @@ export function RegistrationWizard({
         setErr("Please complete all required fields.");
         return;
       }
+      if (attendeeTypeEnabled) {
+        if (attendeeTypeRequired && !a.attendeeType) {
+          setErr("Please select an attendee type.");
+          return;
+        }
+        if (a.attendeeType === "company" && !a.company.trim()) {
+          setErr("Company name is required.");
+          return;
+        }
+      }
     }
     if (step === 1) {
       if (!hasTickets) {
@@ -149,7 +164,16 @@ export function RegistrationWizard({
       .map((t) => ({ itemId: t.id, quantity: qty[t.id] }));
     const allTickets = [...mainTickets, ...subEventSelection.filter((s) => s.quantity > 0)];
     const res = await registerAction(locale, slug, {
-      attendee: { ...a, company: a.company || null },
+      attendee: {
+        firstName: a.firstName,
+        lastName: a.lastName,
+        email: a.email,
+        phoneCC: a.phoneCC,
+        phone: a.phone,
+        attendeeType: a.attendeeType || null,
+        // Company name is only meaningful for the "company" attendee type.
+        company: a.attendeeType === "company" ? a.company.trim() || null : null,
+      },
       tickets: allTickets,
       seatIds: seatSections ? seatIds : undefined,
       answers: scopedAnswers,
@@ -216,14 +240,42 @@ export function RegistrationWizard({
                     onPhone={(v) => setA({ ...a, phone: v })}
                   />
                 </div>
-                <div>
-                  <Label>Company (optional)</Label>
-                  <Input
-                    autoComplete="organization"
-                    value={a.company}
-                    onChange={(e) => setA({ ...a, company: e.target.value })}
-                  />
-                </div>
+                {attendeeTypeEnabled && (
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <Label>
+                        Attendee type{attendeeTypeRequired ? " *" : ""}
+                      </Label>
+                      <select
+                        className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+                        value={a.attendeeType}
+                        onChange={(e) =>
+                          setA({
+                            ...a,
+                            attendeeType: e.target.value,
+                            // Clear a stale company name when leaving "Company".
+                            company: e.target.value === "company" ? a.company : "",
+                          })
+                        }
+                      >
+                        <option value="">—</option>
+                        <option value="student">Student</option>
+                        <option value="company">Company</option>
+                        <option value="freelancer">Freelancer</option>
+                      </select>
+                    </div>
+                    {a.attendeeType === "company" && (
+                      <div>
+                        <Label>Company name *</Label>
+                        <Input
+                          autoComplete="organization"
+                          value={a.company}
+                          onChange={(e) => setA({ ...a, company: e.target.value })}
+                        />
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             )}
 

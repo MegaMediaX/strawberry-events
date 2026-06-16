@@ -25,6 +25,21 @@ function zodToFieldErrors(
   return out;
 }
 
+export async function deleteEventAction(
+  locale: string,
+  eventId: string,
+): Promise<ActionResult> {
+  const session = await getSessionContext();
+  if (!session) return { error: "Not authenticated" };
+  try {
+    await service.deleteEvent(session, eventId);
+  } catch (err) {
+    return { error: (err as Error).message };
+  }
+  revalidatePath(`/${locale}/admin/events`);
+  return { ok: true };
+}
+
 export async function createEventAction(
   locale: string,
   values: unknown,
@@ -106,6 +121,71 @@ export async function createTicketAction(
 
   revalidatePath(`/${locale}/admin/events/${eventId}/tickets`);
   return {};
+}
+
+/**
+ * Apply all ticket & sub-event edits, additions, and removals from the tickets
+ * page in one call (the single page-level "Save"). Stops at the first failure
+ * and returns its message; pretix/DB calls are individually atomic.
+ */
+export async function saveTicketsAction(
+  locale: string,
+  eventId: string,
+  payload: {
+    tickets?: {
+      create?: unknown[];
+      update?: { itemId: number; input: unknown }[];
+      delete?: { itemId: number; label?: string }[];
+    };
+    subEvents?: {
+      create?: unknown[];
+      update?: { id: string; input: unknown }[];
+      delete?: string[];
+    };
+  },
+): Promise<ActionResult> {
+  const session = await getSessionContext();
+  if (!session) return { error: "Not authenticated" };
+
+  try {
+    // Deletes first (frees pretix slugs/quota names), then updates, then creates.
+    for (const d of payload.tickets?.delete ?? []) {
+      if (!Number.isInteger(d.itemId) || d.itemId <= 0) {
+        return { error: "Invalid ticket reference" };
+      }
+      await service.deleteTicket(session, eventId, d.itemId, d.label);
+    }
+    for (const u of payload.tickets?.update ?? []) {
+      const parsed = ticketInputSchema.safeParse(u.input);
+      if (!parsed.success) return { fieldErrors: zodToFieldErrors(parsed.error.issues) };
+      await service.updateTicket(session, eventId, u.itemId, parsed.data);
+    }
+    for (const c of payload.tickets?.create ?? []) {
+      const parsed = ticketInputSchema.safeParse(c);
+      if (!parsed.success) return { fieldErrors: zodToFieldErrors(parsed.error.issues) };
+      await service.createTicket(session, eventId, parsed.data);
+    }
+
+    for (const id of payload.subEvents?.delete ?? []) {
+      await service.deleteSubEvent(session, eventId, id);
+    }
+    for (const u of payload.subEvents?.update ?? []) {
+      const parsed = subEventInputSchema.safeParse(u.input);
+      if (!parsed.success) return { fieldErrors: zodToFieldErrors(parsed.error.issues) };
+      await service.updateSubEvent(session, eventId, u.id, parsed.data);
+    }
+    for (const c of payload.subEvents?.create ?? []) {
+      const parsed = subEventInputSchema.safeParse(c);
+      if (!parsed.success) return { fieldErrors: zodToFieldErrors(parsed.error.issues) };
+      await service.createSubEvent(session, eventId, parsed.data);
+    }
+  } catch (err) {
+    if (err instanceof PretixValidationError) return { fieldErrors: err.fieldErrors };
+    return { error: (err as Error).message };
+  }
+
+  revalidatePath(`/${locale}/admin/events/${eventId}/tickets`);
+  return { ok: true };
 }
 
 export async function setTicketInviteOnlyAction(

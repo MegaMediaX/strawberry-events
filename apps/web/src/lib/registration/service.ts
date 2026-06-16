@@ -80,6 +80,18 @@ export async function register(input: RegisterInput): Promise<RegisterResult> {
     where: { pretixEventSlug: data.eventSlug, visibility: "public", liveOnPretix: true },
   });
   if (!event) throw new Error("Event not found");
+
+  // Per-event attendee-type policy: when enabled AND required, a public
+  // registration must pick a type. Staff walk-ins are exempt (like email/phone).
+  if (
+    event.attendeeTypeEnabled &&
+    event.attendeeTypeRequired &&
+    !data.staffWalkIn &&
+    !data.attendee.attendeeType
+  ) {
+    throw new Error("Please select an attendee type");
+  }
+
   const org = await prisma.organization.findUnique({
     where: { id: event.organizationId },
   });
@@ -250,6 +262,9 @@ export async function register(input: RegisterInput): Promise<RegisterResult> {
       email: data.attendee.email,
       attendeeName: `${data.attendee.firstName} ${data.attendee.lastName}`.trim(),
       company: data.attendee.company ?? null,
+      // Only record a type when the event actually asks for one, so rows for
+      // events without the field never carry a stray value.
+      attendeeType: event.attendeeTypeEnabled ? (data.attendee.attendeeType ?? null) : null,
       phone: data.attendee.phone,
       phoneCC: data.attendee.phoneCC,
       // Server-side consent timestamp: the wizard hard-requires both consent

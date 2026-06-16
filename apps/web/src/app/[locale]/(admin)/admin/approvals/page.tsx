@@ -4,6 +4,7 @@ import type { AttendeeApprovalStatus } from "@prisma/client";
 import { getSessionContext, requireRole } from "@/lib/auth/session";
 import { listApprovals } from "@/lib/approval/service";
 import { DecisionButtons } from "./decision-buttons";
+import { ApproveAllButton } from "./approve-all-button";
 
 export const dynamic = "force-dynamic";
 
@@ -30,7 +31,12 @@ export default async function ApprovalsPage({
 
   return (
     <div>
-      <h1 className="text-2xl font-bold">Approvals</h1>
+      <div className="flex items-center justify-between">
+        <h1 className="text-2xl font-bold">Approvals</h1>
+        {status === "pending" && rows.length > 0 && (
+          <ApproveAllButton locale={locale} count={rows.length} disabled={impersonating} />
+        )}
+      </div>
       <div className="mt-4 flex gap-2">
         {STATUSES.map((s) => (
           <Link

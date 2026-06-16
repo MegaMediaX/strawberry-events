@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { getSessionContext } from "@/lib/auth/session";
-import { approve, reject } from "@/lib/approval/service";
+import { approve, approveAll, reject } from "@/lib/approval/service";
 
 export interface DecisionResult {
   ok: boolean;
@@ -23,6 +23,27 @@ export async function approveAction(
   revalidatePath(`/${locale}/admin/approvals`);
   revalidatePath(`/${locale}/admin/approvals/${orderId}`);
   return { ok: true };
+}
+
+export interface ApproveAllResult {
+  ok: boolean;
+  approved?: number;
+  skipped?: number;
+  error?: string;
+}
+
+export async function approveAllAction(
+  locale: string,
+): Promise<ApproveAllResult> {
+  const session = await getSessionContext();
+  if (!session) return { ok: false, error: "Not authenticated" };
+  try {
+    const { approved, skipped } = await approveAll(session);
+    revalidatePath(`/${locale}/admin/approvals`);
+    return { ok: true, approved, skipped };
+  } catch (err) {
+    return { ok: false, error: (err as Error).message };
+  }
 }
 
 export async function rejectAction(

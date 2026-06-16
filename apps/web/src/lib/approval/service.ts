@@ -178,6 +178,30 @@ export async function approve(session: SessionContext, orderId: string) {
   return updated;
 }
 
+/**
+ * Approve every pending registration the session can act on (org-scoped).
+ * Reuses the single-order `approve` (idempotent + atomic), so a row that can't
+ * be approved yet — e.g. payBeforeApproval awaiting payment — is counted as
+ * skipped rather than aborting the batch.
+ */
+export async function approveAll(
+  session: SessionContext,
+): Promise<{ approved: number; skipped: number }> {
+  assertCanDecide(session);
+  const pending = await listApprovals(session, { approvalStatus: "pending" });
+  let approved = 0;
+  let skipped = 0;
+  for (const o of pending) {
+    try {
+      await approve(session, o.id);
+      approved++;
+    } catch {
+      skipped++;
+    }
+  }
+  return { approved, skipped };
+}
+
 export async function reject(session: SessionContext, orderId: string) {
   const order = await loadDecidable(session, orderId);
 

@@ -51,6 +51,13 @@ export default async function EventDetailPage({
   const showLoc = hasLocation(event);
   const locLine = locationLine(event);
   const dir = directionsUrl(event);
+  // Only a real Google "Embed a map" URL can be iframed — share links
+  // (maps.app.goo.gl, /maps/place) are blocked by Google and would render a
+  // broken box, so we skip the iframe and rely on the "Get directions" link.
+  const mapEmbed =
+    event.mapEmbedUrl && /\/maps\/embed/.test(event.mapEmbedUrl)
+      ? event.mapEmbedUrl
+      : null;
 
   return (
     <main className="mx-auto max-w-5xl px-4 py-8 pb-24 lg:pb-8">
@@ -88,10 +95,10 @@ export default async function EventDetailPage({
                   Get directions
                 </a>
               )}
-              {event.mapEmbedUrl && (
+              {mapEmbed && (
                 <iframe
                   title="Event location map"
-                  src={event.mapEmbedUrl}
+                  src={mapEmbed}
                   loading="lazy"
                   referrerPolicy="no-referrer-when-downgrade"
                   className="mt-3 aspect-video w-full rounded-[var(--radius-lg)] border border-border"

@@ -4,7 +4,7 @@ import { registrationState } from "@/lib/approval/state";
 
 vi.mock("@/lib/db/client", () => ({
   prisma: {
-    attendeeOrder: { findUnique: vi.fn(), updateMany: vi.fn() },
+    attendeeOrder: { findUnique: vi.fn(), updateMany: vi.fn(), findMany: vi.fn() },
     organization: { findUnique: vi.fn() },
     auditLog: { create: vi.fn() },
   },
@@ -18,7 +18,7 @@ vi.mock("@/lib/email/service", () => ({ sendEmail: vi.fn().mockResolvedValue(tru
 import { prisma } from "@/lib/db/client";
 import * as pretixOrders from "@/lib/pretix/orders";
 import * as email from "@/lib/email/service";
-import { approve, reject } from "@/lib/approval/service";
+import { approve, approveAll, reject } from "@/lib/approval/service";
 
 const mock = <T,>(fn: T) => fn as unknown as ReturnType<typeof vi.fn>;
 
@@ -56,6 +56,35 @@ beforeEach(() => {
     id: "orgA", pretixOrganizerSlug: "acme", pretixApiToken: null,
   });
   mock(prisma.attendeeOrder.updateMany).mockResolvedValue({ count: 1 });
+});
+
+describe("approveAll", () => {
+  it("approves all pending and skips ones that can't be approved yet", async () => {
+    mock(prisma.attendeeOrder.findMany).mockResolvedValue([{ id: "o1" }, { id: "o2" }]);
+    mock(prisma.attendeeOrder.findUnique).mockImplementation(({ where }: { where: { id: string } }) =>
+      Promise.resolve(
+        where.id === "o2"
+          ? order({
+              id: "o2",
+              // payBeforeApproval + unpaid paid-tier order → approve() refuses.
+              eventMapping: { ...order().eventMapping, payBeforeApproval: true },
+            })
+          : order({ id: "o1" }),
+      ),
+    );
+
+    const res = await approveAll(orgAdmin);
+    expect(res).toEqual({ approved: 1, skipped: 1 });
+  });
+
+  it("finance cannot approve all", async () => {
+    await expect(approveAll(finance)).rejects.toThrow();
+    expect(prisma.attendeeOrder.findMany).not.toHaveBeenCalled();
+  });
+
+  it("blocks while impersonating", async () => {
+    await expect(approveAll({ ...orgAdmin, impersonating: true })).rejects.toThrow(/impersonat/i);
+  });
 });
 
 describe("approve — permissions", () => {

@@ -7,6 +7,7 @@ import type { SessionContext } from "@/lib/auth/types";
 import { resolvePretixContext } from "@/lib/pretix/context";
 import * as pretixEvents from "@/lib/pretix/events";
 import * as pretixProducts from "@/lib/pretix/products";
+import { PretixError } from "@/lib/pretix/errors";
 import { saveCoverImage, deleteCoverImage } from "./cover-image";
 import type { EventInput, TicketInput, SubEventInput } from "./schema";
 import { sha256 } from "@/lib/crypto";
@@ -129,6 +130,8 @@ export async function createEvent(
         seatSelectionEnabled: input.seatSelectionEnabled,
         badgeAutoPrint: input.badgeAutoPrint,
         payBeforeApproval: input.payBeforeApproval,
+        attendeeTypeEnabled: input.attendeeTypeEnabled,
+        attendeeTypeRequired: input.attendeeTypeEnabled && input.attendeeTypeRequired,
         maxAttendees: input.maxAttendees ?? null,
         ticketsPerUserMain: input.ticketsPerUserMain ?? 1,
         ticketsPerUserTotal: input.ticketsPerUserTotal ?? 1,
@@ -188,6 +191,26 @@ export async function listTickets(session: SessionContext, eventId: string) {
   return pretixProducts.listItems(ctx.organizerSlug, mapping.pretixEventSlug, ctx.token);
 }
 
+/** List tickets with their backing quota size (for the admin edit UI). */
+export async function listTicketsWithQuota(session: SessionContext, eventId: string) {
+  assertCanManageEvents(session);
+  const mapping = await getEventForSession(session, eventId);
+  if (!mapping) throw new Error("Event not found or access denied");
+  const org = await prisma.organization.findUnique({
+    where: { id: mapping.organizationId },
+  });
+  if (!org) throw new Error("Organization not found");
+  const ctx = resolvePretixContext(org);
+  const [items, quotas] = await Promise.all([
+    pretixProducts.listItems(ctx.organizerSlug, mapping.pretixEventSlug, ctx.token),
+    pretixProducts.listQuotasWithItems(ctx.organizerSlug, mapping.pretixEventSlug, ctx.token),
+  ]);
+  return items.map((it) => ({
+    ...it,
+    quotaSize: quotas.find((q) => q.items.includes(it.id))?.size ?? null,
+  }));
+}
+
 /** Update an event (pretix PATCH + local mapping) the session can access. */
 export async function updateEvent(
   session: SessionContext,
@@ -229,6 +252,10 @@ export async function updateEvent(
       seatSelectionEnabled: input.seatSelectionEnabled,
       badgeAutoPrint: input.badgeAutoPrint,
       payBeforeApproval: input.payBeforeApproval,
+      attendeeTypeEnabled: input.attendeeTypeEnabled,
+      // "Required" only makes sense when the field is enabled; normalize so the
+      // DB never holds the contradictory required-but-disabled state.
+      attendeeTypeRequired: input.attendeeTypeEnabled && input.attendeeTypeRequired,
       maxAttendees: input.maxAttendees ?? null,
       // Only overwrite the per-user caps when the form actually supplied them;
       // a blank field arrives as undefined and must NOT silently reset to 1.
@@ -284,6 +311,50 @@ export async function removeEventCover(
   await deleteCoverImage(mapping.coverImagePath);
   await writeAudit(session, mapping.organizationId, "event.cover_removed", "event", mapping.id);
   return updated;
+}
+
+/**
+ * Permanently delete an event: removes it from pretix, then deletes the local
+ * mapping (cascading sub-events, fields, invites, seat maps, etc.). Refuses when
+ * the event still has registrations — hide it or remove them first — so attendee
+ * data is never silently destroyed. Restricted to org/super admins.
+ */
+export async function deleteEvent(
+  session: SessionContext,
+  eventId: string,
+): Promise<void> {
+  const { mapping, org, ctx } = await manageCtx(session, eventId);
+
+  const registrations = await prisma.attendeeOrder.count({
+    where: { eventMappingId: mapping.id },
+  });
+  if (registrations > 0) {
+    throw new Error(
+      `This event has ${registrations} registration(s). Hide it instead, or remove the registrations first.`,
+    );
+  }
+
+  // Remove from pretix first so a failure there aborts before we touch local
+  // data (keeps the two stores consistent). A 404 means it's already gone.
+  try {
+    await pretixEvents.deleteEvent(ctx.organizerSlug, mapping.pretixEventSlug, ctx.token);
+  } catch (err) {
+    if (err instanceof PretixError && err.status === 404) {
+      // already gone on pretix — proceed to clean up locally
+    } else if (err instanceof PretixError) {
+      throw new Error(
+        "Couldn't delete this event from pretix. Make sure it isn't live and has no orders, then try again.",
+      );
+    } else {
+      throw err;
+    }
+  }
+
+  await prisma.eventMapping.delete({ where: { id: mapping.id } });
+  if (mapping.coverImagePath) {
+    await deleteCoverImage(mapping.coverImagePath);
+  }
+  await writeAudit(session, org.id, "event.deleted", "event", mapping.id);
 }
 
 /**
@@ -427,6 +498,180 @@ export async function createSubEvent(
 
   await writeAudit(session, org.id, "subevent.created", "subevent", subEvent.id);
   return subEvent;
+}
+
+/** Resolve org + pretix context for an accessible event, asserting manage rights. */
+async function manageCtx(session: SessionContext, eventId: string) {
+  assertCanManageEvents(session);
+  const mapping = await getEventForSession(session, eventId);
+  if (!mapping) throw new Error("Event not found or access denied");
+  const org = await prisma.organization.findUnique({
+    where: { id: mapping.organizationId },
+  });
+  if (!org) throw new Error("Organization not found");
+  return { mapping, org, ctx: resolvePretixContext(org) };
+}
+
+/** pretix refuses to delete an item/quota still referenced by orders (non-400).
+ *  Surface that as a friendly, user-facing message instead of a raw API error. */
+function rethrowDeleteBlocked(label: string, err: unknown): never {
+  // pretix returns 409 (Conflict) — historically 403 — when the object is still
+  // referenced by orders. Only translate those; let auth/404/rate-limit surface.
+  if (err instanceof PretixError && (err.status === 403 || err.status === 409)) {
+    throw new Error(
+      `Can't delete "${label}" because it has registrations. Deactivate it instead.`,
+    );
+  }
+  throw err;
+}
+
+/** Update a ticket (pretix item name/price + its backing quota size). */
+export async function updateTicket(
+  session: SessionContext,
+  eventId: string,
+  itemId: number,
+  input: TicketInput,
+): Promise<void> {
+  const { mapping, org, ctx } = await manageCtx(session, eventId);
+
+  await pretixProducts.updateItem(
+    ctx.organizerSlug,
+    mapping.pretixEventSlug,
+    itemId,
+    { titleEn: input.titleEn, titleAr: input.titleAr, priceCents: input.priceCents },
+    ctx.token,
+  );
+
+  // Resize the quota that backs this item (best-effort: a ticket may predate
+  // the quota convention or share one — only touch a quota we can map to it).
+  const quotas = await pretixProducts.listQuotasWithItems(
+    ctx.organizerSlug,
+    mapping.pretixEventSlug,
+    ctx.token,
+  );
+  const quota = quotas.find((q) => q.items.includes(itemId));
+  if (quota) {
+    await pretixProducts.updateQuota(
+      ctx.organizerSlug,
+      mapping.pretixEventSlug,
+      quota.id,
+      { size: input.quotaSize },
+      ctx.token,
+    );
+  }
+
+  await writeAudit(session, org.id, "ticket.updated", "ticket", String(itemId));
+}
+
+/** Delete a ticket (its quota[s] then the pretix item). Blocked when the item
+ *  already has orders — surfaced as a friendly error, nothing is removed. */
+export async function deleteTicket(
+  session: SessionContext,
+  eventId: string,
+  itemId: number,
+  label = "this ticket",
+): Promise<void> {
+  const { mapping, org, ctx } = await manageCtx(session, eventId);
+
+  try {
+    const quotas = await pretixProducts.listQuotasWithItems(
+      ctx.organizerSlug,
+      mapping.pretixEventSlug,
+      ctx.token,
+    );
+    for (const q of quotas.filter((q) => q.items.includes(itemId))) {
+      await pretixProducts.deleteQuota(ctx.organizerSlug, mapping.pretixEventSlug, q.id, ctx.token);
+    }
+    await pretixProducts.deleteItem(ctx.organizerSlug, mapping.pretixEventSlug, itemId, ctx.token);
+  } catch (err) {
+    rethrowDeleteBlocked(label, err);
+  }
+
+  await writeAudit(session, org.id, "ticket.deleted", "ticket", String(itemId));
+}
+
+/** Update a sub-event (local row + pretix item/quota). */
+export async function updateSubEvent(
+  session: SessionContext,
+  eventId: string,
+  subEventId: string,
+  input: SubEventInput,
+): Promise<void> {
+  const { mapping, org, ctx } = await manageCtx(session, eventId);
+
+  const existing = await prisma.subEvent.findFirst({
+    where: { id: subEventId, eventMappingId: mapping.id },
+  });
+  if (!existing) throw new Error("Sub-event not found");
+
+  if (existing.pretixItemId) {
+    await pretixProducts.updateItem(
+      ctx.organizerSlug,
+      mapping.pretixEventSlug,
+      existing.pretixItemId,
+      { titleEn: input.titleEn, titleAr: input.titleAr, priceCents: input.priceCents },
+      ctx.token,
+    );
+  }
+  if (existing.pretixQuotaId) {
+    await pretixProducts.updateQuota(
+      ctx.organizerSlug,
+      mapping.pretixEventSlug,
+      existing.pretixQuotaId,
+      { name: `${input.titleEn} quota`, size: input.maxAttendees ?? null },
+      ctx.token,
+    );
+  }
+
+  await prisma.subEvent.update({
+    where: { id: existing.id },
+    data: {
+      titleEn: input.titleEn,
+      titleAr: input.titleAr ?? null,
+      category: input.category,
+      location: input.location ?? null,
+      dateFrom: new Date(input.dateFrom),
+      dateTo: new Date(input.dateTo),
+      priceCents: input.priceCents,
+      maxAttendees: input.maxAttendees ?? null,
+      ticketsPerUser: input.ticketsPerUser,
+    },
+  });
+
+  await writeAudit(session, org.id, "subevent.updated", "subevent", existing.id);
+}
+
+/** Delete a sub-event (pretix quota + item, then the local row + mappings).
+ *  Blocked when the pretix item has orders — surfaced as a friendly error. */
+export async function deleteSubEvent(
+  session: SessionContext,
+  eventId: string,
+  subEventId: string,
+): Promise<void> {
+  const { mapping, org, ctx } = await manageCtx(session, eventId);
+
+  const existing = await prisma.subEvent.findFirst({
+    where: { id: subEventId, eventMappingId: mapping.id },
+  });
+  if (!existing) throw new Error("Sub-event not found");
+
+  try {
+    if (existing.pretixQuotaId) {
+      await pretixProducts.deleteQuota(ctx.organizerSlug, mapping.pretixEventSlug, existing.pretixQuotaId, ctx.token);
+    }
+    if (existing.pretixItemId) {
+      await pretixProducts.deleteItem(ctx.organizerSlug, mapping.pretixEventSlug, existing.pretixItemId, ctx.token);
+    }
+  } catch (err) {
+    rethrowDeleteBlocked(existing.titleEn, err);
+  }
+
+  await prisma.pretixObjectMapping.deleteMany({
+    where: { eventMappingId: mapping.id, localId: existing.id },
+  });
+  await prisma.subEvent.delete({ where: { id: existing.id } });
+
+  await writeAudit(session, org.id, "subevent.deleted", "subevent", existing.id);
 }
 
 /**

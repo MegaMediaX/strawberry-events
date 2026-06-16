@@ -112,6 +112,8 @@ export default async function RegisterPage({
         ticketsPerUserMain={data.event.ticketsPerUserMain}
         ticketsPerUserTotal={data.event.ticketsPerUserTotal}
         inviteToken={inviteToken}
+        attendeeTypeEnabled={data.event.attendeeTypeEnabled}
+        attendeeTypeRequired={data.event.attendeeTypeRequired}
       />
     </div>
   );

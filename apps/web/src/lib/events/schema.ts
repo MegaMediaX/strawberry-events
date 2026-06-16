@@ -40,6 +40,9 @@ export const eventInputSchema = z.object({
   badgeAutoPrint: z.boolean().default(false),
   // When true, a paid-tier registration cannot be approved until it is paid.
   payBeforeApproval: z.boolean().default(false),
+  // Registration attendee-type field (Student / Company / Freelancer).
+  attendeeTypeEnabled: z.boolean().default(false),
+  attendeeTypeRequired: z.boolean().default(false),
   // Location (all optional; storefront renders gracefully when absent).
   venueName: z.string().optional().nullable(),
   address: z.string().optional().nullable(),

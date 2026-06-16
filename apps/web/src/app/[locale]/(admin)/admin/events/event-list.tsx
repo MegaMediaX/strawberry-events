@@ -1,8 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useTransition } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
+import { toast } from "@/components/ui/toast";
+import { deleteEventAction } from "./actions";
 
 export interface EventRow {
   id: string;
@@ -30,6 +33,9 @@ export function EventList({
   events: EventRow[];
   locale: string;
 }) {
+  const router = useRouter();
+  const [pendingId, setPendingId] = useState<string | null>(null);
+  const [, startTransition] = useTransition();
   const [view, setView] = useState<View>(() => {
     if (typeof window === "undefined") return "table";
     const saved = localStorage.getItem(STORAGE_KEY);
@@ -39,6 +45,27 @@ export function EventList({
   function choose(v: View) {
     setView(v);
     localStorage.setItem(STORAGE_KEY, v);
+  }
+
+  function remove(e: EventRow) {
+    if (
+      !confirm(
+        `Delete "${e.titleEn}"? This permanently removes the event and its tickets, sub-events, and fields. This can't be undone.`,
+      )
+    ) {
+      return;
+    }
+    setPendingId(e.id);
+    startTransition(async () => {
+      const res = await deleteEventAction(locale, e.id);
+      setPendingId(null);
+      if (res?.error) {
+        toast.error(res.error);
+        return;
+      }
+      toast.success("Event deleted");
+      router.refresh();
+    });
   }
 
   const editHref = (id: string) => `/${locale}/admin/events/${id}/edit`;
@@ -93,6 +120,14 @@ export function EventList({
                   <Link className="ms-3 text-primary underline" href={`/${locale}/admin/events/${e.id}/waitlist`}>
                     Waitlist
                   </Link>
+                  <button
+                    type="button"
+                    onClick={() => remove(e)}
+                    disabled={pendingId === e.id}
+                    className="ms-3 text-destructive underline disabled:opacity-50"
+                  >
+                    {pendingId === e.id ? "Deleting…" : "Delete"}
+                  </button>
                 </td>
               </tr>
             ))}
@@ -118,6 +153,14 @@ export function EventList({
                 <Link className="text-primary underline" href={`/${locale}/admin/events/${e.id}/fields`}>Fields</Link>
                 <Link className="text-primary underline" href={`/${locale}/admin/events/${e.id}/tickets`}>Tickets</Link>
                 <Link className="text-primary underline" href={`/${locale}/admin/events/${e.id}/waitlist`}>Waitlist</Link>
+                <button
+                  type="button"
+                  onClick={() => remove(e)}
+                  disabled={pendingId === e.id}
+                  className="text-destructive underline disabled:opacity-50"
+                >
+                  {pendingId === e.id ? "Deleting…" : "Delete"}
+                </button>
               </div>
             </div>
           ))}
