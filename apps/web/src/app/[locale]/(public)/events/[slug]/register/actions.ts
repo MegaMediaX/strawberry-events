@@ -5,6 +5,7 @@ import { headers } from "next/headers";
 import { register } from "@/lib/registration/service";
 import { registerInputSchema } from "@/lib/registration/schema";
 import { rateLimit } from "@/lib/security/rate-limit";
+import { PretixValidationError, flattenFieldErrors } from "@/lib/pretix/errors";
 
 async function clientIp(): Promise<string> {
   const h = await headers();
@@ -49,6 +50,21 @@ export async function registerAction(
   try {
     result = await register(parsed.data);
   } catch (err) {
+    // pretix rejected the order with a 400. Log the full field detail so the
+    // real cause is diagnosable in production, and show the registrant the
+    // actual reason(s) rather than a bare internal API URL.
+    if (err instanceof PretixValidationError) {
+      const reasons = flattenFieldErrors(err.fieldErrors);
+      console.error(
+        `[register] pretix validation error (event=${slug}):`,
+        JSON.stringify(err.fieldErrors),
+      );
+      return {
+        error: reasons.length
+          ? `Registration could not be completed: ${reasons.join("; ")}`
+          : "Registration could not be completed. Please try again or contact the organizer.",
+      };
+    }
     return { error: (err as Error).message };
   }
 
