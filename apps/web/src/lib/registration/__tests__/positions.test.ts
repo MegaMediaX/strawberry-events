@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildOrderPositions } from "@/lib/registration/service";
+import { buildOrderPositions } from "@/lib/registration/positions";
 
 const attendee = { firstName: "Abdulrahman", lastName: "Alman", email: "a@b.com" };
 
