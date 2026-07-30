@@ -71,6 +71,50 @@ export interface RegisterResult {
   magicLinkToken: string;
 }
 
+export interface OrderPositionInput {
+  item: number;
+  price: string;
+  /**
+   * Attendee identity forwarded to the pretix position. pretix items configured
+   * to "ask for attendee name/email" (typical for admission/badge tickets) reject
+   * anonymous positions with a 400 validation error, so we always attach what the
+   * registrant entered. Plain `attendee_name` is accepted regardless of the
+   * event's name scheme.
+   */
+  attendee_name?: string;
+  attendee_email?: string;
+  // Matches pretix's CreateOrderPosition open shape so positions pass straight through.
+  [k: string]: unknown;
+}
+
+/**
+ * Pure, unit-testable builder: expand each selected ticket into one pretix order
+ * position per quantity, priced from pretix (never the client), and carrying the
+ * registrant's name/email so items that require an attendee name validate.
+ */
+export function buildOrderPositions(
+  tickets: { itemId: number; quantity: number }[],
+  priceById: Map<number, number>,
+  attendee: { firstName: string; lastName: string; email: string },
+): { positions: OrderPositionInput[]; totalCents: number } {
+  const attendeeName = `${attendee.firstName} ${attendee.lastName}`.trim();
+  const positions: OrderPositionInput[] = [];
+  let totalCents = 0;
+  for (const sel of tickets) {
+    const price = priceById.get(sel.itemId) ?? 0;
+    for (let n = 0; n < sel.quantity; n++) {
+      positions.push({
+        item: sel.itemId,
+        price: centsToPrice(price),
+        ...(attendeeName ? { attendee_name: attendeeName } : {}),
+        attendee_email: attendee.email,
+      });
+      totalCents += price;
+    }
+  }
+  return { positions, totalCents };
+}
+
 export async function register(input: RegisterInput): Promise<RegisterResult> {
   const data = registerInputSchema.parse(input);
 
@@ -159,15 +203,11 @@ export async function register(input: RegisterInput): Promise<RegisterResult> {
   );
   const priceById = new Map(items.map((i) => [i.id, i.priceCents]));
 
-  const positions: { item: number; price: string }[] = [];
-  let totalCents = 0;
-  for (const sel of data.tickets) {
-    const price = priceById.get(sel.itemId) ?? 0;
-    for (let n = 0; n < sel.quantity; n++) {
-      positions.push({ item: sel.itemId, price: centsToPrice(price) });
-      totalCents += price;
-    }
-  }
+  const { positions, totalCents } = buildOrderPositions(
+    data.tickets,
+    priceById,
+    data.attendee,
+  );
 
   const provider = selectProvider(totalCents);
   const needsApproval = requiresApproval(

@@ -28,3 +28,30 @@ export class NotImplemented extends PretixError {
     this.name = "NotImplemented";
   }
 }
+
+/**
+ * Flatten pretix's nested field-error structure (e.g.
+ * `{ positions: [{ attendee_name: ["This field is required."] }] }`) into
+ * readable `path: message` lines. pretix's raw 400 body is otherwise opaque —
+ * this makes the actual reason visible in logs and to the registrant instead of
+ * a bare internal API URL.
+ */
+export function flattenFieldErrors(errors: unknown, path: string[] = []): string[] {
+  if (errors == null) return [];
+  if (typeof errors === "string") {
+    return [path.length ? `${path.join(".")}: ${errors}` : errors];
+  }
+  if (Array.isArray(errors)) {
+    return errors.flatMap((child, i) =>
+      // Arrays of scalar messages don't need noisy numeric indices; arrays of
+      // nested objects (e.g. positions) keep the index for locatability.
+      flattenFieldErrors(child, typeof child === "string" ? path : [...path, String(i)]),
+    );
+  }
+  if (typeof errors === "object") {
+    return Object.entries(errors as Record<string, unknown>).flatMap(([k, v]) =>
+      flattenFieldErrors(v, [...path, k]),
+    );
+  }
+  return [path.length ? `${path.join(".")}: ${String(errors)}` : String(errors)];
+}
