@@ -9,6 +9,13 @@
  *
  * Pure and dependency-free: exercised by the unit suite and reused by the
  * wizard without pulling in React or Prisma.
+ *
+ * BOUNDARY: this gate is a client-side UX affordance only — `register()` in
+ * `src/lib/registration/service.ts` does NOT enforce it (unlike invite-only
+ * items, which are server-checked via `assertInviteAllows`). That is fine
+ * today because ticking the opt-in box is unrestricted, so bypassing it
+ * grants nothing. Do NOT reuse `requiresOptIn` to gate restricted or paid
+ * content without adding a server-side check in `register()`.
  */
 
 export interface OptInSubEvent {

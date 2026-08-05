@@ -350,7 +350,6 @@ export function RegistrationWizard({
                   return (
                     <label
                       key={category}
-                      htmlFor={`opt-in-${category}`}
                       className="flex cursor-pointer items-center justify-between rounded-[var(--radius-lg)] border border-border p-3"
                     >
                       <div>
@@ -362,7 +361,6 @@ export function RegistrationWizard({
                         </div>
                       </div>
                       <input
-                        id={`opt-in-${category}`}
                         type="checkbox"
                         className="size-4 accent-[var(--color-primary)]"
                         checked={checked}
@@ -381,13 +379,23 @@ export function RegistrationWizard({
             )}
 
             {hasSubEvents && step === SESSIONS_STEP && (
-              <SubEventPicker
-                locale={locale}
-                subEvents={shownSubEvents}
-                selected={subEventSelection}
-                totalAllowance={Math.max(0, ticketsPerUserTotal - totalQty)}
-                onChange={setSubEventSelection}
-              />
+              // The stepper shape is fixed up-front, so when every session is
+              // opt-in-gated and nothing is ticked this step would otherwise
+              // dead-end on the picker's empty state. Point back instead.
+              shownSubEvents.length === 0 && optInCategories.length > 0 ? (
+                <p className="text-sm text-muted-foreground">
+                  Tick {optInCategories.map((c) => `“${c}”`).join(", ")} in the
+                  previous step to choose sessions, or continue without any.
+                </p>
+              ) : (
+                <SubEventPicker
+                  locale={locale}
+                  subEvents={shownSubEvents}
+                  selected={subEventSelection}
+                  totalAllowance={Math.max(0, ticketsPerUserTotal - totalQty)}
+                  onChange={setSubEventSelection}
+                />
+              )
             )}
 
             {step === CONFIRM_STEP && (
