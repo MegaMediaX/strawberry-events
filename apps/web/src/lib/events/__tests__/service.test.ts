@@ -349,8 +349,10 @@ describe("updateSubEvent / deleteSubEvent", () => {
   const sub = { id: "s1", eventMappingId: "e1", titleEn: "Workshop", pretixItemId: 7, pretixQuotaId: 9 };
   const subInput = {
     titleEn: "Workshop 2", titleAr: null, category: "talk", location: null,
+    descriptionEn: null, descriptionAr: null,
     dateFrom: "2026-09-01T09:00:00Z", dateTo: "2026-09-01T11:00:00Z",
     priceCents: 1000, maxAttendees: 20, ticketsPerUser: 1,
+    requiresOptIn: false,
   };
 
   beforeEach(() => {

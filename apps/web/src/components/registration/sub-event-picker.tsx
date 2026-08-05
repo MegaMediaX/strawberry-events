@@ -8,11 +8,15 @@ export interface SubEventItem {
   titleAr: string | null;
   category: string;
   location: string | null;
+  descriptionEn: string | null;
+  descriptionAr: string | null;
   dateFrom: string;
   dateTo: string;
   priceCents: number;
   maxAttendees: number | null;
   ticketsPerUser: number;
+  /** Category is hidden until the attendee opts in during the Tickets step. */
+  requiresOptIn: boolean;
   pretixItemId: number | null;
   /** Live remaining seats from pretix quota (null = unknown / unlimited). */
   remaining: number | null;
@@ -132,6 +136,11 @@ export function SubEventPicker({ locale, subEvents, selected, totalAllowance, on
                 >
                   <div className="min-w-0 flex-1">
                     <div className="font-medium leading-snug">{title}</div>
+                    {(isRtl && se.descriptionAr ? se.descriptionAr : se.descriptionEn) && (
+                      <div className="mt-0.5 text-xs text-muted-foreground">
+                        {isRtl && se.descriptionAr ? se.descriptionAr : se.descriptionEn}
+                      </div>
+                    )}
                     {se.location && (
                       <div className="mt-0.5 text-xs text-muted-foreground">
                         {se.location}

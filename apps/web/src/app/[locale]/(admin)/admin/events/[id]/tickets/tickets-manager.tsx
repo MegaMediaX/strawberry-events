@@ -26,11 +26,14 @@ interface SubRow {
   titleAr: string;
   category: string;
   location: string;
+  descriptionEn: string;
+  descriptionAr: string;
   dateFrom: string; // datetime-local value
   dateTo: string;
   price: string;
   maxAttendees: string;
   ticketsPerUser: string;
+  requiresOptIn: boolean;
 }
 
 export interface InitialTicket {
@@ -47,11 +50,14 @@ export interface InitialSubEvent {
   titleAr: string | null;
   category: string;
   location: string | null;
+  descriptionEn: string | null;
+  descriptionAr: string | null;
   dateFrom: string; // ISO
   dateTo: string; // ISO
   priceCents: number;
   maxAttendees: number | null;
   ticketsPerUser: number;
+  requiresOptIn: boolean;
 }
 
 const pad = (n: number) => String(n).padStart(2, "0");
@@ -81,11 +87,14 @@ function subFrom(s: InitialSubEvent): SubRow {
     titleAr: s.titleAr ?? "",
     category: s.category,
     location: s.location ?? "",
+    descriptionEn: s.descriptionEn ?? "",
+    descriptionAr: s.descriptionAr ?? "",
     dateFrom: toLocalInput(s.dateFrom),
     dateTo: toLocalInput(s.dateTo),
     price: centsField(s.priceCents),
     maxAttendees: s.maxAttendees == null ? "" : String(s.maxAttendees),
     ticketsPerUser: String(s.ticketsPerUser),
+    requiresOptIn: s.requiresOptIn,
   };
 }
 
@@ -101,11 +110,14 @@ const subInput = (s: SubRow) => ({
   titleAr: s.titleAr || null,
   category: s.category,
   location: s.location || null,
+  descriptionEn: s.descriptionEn || null,
+  descriptionAr: s.descriptionAr || null,
   dateFrom: s.dateFrom,
   dateTo: s.dateTo,
   priceCents: Math.round(parseFloat(s.price || "0") * 100),
   maxAttendees: s.maxAttendees === "" ? null : parseInt(s.maxAttendees, 10),
   ticketsPerUser: parseInt(s.ticketsPerUser || "1", 10),
+  requiresOptIn: s.requiresOptIn,
 });
 
 export function TicketsManager({
@@ -153,7 +165,7 @@ export function TicketsManager({
     const id = `new-${nextSub}`;
     setSubs((r) => [
       ...r,
-      { id, titleEn: "", titleAr: "", category: "", location: "", dateFrom: "", dateTo: "", price: "0.00", maxAttendees: "", ticketsPerUser: "1" },
+      { id, titleEn: "", titleAr: "", category: "", location: "", descriptionEn: "", descriptionAr: "", dateFrom: "", dateTo: "", price: "0.00", maxAttendees: "", ticketsPerUser: "1", requiresOptIn: false },
     ]);
     setNextSub((n) => n + 1);
   }
@@ -208,6 +220,9 @@ export function TicketsManager({
             c.titleEn !== o.titleEn ||
             (c.titleAr ?? null) !== (o.titleAr ?? null) ||
             c.category !== o.category ||
+            (c.descriptionEn ?? null) !== (o.descriptionEn ?? null) ||
+            (c.descriptionAr ?? null) !== (o.descriptionAr ?? null) ||
+            c.requiresOptIn !== o.requiresOptIn ||
             (c.location ?? null) !== (o.location ?? null) ||
             new Date(c.dateFrom).getTime() !== new Date(o.dateFrom).getTime() ||
             new Date(c.dateTo).getTime() !== new Date(o.dateTo).getTime() ||
@@ -328,6 +343,36 @@ export function TicketsManager({
                 <div>
                   <Label>Tickets / user</Label>
                   <Input value={s.ticketsPerUser} onChange={(e) => patchSub(s.id, { ticketsPerUser: e.target.value })} />
+                </div>
+                <div className="col-span-2">
+                  <Label>Description (EN)</Label>
+                  <Input
+                    placeholder="Short abstract shown under the title"
+                    value={s.descriptionEn}
+                    onChange={(e) => patchSub(s.id, { descriptionEn: e.target.value })}
+                  />
+                </div>
+                <div className="col-span-2">
+                  <Label>Description (ع)</Label>
+                  <Input
+                    dir="rtl"
+                    value={s.descriptionAr}
+                    onChange={(e) => patchSub(s.id, { descriptionAr: e.target.value })}
+                  />
+                </div>
+                <div className="col-span-2">
+                  <label className="flex items-center gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      className="size-4"
+                      checked={s.requiresOptIn}
+                      onChange={(e) => patchSub(s.id, { requiresOptIn: e.target.checked })}
+                    />
+                    <span>
+                      Opt-in category — hide the whole “{s.category || "…"}” group until the
+                      attendee ticks it in the Tickets step
+                    </span>
+                  </label>
                 </div>
               </div>
               <div className="mt-3 flex justify-end">

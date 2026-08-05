@@ -12,6 +12,7 @@ import { SeatSelector } from "@/components/seats/seat-selector";
 import { getFieldsForTicket, validateRequiredAnswers, fieldOptions, type FieldDef } from "@/lib/forms/fields";
 import { registerAction } from "@/app/[locale]/(public)/events/[slug]/register/actions";
 import { SubEventPicker, type SubEventItem, type SubEventSelection } from "./sub-event-picker";
+import { gatedCategories, visibleSubEvents, pruneSelection } from "@/lib/registration/opt-in";
 
 interface WizardTicket {
   id: number;
@@ -76,6 +77,9 @@ export function RegistrationWizard({
   });
   const [qty, setQty] = useState<Record<number, number>>({});
   const [subEventSelection, setSubEventSelection] = useState<SubEventSelection[]>([]);
+  // Categories the attendee opted into (e.g. "Workshops"). Gated categories stay
+  // hidden in the Sessions step until ticked here, in the Tickets step.
+  const [optedIn, setOptedIn] = useState<string[]>([]);
   const [terms, setTerms] = useState(false);
   const [privacy, setPrivacy] = useState(false);
   const [answers, setAnswers] = useState<Record<string, string>>({});
@@ -90,6 +94,20 @@ export function RegistrationWizard({
     }
     return [...byId.values()];
   })();
+
+  // Opt-in categories and the sessions currently visible for that choice. The
+  // stepper shape is driven by the full list so it never changes mid-flow.
+  const optInCategories = gatedCategories(subEvents);
+  const shownSubEvents = visibleSubEvents(subEvents, optedIn);
+
+  function toggleCategory(category: string) {
+    const next = optedIn.includes(category)
+      ? optedIn.filter((c) => c !== category)
+      : [...optedIn, category];
+    setOptedIn(next);
+    // Un-ticking must not leave a now-hidden session in the order.
+    setSubEventSelection((sel) => pruneSelection(sel, visibleSubEvents(subEvents, next)));
+  }
 
   const subEventCents = subEventSelection.reduce((sum, s) => {
     const se = subEvents.find((x) => x.pretixItemId === s.itemId);
@@ -326,6 +344,33 @@ export function RegistrationWizard({
                       : `You can register for up to ${ticketsPerUserMain} ticket(s) per person.`}
                   </p>
                 )}
+                {optInCategories.map((category) => {
+                  const checked = optedIn.includes(category);
+                  const count = subEvents.filter((se) => se.category === category).length;
+                  return (
+                    <label
+                      key={category}
+                      htmlFor={`opt-in-${category}`}
+                      className="flex cursor-pointer items-center justify-between rounded-[var(--radius-lg)] border border-border p-3"
+                    >
+                      <div>
+                        <div className="font-medium">{category}</div>
+                        <div className="text-sm text-muted-foreground">
+                          {checked
+                            ? `Pick your sessions in the next step (${count} available)`
+                            : `Tick to choose from ${count} session(s)`}
+                        </div>
+                      </div>
+                      <input
+                        id={`opt-in-${category}`}
+                        type="checkbox"
+                        className="size-4 accent-[var(--color-primary)]"
+                        checked={checked}
+                        onChange={() => toggleCategory(category)}
+                      />
+                    </label>
+                  );
+                })}
                 {seatSections && seatSections.length > 0 && (
                   <div className="mt-2 rounded-[var(--radius-lg)] border border-border p-3">
                     <div className="mb-2 font-medium">Choose your seat(s)</div>
@@ -338,7 +383,7 @@ export function RegistrationWizard({
             {hasSubEvents && step === SESSIONS_STEP && (
               <SubEventPicker
                 locale={locale}
-                subEvents={subEvents}
+                subEvents={shownSubEvents}
                 selected={subEventSelection}
                 totalAllowance={Math.max(0, ticketsPerUserTotal - totalQty)}
                 onChange={setSubEventSelection}
