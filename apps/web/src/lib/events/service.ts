@@ -383,6 +383,8 @@ export async function createTicket(
     {
       titleEn: input.titleEn,
       titleAr: input.titleAr,
+      descriptionEn: input.descriptionEn,
+      descriptionAr: input.descriptionAr,
       priceCents: input.priceCents,
     },
     ctx.token,
@@ -541,7 +543,13 @@ export async function updateTicket(
     ctx.organizerSlug,
     mapping.pretixEventSlug,
     itemId,
-    { titleEn: input.titleEn, titleAr: input.titleAr, priceCents: input.priceCents },
+    {
+      titleEn: input.titleEn,
+      titleAr: input.titleAr,
+      descriptionEn: input.descriptionEn ?? null,
+      descriptionAr: input.descriptionAr ?? null,
+      priceCents: input.priceCents,
+    },
     ctx.token,
   );
 

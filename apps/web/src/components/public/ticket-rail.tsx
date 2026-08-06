@@ -9,6 +9,8 @@ export interface RailTicket {
   id: number;
   titleEn: string;
   titleAr: string | null;
+  descriptionEn: string | null;
+  descriptionAr: string | null;
   priceCents: number;
 }
 
@@ -36,8 +38,15 @@ export function TicketRail({
             key={t.id}
             className="flex items-start justify-between rounded-md bg-muted/40 px-3 py-2.5 text-sm"
           >
-            <span className="font-medium leading-tight">
-              {locale === "ar" && t.titleAr ? t.titleAr : t.titleEn}
+            <span className="leading-tight">
+              <span className="block font-medium">
+                {locale === "ar" && t.titleAr ? t.titleAr : t.titleEn}
+              </span>
+              {(locale === "ar" && t.descriptionAr ? t.descriptionAr : t.descriptionEn) && (
+                <span className="mt-0.5 block text-xs text-muted-foreground">
+                  {locale === "ar" && t.descriptionAr ? t.descriptionAr : t.descriptionEn}
+                </span>
+              )}
             </span>
             <span className="ms-4 shrink-0 font-semibold text-foreground">
               {t.priceCents === 0 ? (

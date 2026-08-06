@@ -8,6 +8,8 @@ export interface PublicTicket {
   id: number;
   titleEn: string;
   titleAr: string | null;
+  descriptionEn: string | null;
+  descriptionAr: string | null;
   priceCents: number;
 }
 
@@ -93,6 +95,8 @@ export async function getPublicEvent(
     id: i.id,
     titleEn: i.titleEn,
     titleAr: i.titleAr,
+    descriptionEn: i.descriptionEn,
+    descriptionAr: i.descriptionAr,
     priceCents: i.priceCents,
   });
 

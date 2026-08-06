@@ -46,6 +46,8 @@ export default async function RegisterPage({
   const tickets = allTickets.map((t) => ({
     id: t.id,
     title: locale === "ar" && t.titleAr ? t.titleAr : t.titleEn,
+    description:
+      (locale === "ar" && t.descriptionAr ? t.descriptionAr : t.descriptionEn) || null,
     priceCents: t.priceCents,
   }));
 
