@@ -348,6 +348,23 @@ makes stored integration secrets unrecoverable).
 **Health checks:** `GET /api/health` (liveness), `/api/health/db` (DB), `/api/health/ready`
 (config + DB → 200/503). Point your uptime monitor at `/api/health/ready`.
 
+**Uploaded media persist in a volume:** event cover photos live in the named volume
+`uploads-data` (mounted at `/app/.uploads`), so image rebuilds/recreates no longer delete
+them; `scripts/backup.sh`/`restore.sh` include the volume. Upgrading from a version without
+the volume? Copy covers out before the first rebuild
+(`docker compose cp next-app:/app/.uploads ./u`) and back in after
+(`docker compose cp ./u/. next-app:/app/.uploads`).
+
+**pretix public URL:** set `PRETIX_PUBLIC_URL` to the browser-facing pretix address
+(`https://<your-domain>/pretix` behind the bundled nginx). It feeds pretix's own
+`PRETIX_PRETIX_URL` (absolute redirects, links, CSRF origin) and is separate from
+`PRETIX_BASE_URL`, which stays the app's **internal** adapter URL (`http://pretix:80`).
+Setting the internal URL as pretix's public URL breaks the `/pretix/` control panel.
+
+**First-admin seed works in the production image:** `docker compose exec next-app npx prisma db seed`
+(the seed is plain Node — no TypeScript loader needed at runtime; set
+`SEED_ADMIN_EMAIL`/`SEED_ADMIN_PASSWORD` first).
+
 ### Option A — Cloudflare terminates TLS (recommended)
 - Proxy the DNS record through Cloudflare (orange cloud); SSL/TLS mode **Full (strict)**.
 - Restrict the origin so it only accepts Cloudflare (firewall to Cloudflare IP ranges, or

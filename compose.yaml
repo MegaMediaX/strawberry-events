@@ -58,7 +58,11 @@ services:
       PRETIX_DATABASE_HOST: postgres-pretix
       PRETIX_REDIS_LOCATION: redis://redis:6379/0
       PRETIX_REDIS_SESSIONS: "true"
-      PRETIX_PRETIX_URL: ${PRETIX_BASE_URL:-http://localhost:8081}
+      # Public URL pretix advertises (login redirects, links in emails, CSRF origin).
+      # PRETIX_PUBLIC_URL must be the BROWSER-facing URL (e.g. https://your-domain/pretix
+      # behind the bundled nginx). PRETIX_BASE_URL is kept as a legacy fallback only —
+      # it is the app's INTERNAL adapter URL (http://pretix:80) and is wrong here.
+      PRETIX_PRETIX_URL: ${PRETIX_PUBLIC_URL:-${PRETIX_BASE_URL:-http://localhost:8081}}
       PRETIX_PRETIX_INSTANCE_NAME: Strawberry Events
     volumes:
       - pretix-data:/data
@@ -106,6 +110,11 @@ services:
       ALLOW_EMAIL_DISABLED_IN_PRODUCTION: ${ALLOW_EMAIL_DISABLED_IN_PRODUCTION:-false}
       SEED_ADMIN_EMAIL: ${SEED_ADMIN_EMAIL:-admin@strawberry.local}
       SEED_ADMIN_PASSWORD: ${SEED_ADMIN_PASSWORD:-ChangeMe!123}
+      EVENT_UPLOADS_DIR: /app/.uploads/event-covers
+    volumes:
+      # Uploaded media (event cover photos). Without this volume every image
+      # rebuild/recreate silently deletes all uploaded covers.
+      - uploads-data:/app/.uploads
     command: ["sh", "-c", "npx prisma migrate deploy && node server.js"]
     healthcheck:
       test: ["CMD-SHELL", "node -e \"fetch('http://localhost:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
@@ -130,3 +139,4 @@ volumes:
   postgres-pretix-data:
   redis-data:
   pretix-data:
+  uploads-data:
