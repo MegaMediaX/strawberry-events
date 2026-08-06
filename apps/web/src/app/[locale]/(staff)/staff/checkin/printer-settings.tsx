@@ -31,6 +31,11 @@ export function PrinterSettings() {
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
+    // Read the persisted printer name after hydration — it lives in
+    // localStorage, so it cannot seed useState (that initializer also runs on
+    // the server). External-store read, not derived state; useSyncExternalStore
+    // is the idiomatic fix and is deferred.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setName(getPrinterName() ?? "");
   }, []);
 

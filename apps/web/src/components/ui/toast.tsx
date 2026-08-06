@@ -56,6 +56,11 @@ export function Toaster() {
 
   useEffect(() => {
     listeners.add(setItems);
+    // Sync from the module-level store on subscribe, so a toast fired before
+    // this mounted isn't dropped. This is an external-store subscription, not
+    // derived state — the idiomatic fix is useSyncExternalStore, deferred to
+    // avoid reworking the toast API here.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setItems(toasts);
     return () => {
       listeners.delete(setItems);
