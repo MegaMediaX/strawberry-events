@@ -16,6 +16,15 @@ export function toI18n(en: string, ar?: string | null): PretixI18n {
   return ar ? { en, ar } : { en };
 }
 
+/** Build an i18n dict from optional values, or null when both are empty —
+ *  pretix stores optional i18n fields (e.g. item description) as null. */
+export function toI18nOrNull(en?: string | null, ar?: string | null): PretixI18n | null {
+  const dict: PretixI18n = {};
+  if (en) dict.en = en;
+  if (ar) dict.ar = ar;
+  return Object.keys(dict).length > 0 ? dict : null;
+}
+
 /** Parse a pretix decimal price string into integer cents. */
 export function priceToCents(price: string): number {
   return Math.round(parseFloat(price) * 100);

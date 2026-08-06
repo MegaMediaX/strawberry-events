@@ -37,6 +37,8 @@ export default async function TicketsPage({
           id: t.id,
           titleEn: t.titleEn,
           titleAr: t.titleAr,
+          descriptionEn: t.descriptionEn,
+          descriptionAr: t.descriptionAr,
           priceCents: t.priceCents,
           quotaSize: t.quotaSize,
         }))}

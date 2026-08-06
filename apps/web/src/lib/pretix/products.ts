@@ -2,6 +2,7 @@ import { pretixFetch, pretixFetchAll } from "./client";
 import {
   fromI18n,
   toI18n,
+  toI18nOrNull,
   priceToCents,
   centsToPrice,
   type PretixI18n,
@@ -10,6 +11,7 @@ import {
 interface PretixItemRaw {
   id: number;
   name: PretixI18n;
+  description: PretixI18n | null;
   default_price: string;
   active: boolean;
 }
@@ -18,6 +20,8 @@ export interface PretixItem {
   id: number;
   titleEn: string;
   titleAr: string | null;
+  descriptionEn: string | null;
+  descriptionAr: string | null;
   priceCents: number;
   active: boolean;
 }
@@ -25,16 +29,21 @@ export interface PretixItem {
 export interface CreateItemInput {
   titleEn: string;
   titleAr?: string | null;
+  descriptionEn?: string | null;
+  descriptionAr?: string | null;
   priceCents: number;
   active?: boolean;
 }
 
 function mapItem(raw: PretixItemRaw): PretixItem {
   const { titleEn, titleAr } = fromI18n(raw.name);
+  const desc = raw.description ? fromI18n(raw.description) : null;
   return {
     id: raw.id,
     titleEn,
     titleAr,
+    descriptionEn: desc?.titleEn || null,
+    descriptionAr: desc?.titleAr ?? null,
     priceCents: priceToCents(raw.default_price),
     active: raw.active,
   };
@@ -67,6 +76,7 @@ export async function createItem(
       method: "POST",
       body: JSON.stringify({
         name: toI18n(input.titleEn, input.titleAr),
+        description: toI18nOrNull(input.descriptionEn, input.descriptionAr),
         default_price: centsToPrice(input.priceCents),
         active: input.active ?? true,
       }),
@@ -79,6 +89,8 @@ export async function createItem(
 export interface UpdateItemInput {
   titleEn: string;
   titleAr?: string | null;
+  descriptionEn?: string | null;
+  descriptionAr?: string | null;
   priceCents: number;
   active?: boolean;
 }
@@ -97,6 +109,11 @@ export async function updateItem(
       method: "PATCH",
       body: JSON.stringify({
         name: toI18n(input.titleEn, input.titleAr),
+        // Included only when the caller manages descriptions (both-empty → null
+        // clears the field); callers that omit the keys leave pretix untouched.
+        ...("descriptionEn" in input || "descriptionAr" in input
+          ? { description: toI18nOrNull(input.descriptionEn, input.descriptionAr) }
+          : {}),
         default_price: centsToPrice(input.priceCents),
         ...(input.active != null && { active: input.active }),
       }),

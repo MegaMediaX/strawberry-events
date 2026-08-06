@@ -348,6 +348,23 @@ makes stored integration secrets unrecoverable).
 **Health checks:** `GET /api/health` (liveness), `/api/health/db` (DB), `/api/health/ready`
 (config + DB → 200/503). Point your uptime monitor at `/api/health/ready`.
 
+**Uploaded media persist in a volume:** event cover photos live in the named volume
+`uploads-data` (mounted at `/app/.uploads`), so image rebuilds/recreates no longer delete
+them; `scripts/backup.sh`/`restore.sh` include the volume. Upgrading from a version without
+the volume? Copy covers out before the first rebuild
+(`docker compose cp next-app:/app/.uploads ./u`) and back in after
+(`docker compose cp ./u/. next-app:/app/.uploads`).
+
+**pretix public URL:** set `PRETIX_PUBLIC_URL` to the browser-facing pretix address
+(`https://<your-domain>/pretix` behind the bundled nginx). It feeds pretix's own
+`PRETIX_PRETIX_URL` (absolute redirects, links, CSRF origin) and is separate from
+`PRETIX_BASE_URL`, which stays the app's **internal** adapter URL (`http://pretix:80`).
+Setting the internal URL as pretix's public URL breaks the `/pretix/` control panel.
+
+**First-admin seed works in the production image:** `docker compose exec next-app npx prisma db seed`
+(the seed is plain Node — no TypeScript loader needed at runtime; set
+`SEED_ADMIN_EMAIL`/`SEED_ADMIN_PASSWORD` first).
+
 ### Option A — Cloudflare terminates TLS (recommended)
 - Proxy the DNS record through Cloudflare (orange cloud); SSL/TLS mode **Full (strict)**.
 - Restrict the origin so it only accepts Cloudflare (firewall to Cloudflare IP ranges, or
@@ -363,6 +380,37 @@ makes stored integration secrets unrecoverable).
 - Secure cookies and HSTS then work end-to-end.
 - Consider nginx `limit_req` zones for `/api/auth` and registration as edge defense-in-depth
   (the app limiter is in-memory/single-instance).
+
+### CD — auto-deploy to the VPS (GitHub Actions)
+
+`.github/workflows/ci.yml` contains a `deploy` job that runs **only after the CI job
+(typecheck · lint · test · build) passes on `main`** (never on PRs; also runnable
+manually via Actions → CI → Run workflow). It SSHes into the VPS, hard-resets the
+checkout to the exact CI-verified commit, `docker compose build next-app && up -d`
+(migrations run at container start), then **fails the deploy unless
+`http://localhost:8080/api/health/ready` returns 200 within ~90s** (dumping
+`compose ps` + `next-app` logs into the Actions log on failure). Deploys are
+serialized (a second one queues) and a new push never cancels an in-flight deploy.
+
+Until the secrets below exist, the job **skips with a notice** instead of failing —
+safe to merge first, wire credentials later.
+
+**One-time setup**
+1. On your machine: `ssh-keygen -t ed25519 -f deploy_key -N "" -C strawberry-deploy`
+2. On the VPS: append `deploy_key.pub` to `~/.ssh/authorized_keys` of the deploy user;
+   ensure the repo is cloned at the app dir (default `~/strawberry-events`) with a
+   filled `.env`.
+3. In GitHub → Settings → Secrets and variables → Actions, add:
+   - `VPS_HOST` — server hostname or IP
+   - `VPS_USER` — SSH user that owns the deployment
+   - `VPS_SSH_KEY` — contents of the **private** `deploy_key`
+   - `VPS_PORT` *(optional, default 22)*
+   - `VPS_APP_DIR` *(optional, default `strawberry-events` under the SSH user's home)*
+4. Optional: protect the `production` environment (Settings → Environments) with a
+   required reviewer to make each deploy click-to-approve.
+
+The first deploy after the uploads-volume change should still follow the one-time
+cover migration in `.env.production.example` (copy covers out before, back in after).
 
 ### Cron (manual today)
 Archive purge (`cleanup()`, 14-day retention) and webhook retry (`retryDue()`) are

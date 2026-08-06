@@ -16,6 +16,8 @@ interface TicketRow {
   id: number;
   titleEn: string;
   titleAr: string;
+  descriptionEn: string;
+  descriptionAr: string;
   price: string; // dollars, as typed
   quota: string; // blank = unlimited
 }
@@ -40,6 +42,8 @@ export interface InitialTicket {
   id: number;
   titleEn: string;
   titleAr: string | null;
+  descriptionEn: string | null;
+  descriptionAr: string | null;
   priceCents: number;
   quotaSize: number | null;
 }
@@ -75,6 +79,8 @@ function ticketFrom(t: InitialTicket): TicketRow {
     id: t.id,
     titleEn: t.titleEn,
     titleAr: t.titleAr ?? "",
+    descriptionEn: t.descriptionEn ?? "",
+    descriptionAr: t.descriptionAr ?? "",
     price: centsField(t.priceCents),
     quota: t.quotaSize == null ? "" : String(t.quotaSize),
   };
@@ -101,6 +107,8 @@ function subFrom(s: InitialSubEvent): SubRow {
 const ticketInput = (t: TicketRow) => ({
   titleEn: t.titleEn,
   titleAr: t.titleAr || null,
+  descriptionEn: t.descriptionEn || null,
+  descriptionAr: t.descriptionAr || null,
   priceCents: Math.round(parseFloat(t.price || "0") * 100),
   quotaSize: t.quota === "" ? null : parseInt(t.quota, 10),
 });
@@ -150,7 +158,7 @@ export function TicketsManager({
   }
 
   function addTicket() {
-    setTickets((r) => [...r, { id: nextTemp, titleEn: "", titleAr: "", price: "0.00", quota: "100" }]);
+    setTickets((r) => [...r, { id: nextTemp, titleEn: "", titleAr: "", descriptionEn: "", descriptionAr: "", price: "0.00", quota: "100" }]);
     setNextTemp((n) => n - 1);
   }
   function removeTicket(row: TicketRow) {
@@ -202,6 +210,8 @@ export function TicketsManager({
           return (
             c.titleEn !== o.titleEn ||
             (c.titleAr ?? null) !== (o.titleAr ?? null) ||
+            (c.descriptionEn ?? null) !== (o.descriptionEn ?? null) ||
+            (c.descriptionAr ?? null) !== (o.descriptionAr ?? null) ||
             c.priceCents !== o.priceCents ||
             (c.quotaSize ?? null) !== (o.quotaSize ?? null)
           );
@@ -281,6 +291,24 @@ export function TicketsManager({
                 <div>
                   <Label>Quota</Label>
                   <Input className={inputCls} placeholder="∞" value={t.quota} onChange={(e) => patchTicket(t.id, { quota: e.target.value })} />
+                </div>
+                <div className="col-span-2">
+                  <Label>Description (EN)</Label>
+                  <Input
+                    className={inputCls}
+                    placeholder="Short blurb shown under the ticket name"
+                    value={t.descriptionEn}
+                    onChange={(e) => patchTicket(t.id, { descriptionEn: e.target.value })}
+                  />
+                </div>
+                <div className="col-span-2">
+                  <Label>Description (ع)</Label>
+                  <Input
+                    dir="rtl"
+                    className={inputCls}
+                    value={t.descriptionAr}
+                    onChange={(e) => patchTicket(t.id, { descriptionAr: e.target.value })}
+                  />
                 </div>
               </div>
               <div className="mt-3 flex items-center justify-between gap-3">

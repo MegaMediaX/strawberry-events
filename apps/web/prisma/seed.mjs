@@ -1,3 +1,6 @@
+// Plain Node ESM so `prisma db seed` works both in dev and inside the
+// production runner image, which ships @prisma/client and @node-rs/argon2 but
+// no TypeScript loader (tsx is a devDependency and is not copied to the image).
 import { PrismaClient } from "@prisma/client";
 import { hash } from "@node-rs/argon2";
 

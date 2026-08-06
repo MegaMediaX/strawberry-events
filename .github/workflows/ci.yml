@@ -4,11 +4,14 @@ on:
   push:
     branches: [main]
   pull_request:
+  # Manual deploys from the Actions tab — still CI-gated (deploy needs verify).
+  workflow_dispatch:
 
-# A new push to the same branch supersedes the previous run.
+# A new push to a PR supersedes the previous run. Runs on main QUEUE instead of
+# cancelling — cancelling could kill an in-flight VPS deploy mid-restart.
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   verify:
@@ -51,3 +54,94 @@ jobs:
         run: npm run build
         env:
           DATABASE_URL: postgresql://ci:ci@localhost:5432/ci?schema=public
+
+  # ---------------------------------------------------------------------------
+  # CD — deploy to the VPS after CI passes on main.
+  #
+  # Runs only on pushes to main (and manual workflow_dispatch), never on PRs,
+  # and only after `verify` is green. While the VPS_* secrets are not
+  # configured the job skips with a notice instead of failing, so CD can be
+  # merged before the server credentials are set up. See README
+  # "CD — auto-deploy to the VPS" for the one-time setup.
+  # ---------------------------------------------------------------------------
+  deploy:
+    name: deploy to VPS
+    needs: verify
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-latest
+    environment: production
+    # Never run two deploys at once; a second one queues.
+    concurrency:
+      group: deploy-production
+      cancel-in-progress: false
+    steps:
+      - name: Check deploy configuration
+        id: check
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+        run: |
+          if [ -z "$VPS_HOST" ] || [ -z "$VPS_USER" ] || [ -z "$VPS_SSH_KEY" ]; then
+            echo "::notice::VPS deploy secrets (VPS_HOST / VPS_USER / VPS_SSH_KEY) are not configured — skipping deploy."
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Set up SSH
+        if: steps.check.outputs.configured == 'true'
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_PORT: ${{ secrets.VPS_PORT }}
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+        run: |
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$VPS_SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -p "${VPS_PORT:-22}" "$VPS_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: Deploy and health-check
+        if: steps.check.outputs.configured == 'true'
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+          VPS_PORT: ${{ secrets.VPS_PORT }}
+          VPS_APP_DIR: ${{ secrets.VPS_APP_DIR }}
+        run: |
+          # VPS_APP_DIR may be absolute; the default is relative to the SSH
+          # user's home directory (where the ssh session lands).
+          ssh -i ~/.ssh/deploy_key -p "${VPS_PORT:-22}" "$VPS_USER@$VPS_HOST" \
+            bash -s -- "${VPS_APP_DIR:-strawberry-events}" "$GITHUB_SHA" <<'REMOTE'
+          set -euo pipefail
+          APP_DIR="${1:?app dir}"
+          SHA="${2:?sha}"
+          cd "$APP_DIR"
+
+          echo "==> Updating checkout to $SHA"
+          git fetch origin main
+          git reset --hard "$SHA"
+
+          echo "==> Building next-app image"
+          docker compose build next-app
+
+          echo "==> Restarting stack (migrations run at container start)"
+          docker compose up -d --remove-orphans
+
+          echo "==> Waiting for readiness (nginx :8080 -> /api/health/ready)"
+          code=000
+          for i in $(seq 1 30); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8080/api/health/ready || true)
+            if [ "$code" = "200" ]; then
+              echo "==> Healthy (HTTP 200 after ${i} checks)"
+              docker image prune -f >/dev/null 2>&1 || true
+              exit 0
+            fi
+            sleep 3
+          done
+
+          echo "!! Readiness check failed (last HTTP $code) — container state and logs:"
+          docker compose ps
+          docker compose logs --tail=60 next-app || true
+          exit 1
+          REMOTE

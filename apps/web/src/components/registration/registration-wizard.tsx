@@ -17,6 +17,7 @@ import { gatedCategories, visibleSubEvents, pruneSelection } from "@/lib/registr
 interface WizardTicket {
   id: number;
   title: string;
+  description: string | null;
   priceCents: number;
 }
 
@@ -306,6 +307,9 @@ export function RegistrationWizard({
                   >
                     <div>
                       <div className="font-medium">{t.title}</div>
+                      {t.description && (
+                        <div className="mt-0.5 text-sm text-muted-foreground">{t.description}</div>
+                      )}
                       <div className="text-sm text-muted-foreground">
                         {t.priceCents === 0 ? "Free" : `$${centsToPrice(t.priceCents)}`}
                       </div>

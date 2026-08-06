@@ -16,4 +16,8 @@ echo "Backing up pretix data volume..."
 docker run --rm -v strawberry-events_pretix-data:/data -v "$(pwd)/${OUT}":/backup alpine \
   tar czf /backup/pretix-data.tar.gz -C /data .
 
+echo "Backing up uploaded media volume (event covers)..."
+docker run --rm -v strawberry-events_uploads-data:/data -v "$(pwd)/${OUT}":/backup alpine \
+  tar czf /backup/uploads-data.tar.gz -C /data .
+
 echo "Backup complete: ${OUT}"

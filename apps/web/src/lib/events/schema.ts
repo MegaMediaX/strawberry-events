@@ -67,6 +67,10 @@ export type EventFormValues = z.input<typeof eventInputSchema>;
 export const ticketInputSchema = z.object({
   titleEn: z.string().min(1, "Title (EN) is required"),
   titleAr: z.string().optional().nullable(),
+  // Short blurb shown under the ticket name in the public selector.
+  // Stored on the pretix item (i18n description), not locally.
+  descriptionEn: z.string().max(500, "Description is too long (max 500)").optional().nullable(),
+  descriptionAr: z.string().max(500, "Description is too long (max 500)").optional().nullable(),
   priceCents: z.number().int().min(0, "Price cannot be negative"),
   quotaSize: z.number().int().min(0).nullable(),
 });
