@@ -352,11 +352,19 @@ model SubEvent {
   titleAr        String?
   category       String
   location       String?
+  // Short abstract shown under the title in the session picker.
+  descriptionEn  String?   @db.Text
+  descriptionAr  String?   @db.Text
   dateFrom       DateTime
   dateTo         DateTime
   priceCents     Int       @default(0)
   maxAttendees   Int?
   ticketsPerUser Int       @default(1)
+  // Opt-in sessions stay hidden in the Sessions step until the attendee ticks
+  // the matching category toggle in the Tickets step (e.g. "Workshops"). The
+  // gate is per-category: a category is gated when ANY of its sub-events sets
+  // this. Stored per row so adding one on the go carries the flag with it.
+  requiresOptIn  Boolean   @default(false)
   pretixItemId   Int?
   pretixQuotaId  Int?
   createdAt      DateTime  @default(now())

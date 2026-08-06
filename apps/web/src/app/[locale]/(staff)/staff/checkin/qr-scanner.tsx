@@ -14,7 +14,12 @@ const CONTAINER_ID = "qr-reader";
  */
 export function QrScanner({ onScan }: { onScan: (text: string) => void }) {
   const onScanRef = useRef(onScan);
-  onScanRef.current = onScan;
+  // Keep the latest callback without re-running the scanner effect. Writing the
+  // ref during render is a React violation (and an eslint error); the scan
+  // callback only reads it later, so syncing in an effect is equivalent.
+  useEffect(() => {
+    onScanRef.current = onScan;
+  }, [onScan]);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {

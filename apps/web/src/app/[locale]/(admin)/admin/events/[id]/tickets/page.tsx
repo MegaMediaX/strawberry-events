@@ -46,11 +46,14 @@ export default async function TicketsPage({
           titleAr: s.titleAr,
           category: s.category,
           location: s.location,
+          descriptionEn: s.descriptionEn,
+          descriptionAr: s.descriptionAr,
           dateFrom: s.dateFrom.toISOString(),
           dateTo: s.dateTo.toISOString(),
           priceCents: s.priceCents,
           maxAttendees: s.maxAttendees,
           ticketsPerUser: s.ticketsPerUser,
+          requiresOptIn: s.requiresOptIn,
         }))}
       />
 

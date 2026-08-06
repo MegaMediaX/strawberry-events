@@ -79,11 +79,15 @@ export const subEventInputSchema = z
     titleAr: z.string().optional().nullable(),
     category: z.string().min(1, "Category is required"),
     location: z.string().optional().nullable(),
+    descriptionEn: z.string().optional().nullable(),
+    descriptionAr: z.string().optional().nullable(),
     dateFrom: z.string().min(1, "Start date is required"),
     dateTo: z.string().min(1, "End date is required"),
     priceCents: z.number().int().min(0, "Price cannot be negative"),
     maxAttendees: z.number().int().min(0).nullable(),
     ticketsPerUser: z.number().int().min(1).default(1),
+    // Hides the whole category behind a Tickets-step toggle (e.g. "Workshops").
+    requiresOptIn: z.boolean().default(false),
   })
   .refine((d) => new Date(d.dateTo) > new Date(d.dateFrom), {
     message: "End date must be after start date",
