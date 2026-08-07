@@ -60,9 +60,22 @@ jobs:
   #
   # Runs only on pushes to main (and manual workflow_dispatch), never on PRs,
   # and only after `verify` is green. While the VPS_* secrets are not
-  # configured the job skips with a notice instead of failing, so CD can be
-  # merged before the server credentials are set up. See README
+  # configured the job skips with a notice instead of failing. See README
   # "CD — auto-deploy to the VPS" for the one-time setup.
+  #
+  # This targets the deployment AS IT EXISTS ON THE SERVER, which does not match
+  # the repo's compose.yaml: the live project is defined by its own compose file
+  # with its own service names, and pretix runs as a SEPARATE compose project.
+  # Three consequences are deliberate:
+  #   * the compose file is passed with -f, so the repo's compose.yaml (which
+  #     Docker Compose would otherwise PREFER by filename precedence) can never
+  #     hijack the project and tear the live services down;
+  #   * only the web service is rebuilt/recreated (`--no-deps`), never the whole
+  #     stack, and `--remove-orphans` is NEVER used — it would delete containers
+  #     that belong to the real deployment;
+  #   * a preflight refuses to touch anything unless the directory, compose file
+  #     and service all check out, and the previous image is tagged :rollback so
+  #     a failed health check restores the last good container.
   # ---------------------------------------------------------------------------
   deploy:
     name: deploy to VPS
@@ -81,9 +94,17 @@ jobs:
           VPS_HOST: ${{ secrets.VPS_HOST }}
           VPS_USER: ${{ secrets.VPS_USER }}
           VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+          VPS_APP_DIR: ${{ secrets.VPS_APP_DIR }}
         run: |
-          if [ -z "$VPS_HOST" ] || [ -z "$VPS_USER" ] || [ -z "$VPS_SSH_KEY" ]; then
-            echo "::notice::VPS deploy secrets (VPS_HOST / VPS_USER / VPS_SSH_KEY) are not configured — skipping deploy."
+          # VPS_APP_DIR is required, not defaulted: a wrong-but-plausible default
+          # points the deploy at the wrong directory on the server.
+          missing=
+          [ -z "$VPS_HOST" ] && missing="$missing VPS_HOST"
+          [ -z "$VPS_USER" ] && missing="$missing VPS_USER"
+          [ -z "$VPS_SSH_KEY" ] && missing="$missing VPS_SSH_KEY"
+          [ -z "$VPS_APP_DIR" ] && missing="$missing VPS_APP_DIR"
+          if [ -n "$missing" ]; then
+            echo "::notice::VPS deploy secrets not configured ($missing ) — skipping deploy."
             echo "configured=false" >> "$GITHUB_OUTPUT"
           else
             echo "configured=true" >> "$GITHUB_OUTPUT"
@@ -108,40 +129,85 @@ jobs:
           VPS_USER: ${{ secrets.VPS_USER }}
           VPS_PORT: ${{ secrets.VPS_PORT }}
           VPS_APP_DIR: ${{ secrets.VPS_APP_DIR }}
+          VPS_COMPOSE_FILE: ${{ secrets.VPS_COMPOSE_FILE }}
+          VPS_WEB_SERVICE: ${{ secrets.VPS_WEB_SERVICE }}
+          VPS_HEALTH_URL: ${{ secrets.VPS_HEALTH_URL }}
         run: |
-          # VPS_APP_DIR may be absolute; the default is relative to the SSH
-          # user's home directory (where the ssh session lands).
+          # Defaults match the live deployment; override per-server via secrets.
           ssh -i ~/.ssh/deploy_key -p "${VPS_PORT:-22}" "$VPS_USER@$VPS_HOST" \
-            bash -s -- "${VPS_APP_DIR:-strawberry-events}" "$GITHUB_SHA" <<'REMOTE'
+            bash -s -- "$VPS_APP_DIR" "$GITHUB_SHA" \
+              "${VPS_COMPOSE_FILE:-docker-compose.yml}" \
+              "${VPS_WEB_SERVICE:-strawberry-web}" \
+              "${VPS_HEALTH_URL:-}" <<'REMOTE'
           set -euo pipefail
           APP_DIR="${1:?app dir}"
           SHA="${2:?sha}"
-          cd "$APP_DIR"
+          COMPOSE_FILE="${3:?compose file}"
+          WEB_SERVICE="${4:?web service}"
+          HEALTH_URL="${5-}"
 
-          echo "==> Updating checkout to $SHA"
+          cd "$APP_DIR"
+          # -f is not optional: without it Docker Compose prefers a compose.yaml
+          # in the same directory (this repo ships one) over the deployment's
+          # own file, which would recreate the project as a different stack.
+          DC="docker compose -f $COMPOSE_FILE"
+
+          echo "==> Preflight in $APP_DIR"
+          [ -f "$COMPOSE_FILE" ] || { echo "!! $APP_DIR/$COMPOSE_FILE does not exist — set VPS_COMPOSE_FILE"; exit 1; }
+          git rev-parse --git-dir >/dev/null 2>&1 || { echo "!! $APP_DIR is not a git checkout — CD updates the source with git"; exit 1; }
+          $DC config --services | grep -qx "$WEB_SERVICE" || {
+            echo "!! service '$WEB_SERVICE' is not in $COMPOSE_FILE — set VPS_WEB_SERVICE. Services present:"
+            $DC config --services
+            exit 1
+          }
+
+          # Remember the image currently serving traffic, so a failed health
+          # check can put it straight back.
+          PREV_IMG=$(docker inspect --format '{{.Config.Image}}' "$($DC ps -q "$WEB_SERVICE" | head -1)" 2>/dev/null || true)
+          [ -n "$PREV_IMG" ] && docker tag "$PREV_IMG" "${PREV_IMG%:*}:rollback" >/dev/null 2>&1 || true
+          echo "==> Currently running: ${PREV_IMG:-nothing}"
+
+          echo "==> Updating source to $SHA"
           git fetch origin main
           git reset --hard "$SHA"
 
-          echo "==> Building next-app image"
-          docker compose build next-app
+          echo "==> Building $WEB_SERVICE"
+          $DC build "$WEB_SERVICE"
 
-          echo "==> Restarting stack (migrations run at container start)"
-          docker compose up -d --remove-orphans
+          echo "==> Recreating $WEB_SERVICE only (database and other services untouched)"
+          $DC up -d --no-deps --force-recreate "$WEB_SERVICE"
 
-          echo "==> Waiting for readiness (nginx :8080 -> /api/health/ready)"
+          # Health URL: explicit secret wins; otherwise use the service's own
+          # published host port. Never skip the check silently.
+          if [ -z "$HEALTH_URL" ]; then
+            # `|| true`: with pipefail a service that publishes no port would
+            # otherwise abort the script here instead of reaching the message below.
+            PORT=$($DC port "$WEB_SERVICE" 3000 2>/dev/null | sed 's/.*://' || true)
+            [ -n "${PORT:-}" ] && HEALTH_URL="http://localhost:$PORT/api/health/ready"
+          fi
+          if [ -z "$HEALTH_URL" ]; then
+            echo "!! No health URL: $WEB_SERVICE publishes no host port and VPS_HEALTH_URL is unset."
+            echo "   Set VPS_HEALTH_URL (e.g. https://your-domain/api/health/ready) so deploys are verified."
+            exit 1
+          fi
+
+          echo "==> Health check: $HEALTH_URL"
           code=000
           for i in $(seq 1 30); do
-            code=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8080/api/health/ready || true)
+            code=$(curl -sk -o /dev/null -w '%{http_code}' "$HEALTH_URL" || true)
             if [ "$code" = "200" ]; then
               echo "==> Healthy (HTTP 200 after ${i} checks)"
-              docker image prune -f >/dev/null 2>&1 || true
               exit 0
             fi
             sleep 3
           done
 
-          echo "!! Readiness check failed (last HTTP $code) — container state and logs:"
-          docker compose ps
-          docker compose logs --tail=60 next-app || true
+          echo "!! Health check failed (last HTTP $code) — state, logs, then rollback:"
+          $DC ps
+          $DC logs --tail=60 "$WEB_SERVICE" || true
+          if [ -n "$PREV_IMG" ] && docker image inspect "${PREV_IMG%:*}:rollback" >/dev/null 2>&1; then
+            docker tag "${PREV_IMG%:*}:rollback" "$PREV_IMG"
+            $DC up -d --no-deps --force-recreate "$WEB_SERVICE" && echo "==> Rolled back to the previous image"
+          fi
           exit 1
           REMOTE

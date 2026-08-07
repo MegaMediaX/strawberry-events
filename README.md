@@ -385,29 +385,55 @@ Setting the internal URL as pretix's public URL breaks the `/pretix/` control pa
 
 `.github/workflows/ci.yml` contains a `deploy` job that runs **only after the CI job
 (typecheck · lint · test · build) passes on `main`** (never on PRs; also runnable
-manually via Actions → CI → Run workflow). It SSHes into the VPS, hard-resets the
-checkout to the exact CI-verified commit, `docker compose build next-app && up -d`
-(migrations run at container start), then **fails the deploy unless
-`http://localhost:8080/api/health/ready` returns 200 within ~90s** (dumping
-`compose ps` + `next-app` logs into the Actions log on failure). Deploys are
-serialized (a second one queues) and a new push never cancels an in-flight deploy.
+manually via Actions → CI → Run workflow). It SSHes into the server, hard-resets the
+checkout to the exact CI-verified commit, rebuilds **the web service only**, recreates
+it, and **fails the deploy unless the health URL returns 200 within ~90s** — rolling
+back to the previous image and dumping `compose ps` + service logs into the Actions
+log. Deploys are serialized (a second one queues) and a new push never cancels an
+in-flight deploy. Until the secrets below exist, the job **skips with a notice**.
 
-Until the secrets below exist, the job **skips with a notice** instead of failing —
-safe to merge first, wire credentials later.
+> **The deploy targets the deployment as it exists on the server, which may not be
+> this repo's `compose.yaml`.** The live stack can have its own compose filename and
+> service names (and pretix may run as a separate compose project). The job therefore:
+> passes the compose file explicitly with `-f` — without it Docker Compose *prefers*
+> a `compose.yaml` sitting in the same directory (this repo ships one) and would
+> recreate the project as a different stack; touches **only** the web service
+> (`--no-deps`), never the database or siblings; and **never** uses
+> `--remove-orphans`, which would delete containers belonging to the real deployment.
+> A preflight aborts before any change if the directory, compose file or service name
+> doesn't check out.
 
 **One-time setup**
-1. On your machine: `ssh-keygen -t ed25519 -f deploy_key -N "" -C strawberry-deploy`
-2. On the VPS: append `deploy_key.pub` to `~/.ssh/authorized_keys` of the deploy user;
-   ensure the repo is cloned at the app dir (default `~/strawberry-events`) with a
-   filled `.env`.
+1. On the server: `ssh-keygen -t ed25519 -f ~/.ssh/strawberry_deploy -N "" -C strawberry-deploy`
+   then append `strawberry_deploy.pub` to that user's `~/.ssh/authorized_keys`.
+2. Make sure the app directory is a **git checkout of this repo** with `origin`
+   pointing at it (the deploy updates the source with `git fetch` + `git reset --hard`)
+   and a filled `.env`.
 3. In GitHub → Settings → Secrets and variables → Actions, add:
    - `VPS_HOST` — server hostname or IP
    - `VPS_USER` — SSH user that owns the deployment
-   - `VPS_SSH_KEY` — contents of the **private** `deploy_key`
+   - `VPS_SSH_KEY` — contents of the **private** key from step 1
+   - `VPS_APP_DIR` — **absolute** path of the app directory (required; no default,
+     because a plausible-but-wrong default deploys into the wrong place)
    - `VPS_PORT` *(optional, default 22)*
-   - `VPS_APP_DIR` *(optional, default `strawberry-events` under the SSH user's home)*
+   - `VPS_COMPOSE_FILE` *(optional, default `docker-compose.yml`)*
+   - `VPS_WEB_SERVICE` *(optional, default `strawberry-web`)* — the service to rebuild
+   - `VPS_HEALTH_URL` *(optional)* — e.g. `https://your-domain/api/health/ready`.
+     Needed when the web service publishes no host port (behind a reverse proxy);
+     otherwise the job derives `http://localhost:<published port>/api/health/ready`.
+     If neither is available the deploy fails rather than skipping verification.
 4. Optional: protect the `production` environment (Settings → Environments) with a
    required reviewer to make each deploy click-to-approve.
+
+To find the values on the server: `docker compose ls --all` lists each project with
+its config file (→ `VPS_APP_DIR` + `VPS_COMPOSE_FILE`), and
+`docker compose -f <file> config --services` lists the service names
+(→ `VPS_WEB_SERVICE`).
+
+**Pin the compose file for humans too.** Adding `COMPOSE_FILE=docker-compose.yml` to
+the app directory's `.env` makes every `docker compose` command run there (yours as
+well as CD's) use the deployment's file, so a stray `compose.yaml` can never hijack
+the project.
 
 The first deploy after the uploads-volume change should still follow the one-time
 cover migration in `.env.production.example` (copy covers out before, back in after).
