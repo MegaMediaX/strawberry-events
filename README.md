@@ -38,7 +38,7 @@ docker compose up -d       # postgres-app, postgres-pretix, redis, pretix, next-
 `next-app` runs `prisma migrate deploy` on start. To seed the first org + super admin:
 
 ```bash
-docker compose exec next-app npx prisma db seed
+docker compose exec next-app node prisma/seed.mjs
 ```
 
 App: http://localhost:8080 (via nginx) or http://localhost:3000 (direct, if published).
@@ -361,9 +361,11 @@ the volume? Copy covers out before the first rebuild
 `PRETIX_BASE_URL`, which stays the app's **internal** adapter URL (`http://pretix:80`).
 Setting the internal URL as pretix's public URL breaks the `/pretix/` control panel.
 
-**First-admin seed works in the production image:** `docker compose exec next-app npx prisma db seed`
+**First-admin seed works in the production image:** `docker compose exec next-app node prisma/seed.mjs`
 (the seed is plain Node — no TypeScript loader needed at runtime; set
-`SEED_ADMIN_EMAIL`/`SEED_ADMIN_PASSWORD` first).
+`SEED_ADMIN_EMAIL`/`SEED_ADMIN_PASSWORD` first). Run it as `node …` rather than
+`npx prisma db seed`: the runner image ships the prisma package but not
+`node_modules/.bin`, so `npx prisma` fails with `sh: 1: prisma: not found`.
 
 ### Option A — Cloudflare terminates TLS (recommended)
 - Proxy the DNS record through Cloudflare (orange cloud); SSL/TLS mode **Full (strict)**.

@@ -250,8 +250,11 @@ jobs:
           $DC up -d --no-deps --force-recreate "$WEB_SERVICE"
 
           # Idempotent: applies only migrations the database has not seen.
+          # The CLI is invoked through node, NOT npx: the runner image copies the
+          # prisma package but not node_modules/.bin, so `npx prisma` finds no
+          # executable and fails with "sh: 1: prisma: not found".
           echo "==> Applying database migrations"
-          if ! $DC exec -T "$WEB_SERVICE" npx prisma migrate deploy; then
+          if ! $DC exec -T "$WEB_SERVICE" node node_modules/prisma/build/index.js migrate deploy; then
             echo "!! migrations failed — rolling back"
             rollback
             exit 1

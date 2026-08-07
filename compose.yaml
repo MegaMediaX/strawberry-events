@@ -115,7 +115,10 @@ services:
       # Uploaded media (event cover photos). Without this volume every image
       # rebuild/recreate silently deletes all uploaded covers.
       - uploads-data:/app/.uploads
-    command: ["sh", "-c", "npx prisma migrate deploy && node server.js"]
+    # The prisma CLI is invoked through node, NOT npx: the runner image copies
+    # the prisma package but not node_modules/.bin, so `npx prisma` fails with
+    # "sh: 1: prisma: not found" and the container never starts.
+    command: ["sh", "-c", "node node_modules/prisma/build/index.js migrate deploy && node server.js"]
     healthcheck:
       test: ["CMD-SHELL", "node -e \"fetch('http://localhost:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
       interval: 15s
