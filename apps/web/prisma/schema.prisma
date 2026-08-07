@@ -797,6 +797,13 @@ model AttendeeOrder {
   totalCents     Int                    @default(0)
   pretixSecret   String? // pretix position secret (QR payload, used for check-in redeem)
   magicLinkToken String                 @unique
+  // Revocation controls for the emailed ticket link. The version must match the
+  // claim inside the token; legacy two-part tokens carry no claim and count as
+  // 0, so the default keeps every already-mailed link working. Bumping the
+  // version invalidates every link issued so far, and magicLinkRevokedAt is the
+  // hard kill switch. Neither one cancels the registration.
+  magicLinkVersion   Int              @default(0)
+  magicLinkRevokedAt DateTime?
   createdAt      DateTime            @default(now())
   updatedAt      DateTime            @updatedAt
 
