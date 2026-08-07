@@ -73,6 +73,11 @@ export const NAME_SIMILARITY_THRESHOLD = 0.3;
  * Results are ranked by best name similarity first (exact substring = 1),
  * then most recent. Trigram GIN indexes (see the add_trgm_fuzzy_search
  * migration) keep this fast.
+ *
+ * UNAUTHORIZED BY DESIGN: this takes no SessionContext and returns attendee PII.
+ * It is the query half of searchAttendees(), which does the role + event check.
+ * Never call it from a server action or route handler directly — that would hand
+ * out attendee PII to any authenticated session, finance included.
  */
 export function searchAttendeeOrders(
   eventMappingId: string,
@@ -270,6 +275,12 @@ export async function liveCounters(
   eventId: string,
   listId: number,
 ) {
+  // Same reasoning as searchAttendees: resolveEvent() alone is NOT a role gate.
+  // canAccessEvent() grants organizer_admin AND finance org-wide event access, so
+  // without this a finance member could read live door numbers (turnout, no-show
+  // rate, arrival pacing) for any event in the org through a directly-invocable
+  // server action. Counters are check-in operational data, not finance data.
+  assertCanCheckin(session);
   const mapping = await resolveEvent(session, eventId);
   const org = await prisma.organization.findUnique({
     where: { id: mapping.organizationId },
