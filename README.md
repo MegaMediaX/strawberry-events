@@ -383,47 +383,55 @@ Setting the internal URL as pretix's public URL breaks the `/pretix/` control pa
 
 ### CD — auto-deploy to the VPS (GitHub Actions)
 
-`.github/workflows/ci.yml` contains a `deploy` job that runs **only after the CI job
-(typecheck · lint · test · build) passes on `main`** (never on PRs; also runnable
-manually via Actions → CI → Run workflow). It SSHes into the server, hard-resets the
-checkout to the exact CI-verified commit, rebuilds **the web service only**, recreates
-it, and **fails the deploy unless the health URL returns 200 within ~90s** — rolling
-back to the previous image and dumping `compose ps` + service logs into the Actions
-log. Deploys are serialized (a second one queues) and a new push never cancels an
-in-flight deploy. Until the secrets below exist, the job **skips with a notice**.
+`.github/workflows/ci.yml` runs three jobs on `main` (never on PRs; also runnable
+manually via Actions → CI → Run workflow):
+
+1. **verify** — typecheck · lint · test · build.
+2. **image** — builds `apps/web` and pushes it to GHCR as
+   `ghcr.io/<owner>/strawberry-events:<sha>` (and `:latest`).
+3. **deploy** — SSHes into the server, pulls that exact image, recreates **only** the
+   web service, applies migrations, and **fails unless the health URL returns 200
+   within ~90s** — restoring the previous image on any failure.
+
+**The image is the deployment artifact, not the source.** The server never receives a
+checkout of this repo, spends no disk or CPU on building, and runs precisely the
+artifact CI verified. Deploys are serialized (a second queues) and a new push never
+cancels an in-flight deploy. While the `VPS_*` secrets are unset, deploy **skips with
+a notice**.
 
 > **The deploy targets the deployment as it exists on the server, which may not be
-> this repo's `compose.yaml`.** The live stack can have its own compose filename and
-> service names (and pretix may run as a separate compose project). The job therefore:
-> passes the compose file explicitly with `-f` — without it Docker Compose *prefers*
-> a `compose.yaml` sitting in the same directory (this repo ships one) and would
-> recreate the project as a different stack; touches **only** the web service
-> (`--no-deps`), never the database or siblings; and **never** uses
-> `--remove-orphans`, which would delete containers belonging to the real deployment.
-> A preflight aborts before any change if the directory, compose file or service name
-> doesn't check out.
+> this repo's `compose.yaml`** — the live stack can have its own compose filename and
+> service names, with pretix as a separate compose project. So the job: passes the
+> compose file explicitly with `-f` (without it Docker Compose *prefers* a
+> `compose.yaml` in the same directory — this repo ships one — and would recreate the
+> project as a different stack); **re-tags the pulled image to the name the compose
+> file already expects**, so the server's compose file needs no edit; touches **only**
+> the web service (`--no-deps`) and **never** uses `--remove-orphans`; and refuses to
+> replace a container that doesn't look like this app (`/app/server.js` missing).
 
 **One-time setup**
-1. On the server: `ssh-keygen -t ed25519 -f ~/.ssh/strawberry_deploy -N "" -C strawberry-deploy`
-   then append `strawberry_deploy.pub` to that user's `~/.ssh/authorized_keys`.
-2. Make sure the app directory is a **git checkout of this repo** with `origin`
-   pointing at it (the deploy updates the source with `git fetch` + `git reset --hard`)
-   and a filled `.env`.
-3. In GitHub → Settings → Secrets and variables → Actions, add:
+1. On the server: `ssh-keygen -t ed25519 -f ~/.ssh/strawberry_deploy -N "" -C strawberry-deploy`,
+   then append `strawberry_deploy.pub` to that user's `~/.ssh/authorized_keys`. The
+   user must be able to run `docker`. **No git checkout of this repo is needed.**
+2. In GitHub → Settings → Secrets and variables → Actions, add:
    - `VPS_HOST` — server hostname or IP
    - `VPS_USER` — SSH user that owns the deployment
    - `VPS_SSH_KEY` — contents of the **private** key from step 1
-   - `VPS_APP_DIR` — **absolute** path of the app directory (required; no default,
-     because a plausible-but-wrong default deploys into the wrong place)
+   - `VPS_APP_DIR` — **absolute** path of the directory holding the compose file
+     (required; no default, because a plausible-but-wrong default deploys into the
+     wrong place)
    - `VPS_PORT` *(optional, default 22)*
    - `VPS_COMPOSE_FILE` *(optional, default `docker-compose.yml`)*
-   - `VPS_WEB_SERVICE` *(optional, default `strawberry-web`)* — the service to rebuild
+   - `VPS_WEB_SERVICE` *(optional, default `strawberry-web`)*
    - `VPS_HEALTH_URL` *(optional)* — e.g. `https://your-domain/api/health/ready`.
      Needed when the web service publishes no host port (behind a reverse proxy);
      otherwise the job derives `http://localhost:<published port>/api/health/ready`.
      If neither is available the deploy fails rather than skipping verification.
-4. Optional: protect the `production` environment (Settings → Environments) with a
+3. Optional: protect the `production` environment (Settings → Environments) with a
    required reviewer to make each deploy click-to-approve.
+
+No registry credentials are stored on the server: the deploy logs it in to GHCR with
+the run-scoped `GITHUB_TOKEN` over stdin and logs out again after the pull.
 
 To find the values on the server: `docker compose ls --all` lists each project with
 its config file (→ `VPS_APP_DIR` + `VPS_COMPOSE_FILE`), and
@@ -435,8 +443,24 @@ the app directory's `.env` makes every `docker compose` command run there (yours
 well as CD's) use the deployment's file, so a stray `compose.yaml` can never hijack
 the project.
 
-The first deploy after the uploads-volume change should still follow the one-time
-cover migration in `.env.production.example` (copy covers out before, back in after).
+**Uploaded media on a non-repo deployment.** The `uploads-data` volume lives in this
+repo's `compose.yaml`. A deployment using its own compose file needs the equivalent,
+or event cover photos are deleted every time the container is recreated:
+
+```yaml
+services:
+  strawberry-web:                 # your web service
+    environment:
+      EVENT_UPLOADS_DIR: /app/.uploads/event-covers
+    volumes:
+      - uploads-data:/app/.uploads
+volumes:
+  uploads-data:
+```
+
+Copy existing covers into the volume once, before the first deploy that adds it:
+`docker compose cp <web-service>:/app/.uploads ./uploads-backup`, and back afterwards
+with `docker compose cp ./uploads-backup/. <web-service>:/app/.uploads`.
 
 ### Cron (manual today)
 Archive purge (`cleanup()`, 14-day retention) and webhook retry (`retryDue()`) are

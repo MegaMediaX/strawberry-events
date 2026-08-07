@@ -56,32 +56,68 @@ jobs:
           DATABASE_URL: postgresql://ci:ci@localhost:5432/ci?schema=public
 
   # ---------------------------------------------------------------------------
-  # CD — deploy to the VPS after CI passes on main.
+  # CD step 1 — build the image CI just verified and push it to GHCR.
   #
-  # Runs only on pushes to main (and manual workflow_dispatch), never on PRs,
-  # and only after `verify` is green. While the VPS_* secrets are not
-  # configured the job skips with a notice instead of failing. See README
-  # "CD — auto-deploy to the VPS" for the one-time setup.
-  #
-  # This targets the deployment AS IT EXISTS ON THE SERVER, which does not match
-  # the repo's compose.yaml: the live project is defined by its own compose file
-  # with its own service names, and pretix runs as a SEPARATE compose project.
-  # Three consequences are deliberate:
-  #   * the compose file is passed with -f, so the repo's compose.yaml (which
-  #     Docker Compose would otherwise PREFER by filename precedence) can never
-  #     hijack the project and tear the live services down;
-  #   * only the web service is rebuilt/recreated (`--no-deps`), never the whole
-  #     stack, and `--remove-orphans` is NEVER used — it would delete containers
-  #     that belong to the real deployment;
-  #   * a preflight refuses to touch anything unless the directory, compose file
-  #     and service all check out, and the previous image is tagged :rollback so
-  #     a failed health check restores the last good container.
+  # The image, not the source, is the deployment artifact. The server therefore
+  # needs no checkout of this repo (it isn't one), receives no repo files, and
+  # spends none of its constrained disk/CPU on a Next.js build.
   # ---------------------------------------------------------------------------
-  deploy:
-    name: deploy to VPS
+  image:
+    name: build & push image
     needs: verify
     if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      image: ${{ steps.build.outputs.image }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Build and push
+        id: build
+        env:
+          REGISTRY: ghcr.io
+        run: |
+          # GHCR requires an all-lowercase path; the owner here is mixed-case.
+          REPO=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
+          IMAGE="$REGISTRY/$REPO:${{ github.sha }}"
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login "$REGISTRY" -u "${{ github.actor }}" --password-stdin
+          docker build -t "$IMAGE" -t "$REGISTRY/$REPO:latest" apps/web
+          docker push "$IMAGE"
+          docker push "$REGISTRY/$REPO:latest"
+          echo "image=$IMAGE" >> "$GITHUB_OUTPUT"
+          echo "::notice::Pushed $IMAGE"
+
+  # ---------------------------------------------------------------------------
+  # CD step 2 — roll that image out on the VPS.
+  #
+  # Runs only on main (never on PRs) and only after CI + image build succeed.
+  # While the VPS_* secrets are unset the job skips with a notice. See README
+  # "CD — auto-deploy to the VPS" for the one-time setup.
+  #
+  # It targets the deployment AS IT EXISTS ON THE SERVER, which does not match
+  # this repo's compose.yaml: the live project has its own compose filename and
+  # service names, and pretix runs as a SEPARATE compose project. Hence:
+  #   * the compose file is passed with -f — Docker Compose would otherwise
+  #     PREFER a compose.yaml in the same directory (this repo ships one) and
+  #     recreate the project as a different stack;
+  #   * only the web service is recreated (`--no-deps`); `--remove-orphans` is
+  #     never used, as it would delete containers of the real deployment;
+  #   * the pulled image is re-tagged to whatever name the compose file already
+  #     expects, so the server's compose file needs no edit;
+  #   * a preflight aborts before any change, and the previous image is restored
+  #     if migrations or the health check fail.
+  # ---------------------------------------------------------------------------
+  deploy:
+    name: deploy to VPS
+    needs: image
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
     environment: production
     # Never run two deploys at once; a second one queues.
     concurrency:
@@ -122,6 +158,20 @@ jobs:
           chmod 600 ~/.ssh/deploy_key
           ssh-keyscan -p "${VPS_PORT:-22}" "$VPS_HOST" >> ~/.ssh/known_hosts 2>/dev/null
 
+      - name: Log the server in to GHCR
+        if: steps.check.outputs.configured == 'true'
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+          VPS_PORT: ${{ secrets.VPS_PORT }}
+        run: |
+          # Sent on stdin, so the token never appears in the server's process
+          # list. It is the run-scoped GITHUB_TOKEN, and the deploy logs out
+          # again as soon as the pull is done — no long-lived credential is
+          # left on the server.
+          printf '%s' "${{ secrets.GITHUB_TOKEN }}" | ssh -i ~/.ssh/deploy_key -p "${VPS_PORT:-22}" \
+            "$VPS_USER@$VPS_HOST" "docker login ghcr.io -u '${{ github.actor }}' --password-stdin"
+
       - name: Deploy and health-check
         if: steps.check.outputs.configured == 'true'
         env:
@@ -132,16 +182,17 @@ jobs:
           VPS_COMPOSE_FILE: ${{ secrets.VPS_COMPOSE_FILE }}
           VPS_WEB_SERVICE: ${{ secrets.VPS_WEB_SERVICE }}
           VPS_HEALTH_URL: ${{ secrets.VPS_HEALTH_URL }}
+          NEW_IMAGE: ${{ needs.image.outputs.image }}
         run: |
           # Defaults match the live deployment; override per-server via secrets.
           ssh -i ~/.ssh/deploy_key -p "${VPS_PORT:-22}" "$VPS_USER@$VPS_HOST" \
-            bash -s -- "$VPS_APP_DIR" "$GITHUB_SHA" \
+            bash -s -- "$VPS_APP_DIR" "$NEW_IMAGE" \
               "${VPS_COMPOSE_FILE:-docker-compose.yml}" \
               "${VPS_WEB_SERVICE:-strawberry-web}" \
               "${VPS_HEALTH_URL:-}" <<'REMOTE'
           set -euo pipefail
           APP_DIR="${1:?app dir}"
-          SHA="${2:?sha}"
+          NEW_IMAGE="${2:?image}"
           COMPOSE_FILE="${3:?compose file}"
           WEB_SERVICE="${4:?web service}"
           HEALTH_URL="${5-}"
@@ -154,28 +205,57 @@ jobs:
 
           echo "==> Preflight in $APP_DIR"
           [ -f "$COMPOSE_FILE" ] || { echo "!! $APP_DIR/$COMPOSE_FILE does not exist — set VPS_COMPOSE_FILE"; exit 1; }
-          git rev-parse --git-dir >/dev/null 2>&1 || { echo "!! $APP_DIR is not a git checkout — CD updates the source with git"; exit 1; }
           $DC config --services | grep -qx "$WEB_SERVICE" || {
             echo "!! service '$WEB_SERVICE' is not in $COMPOSE_FILE — set VPS_WEB_SERVICE. Services present:"
             $DC config --services
             exit 1
           }
 
-          # Remember the image currently serving traffic, so a failed health
-          # check can put it straight back.
-          PREV_IMG=$(docker inspect --format '{{.Config.Image}}' "$($DC ps -q "$WEB_SERVICE" | head -1)" 2>/dev/null || true)
-          [ -n "$PREV_IMG" ] && docker tag "$PREV_IMG" "${PREV_IMG%:*}:rollback" >/dev/null 2>&1 || true
-          echo "==> Currently running: ${PREV_IMG:-nothing}"
+          # The name the compose file already expects. The pulled image is
+          # re-tagged to it, so the server's compose file needs no edit.
+          CID=$($DC ps -q "$WEB_SERVICE" 2>/dev/null | head -1 || true)
+          TARGET_IMG=$($DC config --images "$WEB_SERVICE" 2>/dev/null | head -1 || true)
+          if [ -z "$TARGET_IMG" ] && [ -n "$CID" ]; then
+            TARGET_IMG=$(docker inspect --format '{{.Config.Image}}' "$CID")
+          fi
+          [ -n "$TARGET_IMG" ] || { echo "!! could not determine the image name for $WEB_SERVICE"; exit 1; }
 
-          echo "==> Updating source to $SHA"
-          git fetch origin main
-          git reset --hard "$SHA"
+          # Refuse to replace a container that is not this app: a wrong
+          # VPS_WEB_SERVICE would otherwise take an unrelated service down.
+          if [ -n "$CID" ]; then
+            docker exec "$CID" test -f /app/server.js 2>/dev/null || {
+              echo "!! '$WEB_SERVICE' does not look like this Next.js app (/app/server.js missing) — refusing to replace it"
+              exit 1
+            }
+          fi
+          echo "==> Replacing $TARGET_IMG (container: ${CID:-none}) with $NEW_IMAGE"
 
-          echo "==> Building $WEB_SERVICE"
-          $DC build "$WEB_SERVICE"
+          # Image id currently behind that tag, for rollback.
+          PREV_ID=$(docker image inspect --format '{{.Id}}' "$TARGET_IMG" 2>/dev/null || true)
+
+          rollback() {
+            if [ -z "$PREV_ID" ]; then echo "!! no previous image recorded — cannot roll back"; return; fi
+            docker tag "$PREV_ID" "$TARGET_IMG"
+            $DC up -d --no-deps --force-recreate "$WEB_SERVICE" >/dev/null 2>&1 \
+              && echo "==> Rolled back to the previous image" \
+              || echo "!! rollback failed — the service needs manual attention"
+          }
+
+          echo "==> Pulling the CI-built image"
+          docker pull -q "$NEW_IMAGE"
+          docker tag "$NEW_IMAGE" "$TARGET_IMG"
+          docker logout ghcr.io >/dev/null 2>&1 || true
 
           echo "==> Recreating $WEB_SERVICE only (database and other services untouched)"
           $DC up -d --no-deps --force-recreate "$WEB_SERVICE"
+
+          # Idempotent: applies only migrations the database has not seen.
+          echo "==> Applying database migrations"
+          if ! $DC exec -T "$WEB_SERVICE" npx prisma migrate deploy; then
+            echo "!! migrations failed — rolling back"
+            rollback
+            exit 1
+          fi
 
           # Health URL: explicit secret wins; otherwise use the service's own
           # published host port. Never skip the check silently.
@@ -188,6 +268,7 @@ jobs:
           if [ -z "$HEALTH_URL" ]; then
             echo "!! No health URL: $WEB_SERVICE publishes no host port and VPS_HEALTH_URL is unset."
             echo "   Set VPS_HEALTH_URL (e.g. https://your-domain/api/health/ready) so deploys are verified."
+            rollback
             exit 1
           fi
 
@@ -197,6 +278,7 @@ jobs:
             code=$(curl -sk -o /dev/null -w '%{http_code}' "$HEALTH_URL" || true)
             if [ "$code" = "200" ]; then
               echo "==> Healthy (HTTP 200 after ${i} checks)"
+              docker image prune -f >/dev/null 2>&1 || true
               exit 0
             fi
             sleep 3
@@ -205,9 +287,6 @@ jobs:
           echo "!! Health check failed (last HTTP $code) — state, logs, then rollback:"
           $DC ps
           $DC logs --tail=60 "$WEB_SERVICE" || true
-          if [ -n "$PREV_IMG" ] && docker image inspect "${PREV_IMG%:*}:rollback" >/dev/null 2>&1; then
-            docker tag "${PREV_IMG%:*}:rollback" "$PREV_IMG"
-            $DC up -d --no-deps --force-recreate "$WEB_SERVICE" && echo "==> Rolled back to the previous image"
-          fi
+          rollback
           exit 1
           REMOTE
