@@ -13,11 +13,30 @@ export async function getSessionContext(): Promise<SessionContext | null> {
   const session = await auth();
   const userId = session?.user?.id;
   if (!userId) return null;
+  // Read as 0 when the claim is absent — see the version check below.
+  const tokenVersion = session?.user?.sessionVersion ?? 0;
 
   // Suspended users are treated as unauthenticated — they cannot reach any
-  // protected area (requireRole redirects them to login).
-  const account = await prisma.user.findUnique({ where: { id: userId }, select: { status: true } });
+  // protected area (requireRole redirects them to login). sessionVersion rides
+  // along on this same read so revocation costs no extra query.
+  const account = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { status: true, sessionVersion: true },
+  });
   if (!account || account.status === "suspended") return null;
+
+  // Session revocation. Auth.js runs strategy: "jwt", so there is no session row
+  // to delete server-side — a password reset would otherwise leave every token
+  // minted before it valid until natural expiry, meaning a compromised account
+  // stays compromised after the victim "fixes" it. resetPassword() increments
+  // users.sessionVersion, and any token still carrying the old value dies here.
+  //
+  // A missing claim is read as 0, NOT as invalid. Tokens issued before this
+  // column existed have no sessionVersion, and every pre-existing row defaults
+  // to 0 — so the rollout logs nobody out. It gives up nothing: those accounts
+  // have by definition not been reset since versioning existed, and the moment
+  // one is reset the counter becomes 1 and the legacy token stops matching.
+  if (tokenVersion !== account.sessionVersion) return null;
 
   const memberships = await prisma.organizationMember.findMany({
     where: { userId },

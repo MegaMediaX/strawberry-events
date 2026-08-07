@@ -75,7 +75,14 @@ export async function resetPassword(token: string, newPassword: string): Promise
   // the exact race this claim closes. Burning the token is the fail-closed
   // choice: the old password still works and a fresh link is one click away.
   await prisma.$transaction([
-    prisma.user.update({ where: { id: row.userId }, data: { passwordHash } }),
+    // Bumping sessionVersion is what actually evicts an attacker: with JWT
+    // sessions there is nothing to delete server-side, so rotating the hash
+    // alone lets a stolen token keep working until it expires on its own.
+    // getSessionContext() refuses any token carrying the pre-reset value.
+    prisma.user.update({
+      where: { id: row.userId },
+      data: { passwordHash, sessionVersion: { increment: 1 } },
+    }),
   ]);
   return { ok: true };
 }
