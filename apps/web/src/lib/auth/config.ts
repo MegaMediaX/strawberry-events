@@ -73,7 +73,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         session.user.id = token.userId as string;
         // Surfaced so getSessionContext() can compare it against the live DB
         // value it already loads (no extra query).
-        session.user.sessionVersion = token.sessionVersion;
+        session.user.sessionVersion = token.sessionVersion as number | undefined;
       }
       return session;
     },
