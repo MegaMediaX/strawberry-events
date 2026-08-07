@@ -210,6 +210,79 @@ describe("register", () => {
     expect(data.phone).toBe("70123456");
     expect(data.phoneCC).toBe("+961");
     expect(data.consentAt).toBeInstanceOf(Date);
+    expect(data.consentSource).toBe("web_form");
+  });
+
+  it("records a staff walk-in against the walk-in source, keeping the timestamp", async () => {
+    mock(pretixProducts.listItems).mockResolvedValue([
+      { id: 7, titleEn: "V", titleAr: null, priceCents: 0, active: true },
+    ]);
+    mock(pretixOrders.createOrder).mockResolvedValue({ code: "WI1", status: "n" });
+
+    await register({
+      ...base,
+      tickets: [{ itemId: 7, quantity: 1 }],
+      staffWalkIn: true,
+      consentSource: "staff_walkin",
+    });
+
+    const data = mock(prisma.attendeeOrder.create).mock.calls[0][0].data;
+    expect(data.consentSource).toBe("staff_walkin");
+    // Staff attest consent collected in person, so the stamp is genuine — it is
+    // simply no longer filed as if the attendee had ticked the web form.
+    expect(data.consentAt).toBeInstanceOf(Date);
+  });
+
+  it("leaves consentAt NULL when an API caller does not assert consent", async () => {
+    mock(pretixProducts.listItems).mockResolvedValue([
+      { id: 7, titleEn: "V", titleAr: null, priceCents: 0, active: true },
+    ]);
+    mock(pretixOrders.createOrder).mockResolvedValue({ code: "API1", status: "n" });
+
+    await register({
+      ...base,
+      tickets: [{ itemId: 7, quantity: 1 }],
+      consentSource: "api",
+      consentTerms: false,
+      consentPrivacy: false,
+    });
+
+    const data = mock(prisma.attendeeOrder.create).mock.calls[0][0].data;
+    expect(data.consentSource).toBe("api");
+    expect(data.consentAt).toBeNull();
+  });
+
+  it("stamps consentAt for an API caller that asserts both consents", async () => {
+    mock(pretixProducts.listItems).mockResolvedValue([
+      { id: 7, titleEn: "V", titleAr: null, priceCents: 0, active: true },
+    ]);
+    mock(pretixOrders.createOrder).mockResolvedValue({ code: "API2", status: "n" });
+
+    await register({
+      ...base,
+      tickets: [{ itemId: 7, quantity: 1 }],
+      consentSource: "api",
+    });
+
+    const data = mock(prisma.attendeeOrder.create).mock.calls[0][0].data;
+    expect(data.consentSource).toBe("api");
+    expect(data.consentAt).toBeInstanceOf(Date);
+  });
+
+  it("records a partial consent assertion as no consent at all", async () => {
+    mock(pretixProducts.listItems).mockResolvedValue([
+      { id: 7, titleEn: "V", titleAr: null, priceCents: 0, active: true },
+    ]);
+    mock(pretixOrders.createOrder).mockResolvedValue({ code: "API3", status: "n" });
+
+    await register({
+      ...base,
+      tickets: [{ itemId: 7, quantity: 1 }],
+      consentSource: "api",
+      consentPrivacy: false,
+    });
+
+    expect(mock(prisma.attendeeOrder.create).mock.calls[0][0].data.consentAt).toBeNull();
   });
 
   it("upserts the UserProfile when a userId is present", async () => {

@@ -71,6 +71,55 @@ describe("registerInputSchema — email requirement", () => {
   });
 });
 
+describe("registerInputSchema — consent source", () => {
+  const publicBase = { ...base, attendee: { ...base.attendee, ...validPhone } };
+
+  it("defaults to the web form when no source is given", () => {
+    const r = registerInputSchema.safeParse(publicBase);
+    expect(r.success).toBe(true);
+    if (r.success) expect(r.data.consentSource).toBeUndefined();
+  });
+
+  it("web form registrations are rejected without both consents", () => {
+    for (const missing of ["consentTerms", "consentPrivacy"] as const) {
+      const r = registerInputSchema.safeParse({ ...publicBase, [missing]: false });
+      expect(r.success).toBe(false);
+      if (!r.success) {
+        expect(r.error.issues.map((i) => i.path.join("."))).toContain(missing);
+      }
+    }
+  });
+
+  it("an omitted consent flag is treated as not given, not as accepted", () => {
+    const noConsent: Record<string, unknown> = { ...publicBase };
+    delete noConsent.consentTerms;
+    delete noConsent.consentPrivacy;
+    const r = registerInputSchema.safeParse(noConsent);
+    expect(r.success).toBe(false);
+  });
+
+  it("staff walk-ins and API callers may record that no consent was collected", () => {
+    for (const consentSource of ["staff_walkin", "api"] as const) {
+      const r = registerInputSchema.safeParse({
+        ...publicBase,
+        consentSource,
+        consentTerms: false,
+        consentPrivacy: false,
+      });
+      expect(r.success).toBe(true);
+      if (r.success) {
+        expect(r.data.consentSource).toBe(consentSource);
+        expect(r.data.consentTerms).toBe(false);
+      }
+    }
+  });
+
+  it("rejects an unknown consent source", () => {
+    const r = registerInputSchema.safeParse({ ...publicBase, consentSource: "carrier_pigeon" });
+    expect(r.success).toBe(false);
+  });
+});
+
 describe("registerInputSchema — attendee type", () => {
   it("Company attendee type requires a company name", () => {
     const r = registerInputSchema.safeParse({

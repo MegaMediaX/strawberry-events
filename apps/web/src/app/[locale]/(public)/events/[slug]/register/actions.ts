@@ -32,10 +32,14 @@ export async function registerAction(
     return { error: "Too many attempts. Please wait a minute and try again." };
   }
 
+  // eventSlug/locale come from the route, and consentSource is pinned here (not
+  // read from `values`) so a crafted payload cannot claim a different channel
+  // and slip past the web form's hard consent requirement.
   const parsed = registerInputSchema.safeParse({
     ...(values as object),
     eventSlug: slug,
     locale,
+    consentSource: "web_form",
   });
   if (!parsed.success) {
     const fieldErrors: Record<string, string[]> = {};

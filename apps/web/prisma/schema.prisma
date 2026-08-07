@@ -116,6 +116,15 @@ enum AttendeeApprovalStatus {
   rejected
 }
 
+// Which channel produced an attendee order's consent record. Stored so the row
+// can never imply the data subject ticked the public web form when a staff
+// member or an API integrator created the order on their behalf.
+enum ConsentSource {
+  web_form
+  staff_walkin
+  api
+}
+
 enum WaitlistStatus {
   waiting
   promoted
@@ -770,7 +779,11 @@ model AttendeeOrder {
   attendeeType   String?
   phone          String?
   phoneCC        String?
+  // Set ONLY when consent was actually obtained from the data subject on the
+  // channel below. NULL means nobody attested consent for this row — an honest
+  // "unknown", never a stand-in for "assumed".
   consentAt      DateTime?
+  consentSource  ConsentSource          @default(web_form)
   userId         String?
   status         AttendeeOrderStatus    @default(pending)
   approvalStatus AttendeeApprovalStatus @default(not_required)
