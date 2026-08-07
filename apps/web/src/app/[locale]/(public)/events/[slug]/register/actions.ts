@@ -1,20 +1,11 @@
 "use server";
 
 import { redirect } from "next/navigation";
-import { headers } from "next/headers";
 import { register } from "@/lib/registration/service";
 import { registerInputSchema } from "@/lib/registration/schema";
 import { rateLimit } from "@/lib/security/rate-limit";
+import { clientIp } from "@/lib/security/client-ip";
 import { PretixValidationError, flattenFieldErrors } from "@/lib/pretix/errors";
-
-async function clientIp(): Promise<string> {
-  const h = await headers();
-  return (
-    h.get("x-forwarded-for")?.split(",")[0]?.trim() ||
-    h.get("x-real-ip") ||
-    "unknown"
-  );
-}
 
 export interface RegisterActionResult {
   error?: string;

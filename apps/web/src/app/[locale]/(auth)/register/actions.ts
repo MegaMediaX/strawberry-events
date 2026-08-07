@@ -1,13 +1,8 @@
 "use server";
 
-import { headers } from "next/headers";
 import { rateLimit } from "@/lib/security/rate-limit";
+import { clientIp } from "@/lib/security/client-ip";
 import { registerAttendee } from "@/lib/auth/register";
-
-async function clientIp(): Promise<string> {
-  const h = await headers();
-  return h.get("x-forwarded-for")?.split(",")[0]?.trim() || h.get("x-real-ip") || "unknown";
-}
 
 export interface RegisterAccountResult {
   ok: boolean;
