@@ -1,0 +1,14 @@
+-- Session invalidation counter for JWT sessions.
+--
+-- Auth.js runs strategy: "jwt", so there is no server-side session row to
+-- delete. Resetting a password rotated passwordHash but left every previously
+-- issued token valid until natural expiry — an attacker holding a stolen
+-- session kept access even after the victim reset their password. Bumping this
+-- counter inside the reset transaction makes every token minted earlier stale,
+-- and the per-request check in getSessionContext() refuses it.
+--
+-- DEFAULT 0 is deliberate for the existing rows: tokens issued before this
+-- column existed carry no version claim at all, and the app reads a missing
+-- claim as 0. Rolling this out therefore logs nobody out, while the first
+-- reset still evicts those legacy tokens (0 no longer equals 1).
+ALTER TABLE "users" ADD COLUMN "sessionVersion" INTEGER NOT NULL DEFAULT 0;

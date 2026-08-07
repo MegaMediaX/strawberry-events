@@ -135,6 +135,11 @@ model User {
   image         String?
   passwordHash  String?
   status        UserStatus @default(active)
+  // Session invalidation counter, frozen into each JWT at sign-in and compared
+  // on every request. A password reset increments it, which is what actually
+  // evicts a thief: rotating passwordHash alone leaves already-issued JWTs
+  // valid until natural expiry, so a compromised account stays compromised.
+  sessionVersion Int      @default(0)
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 

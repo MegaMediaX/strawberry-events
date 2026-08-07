@@ -60,9 +60,32 @@ describe("resetPassword", () => {
     expect(res.ok).toBe(true);
     // looked up by the HASH, not the plaintext
     expect(mock(prisma.passwordResetToken.findUnique).mock.calls[0][0].where).toEqual({ tokenHash: hashResetToken("plaintext") });
-    expect(prisma.user.update).toHaveBeenCalledWith({ where: { id: "u1" }, data: { passwordHash: "argon2hash" } });
+    expect(prisma.user.update).toHaveBeenCalledWith({
+      where: { id: "u1" },
+      data: { passwordHash: "argon2hash", sessionVersion: { increment: 1 } },
+    });
     expect(prisma.passwordResetToken.update).toHaveBeenCalled();
     expect(prisma.$transaction).toHaveBeenCalled();
+  });
+
+  // A reset that rotates the hash but leaves sessions alive does not actually
+  // recover a compromised account — the attacker's JWT keeps working until it
+  // expires. The bump must ride inside the same transaction as the new hash.
+  it("bumps sessionVersion in the same transaction, evicting already-issued JWTs", async () => {
+    mock(prisma.passwordResetToken.findUnique).mockResolvedValue(valid);
+    await resetPassword("plaintext", "longenough123");
+    const data = mock(prisma.user.update).mock.calls[0][0].data;
+    // Relative increment, not a computed absolute — two concurrent resets must
+    // not clobber each other back down to the same version.
+    expect(data.sessionVersion).toEqual({ increment: 1 });
+    expect(data.passwordHash).toBe("argon2hash");
+    expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not bump sessionVersion when the token is rejected", async () => {
+    mock(prisma.passwordResetToken.findUnique).mockResolvedValue({ ...valid, usedAt: new Date() });
+    await resetPassword("plaintext", "longenough123");
+    expect(prisma.user.update).not.toHaveBeenCalled();
   });
   it("rejects an already-used token", async () => {
     mock(prisma.passwordResetToken.findUnique).mockResolvedValue({ ...valid, usedAt: new Date() });
