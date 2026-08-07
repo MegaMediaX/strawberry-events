@@ -36,6 +36,12 @@ export interface SelectionEventCaps {
 export interface SelectionSubEvent extends TimeRange {
   id: string;
   titleEn: string;
+  /**
+   * Conflict detection is scoped to this. An all-day container pass ("Day One",
+   * 09:30-18:30) sits in its own category and must not block the workshops that
+   * run inside it — booking a day pass AND a session within it is intended.
+   */
+  category: string;
   pretixItemId: number | null;
   ticketsPerUser: number;
 }
@@ -74,8 +80,12 @@ export function validateSelection(
         );
       }
       // Check for conflicts with *different* sub-events only (same sub-event
-      // at quantity > 1 is caught by the ticketsPerUser cap above).
-      const othersSelected = selectedSubEvents.filter((s) => s.id !== se.id);
+      // at quantity > 1 is caught by the ticketsPerUser cap above), and only
+      // within the SAME category — a day-container pass spans the whole day by
+      // design and must not block sessions running inside it.
+      const othersSelected = selectedSubEvents.filter(
+        (s) => s.id !== se.id && s.category === se.category,
+      );
       if (othersSelected.length > 0) {
         const conflicts = findConflicts(se, othersSelected);
         if (conflicts.length > 0) {

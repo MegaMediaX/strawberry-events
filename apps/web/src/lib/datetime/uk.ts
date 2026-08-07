@@ -7,6 +7,18 @@
  * regardless of the host machine's TZ.
  */
 
+/**
+ * Sub-event timestamps are `timestamp WITHOUT time zone` holding naive VENUE
+ * wall-clock. Prisma surfaces them as that same clock labelled UTC, so
+ * formatting them in "UTC" reproduces the venue wall-clock exactly.
+ *
+ * NEVER format these in the viewer's zone. `toLocaleString` without a
+ * `timeZone` shifts by the viewer's offset, so an attendee in Beirut and one in
+ * London see different start times for the same session and neither matches the
+ * door. That is precisely the bug this constant exists to prevent.
+ */
+export const VENUE_TIME_ZONE = "UTC";
+
 const ISO_RE = /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})/;
 
 interface Parts {

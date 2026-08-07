@@ -71,6 +71,7 @@ describe("findConflicts", () => {
   const workshop: SelectionSubEvent = {
     id: "w1",
     titleEn: "Workshop A",
+    category: "Workshop",
     pretixItemId: 1,
     ticketsPerUser: 1,
     dateFrom: "2024-01-01T09:00:00Z",
@@ -79,6 +80,7 @@ describe("findConflicts", () => {
   const panel: SelectionSubEvent = {
     id: "p1",
     titleEn: "Panel B",
+    category: "Workshop",
     pretixItemId: 2,
     ticketsPerUser: 1,
     dateFrom: "2024-01-01T10:00:00Z",
@@ -87,6 +89,7 @@ describe("findConflicts", () => {
   const overlapping: SelectionSubEvent = {
     id: "o1",
     titleEn: "Overlap C",
+    category: "Workshop",
     pretixItemId: 3,
     ticketsPerUser: 1,
     dateFrom: "2024-01-01T09:30:00Z",
@@ -126,6 +129,7 @@ function makeSubEvent(overrides?: Partial<SelectionSubEvent>): SelectionSubEvent
   return {
     id: "se1",
     titleEn: "Workshop A",
+    category: "Workshop",
     pretixItemId: 10,
     ticketsPerUser: 1,
     dateFrom: "2024-01-01T09:00:00Z",
@@ -218,5 +222,102 @@ describe("validateSelection", () => {
         ],
       ),
     ).not.toThrow();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Conflict scoping by category
+//
+// An all-day container pass ("Day One", 09:30-18:30) is not a competing
+// session. Booking the day pass AND a workshop running inside it is the
+// intended behaviour — before this scoping, the day pass blocked every session
+// on its own day, which silently made those sessions unbookable.
+// ---------------------------------------------------------------------------
+describe("validateSelection — conflict scoping by category", () => {
+  const dayPass: SelectionSubEvent = {
+    id: "day1",
+    titleEn: "Day One",
+    category: "DAYS",
+    pretixItemId: 5,
+    ticketsPerUser: 1,
+    dateFrom: "2026-08-28T09:30:00Z",
+    dateTo: "2026-08-28T18:30:00Z",
+  };
+  const workshop: SelectionSubEvent = {
+    id: "ai-hr",
+    titleEn: "AI for HR",
+    category: "Workshop",
+    pretixItemId: 9,
+    ticketsPerUser: 1,
+    dateFrom: "2026-08-28T16:00:00Z",
+    dateTo: "2026-08-28T17:00:00Z",
+  };
+
+  it("allows a day pass together with a workshop running inside it", () => {
+    expect(() =>
+      validateSelection(
+        makeEvent({ ticketsPerUserMain: 1, ticketsPerUserTotal: 6 }),
+        [dayPass, workshop],
+        [
+          { itemId: 5, quantity: 1 },
+          { itemId: 9, quantity: 1 },
+        ],
+      ),
+    ).not.toThrow();
+  });
+
+  it("order of selection does not matter", () => {
+    expect(() =>
+      validateSelection(
+        makeEvent({ ticketsPerUserMain: 1, ticketsPerUserTotal: 6 }),
+        [dayPass, workshop],
+        [
+          { itemId: 9, quantity: 1 },
+          { itemId: 5, quantity: 1 },
+        ],
+      ),
+    ).not.toThrow();
+  });
+
+  it("still blocks two overlapping sessions in the SAME category", () => {
+    const clashing: SelectionSubEvent = {
+      ...workshop,
+      id: "other",
+      titleEn: "Other Workshop",
+      pretixItemId: 12,
+      dateFrom: "2026-08-28T16:30:00Z",
+      dateTo: "2026-08-28T17:30:00Z",
+    };
+    expect(() =>
+      validateSelection(
+        makeEvent({ ticketsPerUserMain: 1, ticketsPerUserTotal: 6 }),
+        [workshop, clashing],
+        [
+          { itemId: 9, quantity: 1 },
+          { itemId: 12, quantity: 1 },
+        ],
+      ),
+    ).toThrow(/Time conflict/);
+  });
+
+  it("still blocks two overlapping day passes", () => {
+    const overlappingDay: SelectionSubEvent = {
+      ...dayPass,
+      id: "day1b",
+      titleEn: "Day One (dup)",
+      pretixItemId: 6,
+      dateFrom: "2026-08-28T12:00:00Z",
+      dateTo: "2026-08-28T20:00:00Z",
+    };
+    expect(() =>
+      validateSelection(
+        makeEvent({ ticketsPerUserMain: 1, ticketsPerUserTotal: 6 }),
+        [dayPass, overlappingDay],
+        [
+          { itemId: 5, quantity: 1 },
+          { itemId: 6, quantity: 1 },
+        ],
+      ),
+    ).toThrow(/Time conflict/);
   });
 });
