@@ -80,6 +80,14 @@ paths:
     get: { summary: "List attendees (attendees:read)", responses: { "200": { description: OK } } }
     post:
       summary: Register an attendee (attendees:write)
+      description: |
+        `consentTerms` / `consentPrivacy` assert that YOU collected the
+        attendee's acceptance of the Terms and Privacy Policy before calling.
+        Send both as `true` only when that is actually the case: the order is
+        then stored with a server-side consent timestamp and source `api`.
+        Omit them (or send `false`) and the attendee is still registered, but
+        with no consent timestamp — Strawberry will not invent consent on a data
+        subject's behalf.
       requestBody:
         content:
           application/json:
@@ -92,6 +100,8 @@ paths:
                 lastName: { type: string }
                 itemId: { type: integer }
                 quantity: { type: integer }
+                consentTerms: { type: boolean, default: false }
+                consentPrivacy: { type: boolean, default: false }
       responses: { "201": { description: Created }, "403": { description: forbidden_scope } }
   /events/{id}/orders:
     get: { summary: "List orders (orders:read)", responses: { "200": { description: OK } } }

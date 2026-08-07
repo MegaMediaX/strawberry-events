@@ -82,6 +82,7 @@ describe.skipIf(!run)("register integration", () => {
     expect(row?.phone).toBe("70123456");
     expect(row?.phoneCC).toBe("+961");
     expect(row?.consentAt).toBeInstanceOf(Date);
+    expect(row?.consentSource).toBe("web_form");
   });
 
   it("free ticket writes a paid AttendeeOrder", async () => {

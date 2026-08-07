@@ -87,6 +87,16 @@ describe("createWalkIn — permission boundaries", () => {
     expect(mock(register).mock.calls[0][0].attendee.email).toBe("a@b.com");
   });
 
+  it("attributes consent to the walk-in desk, not the public web form", async () => {
+    await createWalkIn(staff, input);
+    const arg = mock(register).mock.calls[0][0];
+    expect(arg.consentSource).toBe("staff_walkin");
+    // Staff attest what they collected in person, so the flags stay true — the
+    // fix is that the row no longer claims the attendee ticked the web form.
+    expect(arg.consentTerms).toBe(true);
+    expect(arg.consentPrivacy).toBe(true);
+  });
+
   it("check-in staff cannot create a walk-in for an UNassigned event", async () => {
     const otherStaff: SessionContext = {
       userId: "s2", isSuperAdmin: false,

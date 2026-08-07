@@ -255,6 +255,16 @@ export async function register(input: RegisterInput): Promise<RegisterResult> {
 
   const magicLinkToken = signMagicLink(order.code);
 
+  // Consent is a claim about a person, so it is only stamped when the caller on
+  // this channel actually attested it: the public wizard hard-requires both
+  // checkboxes (schema), staff attest what they collected at the walk-in desk,
+  // and an API integrator that asserts nothing leaves it NULL rather than
+  // having consent invented on the data subject's behalf. `consentSource` keeps
+  // the channel on the row so an audit can tell those cases apart later.
+  // Still computed server-side so the timestamp itself cannot be spoofed.
+  const consentSource = data.consentSource ?? "web_form";
+  const consentAt = data.consentTerms && data.consentPrivacy ? new Date() : null;
+
   await prisma.attendeeOrder.create({
     data: {
       eventMappingId: event.id,
@@ -267,10 +277,8 @@ export async function register(input: RegisterInput): Promise<RegisterResult> {
       attendeeType: event.attendeeTypeEnabled ? (data.attendee.attendeeType ?? null) : null,
       phone: data.attendee.phone,
       phoneCC: data.attendee.phoneCC,
-      // Server-side consent timestamp: the wizard hard-requires both consent
-      // checkboxes, so reaching here means consent was given. Stamped on the
-      // server so it cannot be spoofed by the client.
-      consentAt: new Date(),
+      consentAt,
+      consentSource,
       userId: data.userId ?? null,
       status,
       approvalStatus,

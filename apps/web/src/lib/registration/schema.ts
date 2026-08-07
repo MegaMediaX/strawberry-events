@@ -32,10 +32,33 @@ export const registerInputSchema = z
     answers: z.array(z.object({ fieldId: z.string(), value: z.string() })).optional(),
     // Invite token for invite-only tickets (set by the register page from the URL).
     inviteToken: z.string().optional(),
-    consentTerms: z.literal(true, { message: "You must accept the Terms" }),
-    consentPrivacy: z.literal(true, { message: "You must accept the Privacy Policy" }),
+    // Which channel is collecting the consent below. Staff walk-ins and the
+    // external API identify themselves so a stored consent record can never
+    // imply the data subject ticked a web form when a third party created the
+    // order for them. Left `.optional()` rather than `.default()` so it stays
+    // absent from the inferred input type: omitting it means "web_form", which
+    // is what every existing public caller is.
+    consentSource: z.enum(["web_form", "staff_walkin", "api"]).optional(),
+    // Plain booleans rather than literal(true): only the web form can *refuse*
+    // to proceed without the boxes (see superRefine). The other channels are
+    // allowed to say "no consent was collected", which yields a NULL
+    // consentAt — an honest gap beats a fabricated timestamp.
+    consentTerms: z.boolean().default(false),
+    consentPrivacy: z.boolean().default(false),
   })
   .superRefine((val, ctx) => {
+    // The public wizard renders both checkboxes and must not be submittable
+    // without them; messages/paths are unchanged so the existing field-error
+    // mapping in registerAction still surfaces them on the right controls.
+    if ((val.consentSource ?? "web_form") === "web_form") {
+      if (!val.consentTerms) {
+        ctx.addIssue({ code: "custom", path: ["consentTerms"], message: "You must accept the Terms" });
+      }
+      if (!val.consentPrivacy) {
+        ctx.addIssue({ code: "custom", path: ["consentPrivacy"], message: "You must accept the Privacy Policy" });
+      }
+    }
+
     // Company attendees must supply a company name (the free-text `company`).
     if (
       val.attendee.attendeeType === "company" &&
