@@ -1,6 +1,8 @@
 import { notFound } from "next/navigation";
 import { setRequestLocale } from "next-intl/server";
 import { getOrderByCode } from "@/lib/registration/access";
+import { allowOrderCodeLookup } from "@/lib/security/order-lookup";
+import { TooManyRequests } from "@/components/public/too-many-requests";
 
 export const dynamic = "force-dynamic";
 
@@ -11,6 +13,10 @@ export default async function PaymentPendingPage({
 }) {
   const { locale, slug, orderCode } = await params;
   setRequestLocale(locale);
+
+  // Same enumeration exposure as the confirmation page: the URL is nothing but
+  // a guessable order code, so throttle before touching the database.
+  if (!(await allowOrderCodeLookup(slug))) return <TooManyRequests />;
 
   const order = await getOrderByCode(orderCode, slug);
   if (!order) notFound();
