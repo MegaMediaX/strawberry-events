@@ -3,6 +3,7 @@
 import { redirect } from "next/navigation";
 import { headers } from "next/headers";
 import { register } from "@/lib/registration/service";
+import { postRegisterPath } from "@/lib/registration/post-register-path";
 import { registerInputSchema } from "@/lib/registration/schema";
 import { rateLimit } from "@/lib/security/rate-limit";
 import { PretixValidationError, flattenFieldErrors } from "@/lib/pretix/errors";
@@ -68,10 +69,9 @@ export async function registerAction(
     return { error: (err as Error).message };
   }
 
-  // Approval-pending and issued both land on the confirmation page, which renders
-  // the correct state (pending approval / QR). COD-without-approval → payment pending.
-  if (result.approvalStatus === "pending" || result.status === "paid") {
-    redirect(`/${locale}/events/${slug}/confirmation/${result.orderCode}`);
-  }
-  redirect(`/${locale}/events/${slug}/payment-pending/${result.orderCode}`);
+  // An issued ticket goes to the signed magic-link URL — the confirmation page
+  // is addressed by a five-character order code and must never render the
+  // scannable pretix secret. Approval-pending and COD keep their order-code
+  // pages (no secret involved). See postRegisterPath for the full rationale.
+  redirect(postRegisterPath(locale, slug, result));
 }

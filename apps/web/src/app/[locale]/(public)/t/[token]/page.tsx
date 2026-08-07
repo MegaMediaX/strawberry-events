@@ -16,5 +16,8 @@ export default async function GuestTicketPage({
   const order = await getOrderByToken(token);
   if (!order) notFound(); // invalid/tampered → generic not-found, no info leak
 
-  return <AttendeeStateView order={order} />;
+  // The only surface allowed to render the pretix secret QR: reaching here
+  // required a valid HMAC over the order code, which cannot be produced without
+  // MAGIC_LINK_SECRET. Order-code-addressed routes must not opt in.
+  return <AttendeeStateView order={order} canRevealTicket />;
 }
