@@ -81,6 +81,13 @@ export async function createWalkIn(
     roleTag: input.roleTag,
     // Staff walk-ins may omit phone (the public wizard still requires it).
     staffWalkIn: true,
+    // The attendee is standing at the desk and the terms/privacy notice is
+    // presented there, so the staff member submitting this form is attesting
+    // that consent was collected in person — the timestamp is real. What was
+    // dishonest before is that it was stored as if it came through the web
+    // form; consentSource records the channel instead, and the accompanying
+    // audit log below attributes it to the staff member who attested it.
+    consentSource: "staff_walkin",
     consentTerms: true,
     consentPrivacy: true,
     userId: null,

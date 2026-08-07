@@ -1,6 +1,7 @@
 "use client";
 
 import { rangesOverlap } from "@/lib/events/conflicts";
+import { VENUE_TIME_ZONE } from "@/lib/datetime/uk";
 
 export interface SubEventItem {
   id: string;
@@ -40,6 +41,8 @@ interface Props {
 function fmt(iso: string, locale: string): string {
   try {
     return new Date(iso).toLocaleString(locale === "ar" ? "ar-LB" : "en-GB", {
+      // Venue wall-clock, never the viewer's zone — see VENUE_TIME_ZONE.
+      timeZone: VENUE_TIME_ZONE,
       weekday: "short",
       month: "short",
       day: "numeric",
@@ -111,7 +114,12 @@ export function SubEventPicker({ locale, subEvents, selected, totalAllowance, on
                 isRtl && se.titleAr ? se.titleAr : se.titleEn;
 
               // Conflict: does this session overlap any currently selected one (excluding itself)?
-              const othersSelected = selectedItems.filter((s) => s.id !== se.id);
+              // Scoped to the SAME category: an all-day container pass (e.g. "Day One",
+              // 09:30-18:30) is not a competing session, so it must not block the
+              // workshops that run inside it. Mirrors validateSelection() server-side.
+              const othersSelected = selectedItems.filter(
+                (s) => s.id !== se.id && s.category === se.category,
+              );
               const conflicts = othersSelected.filter((other) => rangesOverlap(se, other));
               const hasConflict = qty === 0 && conflicts.length > 0;
               const conflictTitle =

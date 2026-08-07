@@ -1,10 +1,12 @@
 "use client";
 
+import type { ReactNode } from "react";
 import { motion } from "framer-motion";
 import { CheckCircle2, Clock, XCircle, Ban, MessageCircle } from "lucide-react";
 import { registrationState } from "@/lib/approval/state";
 import { hasLocation, locationLine, directionsUrl, type EventLocation } from "@/lib/events/location";
 import { QrCodeDisplay } from "./qr-code-display";
+import { shouldShowTicketQr, shouldOfferTicketRecovery } from "./ticket-reveal";
 
 interface OrderLike {
   orderCode: string;
@@ -47,9 +49,31 @@ const STATE_CONFIG = {
   },
 } as const;
 
-export function AttendeeStateView({ order }: { order: OrderLike }) {
+interface AttendeeStateViewProps {
+  order: OrderLike;
+  /**
+   * Authorization to render the scannable pretix secret. Defaults to false so
+   * every surface fails closed: only the HMAC-signed `/t/[token]` route, whose
+   * URL cannot be guessed, is allowed to opt in. See ./ticket-reveal.
+   */
+  canRevealTicket?: boolean;
+  /**
+   * Optional recovery affordance rendered in place of a withheld QR (the
+   * confirmation page passes a "email me my ticket link" button). Injected by
+   * the route so this component stays route-agnostic.
+   */
+  ticketRecovery?: ReactNode;
+}
+
+export function AttendeeStateView({
+  order,
+  canRevealTicket = false,
+  ticketRecovery,
+}: AttendeeStateViewProps) {
   const state = registrationState(order);
   const { Icon, iconCls, heading, bg } = STATE_CONFIG[state];
+  const showQr = shouldShowTicketQr(state, canRevealTicket);
+  const offerRecovery = shouldOfferTicketRecovery(state, canRevealTicket);
 
   return (
     <main className="mx-auto max-w-md px-4 py-12">
@@ -64,12 +88,23 @@ export function AttendeeStateView({ order }: { order: OrderLike }) {
         <p className="mt-1 font-medium text-foreground">{order.eventMapping.titleEn}</p>
         <p className="mt-0.5 font-mono text-xs text-muted-foreground">{order.orderCode}</p>
 
-        {state === "issued" && (
+        {showQr && (
           <div className="mt-8 flex flex-col items-center gap-3">
             <div className="rounded-[var(--radius-lg)] border-2 border-primary/20 bg-background p-4 shadow-sm">
               <QrCodeDisplay value={order.pretixSecret ?? order.orderCode} />
             </div>
             <p className="text-xs text-muted-foreground">Present this QR at the entrance.</p>
+          </div>
+        )}
+
+        {offerRecovery && (
+          <div className="mt-8 flex flex-col items-center gap-3">
+            <p className="text-sm text-muted-foreground">
+              Your ticket is ready. For security, the entrance QR is only shown
+              on the personal ticket link we emailed you — an order code alone
+              is not enough to open it.
+            </p>
+            {ticketRecovery}
           </div>
         )}
 

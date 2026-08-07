@@ -1,20 +1,12 @@
 "use server";
 
 import { redirect } from "next/navigation";
-import { headers } from "next/headers";
 import { register } from "@/lib/registration/service";
+import { postRegisterPath } from "@/lib/registration/post-register-path";
 import { registerInputSchema } from "@/lib/registration/schema";
 import { rateLimit } from "@/lib/security/rate-limit";
+import { clientIp } from "@/lib/security/client-ip";
 import { PretixValidationError, flattenFieldErrors } from "@/lib/pretix/errors";
-
-async function clientIp(): Promise<string> {
-  const h = await headers();
-  return (
-    h.get("x-forwarded-for")?.split(",")[0]?.trim() ||
-    h.get("x-real-ip") ||
-    "unknown"
-  );
-}
 
 export interface RegisterActionResult {
   error?: string;
@@ -32,10 +24,14 @@ export async function registerAction(
     return { error: "Too many attempts. Please wait a minute and try again." };
   }
 
+  // eventSlug/locale come from the route, and consentSource is pinned here (not
+  // read from `values`) so a crafted payload cannot claim a different channel
+  // and slip past the web form's hard consent requirement.
   const parsed = registerInputSchema.safeParse({
     ...(values as object),
     eventSlug: slug,
     locale,
+    consentSource: "web_form",
   });
   if (!parsed.success) {
     const fieldErrors: Record<string, string[]> = {};
@@ -68,10 +64,9 @@ export async function registerAction(
     return { error: (err as Error).message };
   }
 
-  // Approval-pending and issued both land on the confirmation page, which renders
-  // the correct state (pending approval / QR). COD-without-approval → payment pending.
-  if (result.approvalStatus === "pending" || result.status === "paid") {
-    redirect(`/${locale}/events/${slug}/confirmation/${result.orderCode}`);
-  }
-  redirect(`/${locale}/events/${slug}/payment-pending/${result.orderCode}`);
+  // An issued ticket goes to the signed magic-link URL — the confirmation page
+  // is addressed by a five-character order code and must never render the
+  // scannable pretix secret. Approval-pending and COD keep their order-code
+  // pages (no secret involved). See postRegisterPath for the full rationale.
+  redirect(postRegisterPath(locale, slug, result));
 }

@@ -4,6 +4,7 @@ import { getPublicEvent } from "@/lib/events/public";
 import { capacityState } from "@/lib/events/capacity";
 import { hasLocation, locationLine, directionsUrl } from "@/lib/events/location";
 import { coverImageUrl } from "@/lib/events/cover-image";
+import { VENUE_TIME_ZONE } from "@/lib/datetime/uk";
 import { EventHero } from "@/components/public/event-hero";
 import { TicketRail } from "@/components/public/ticket-rail";
 import { MobileCtaBar } from "@/components/public/mobile-cta-bar";
@@ -14,6 +15,9 @@ export const dynamic = "force-dynamic";
 function fmtDate(iso: string | null): string | null {
   if (!iso) return null;
   return new Date(iso).toLocaleString(undefined, {
+    // Pinned: this is a server component, so it was only ever correct by the
+    // accident of the container running UTC. One TZ= env var would break it.
+    timeZone: VENUE_TIME_ZONE,
     dateStyle: "medium",
     timeStyle: "short",
   });

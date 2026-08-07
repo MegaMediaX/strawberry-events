@@ -45,20 +45,35 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         const ok = await verifyPassword(user.passwordHash, parsed.data.password);
         if (!ok) return null;
 
-        return { id: user.id, email: user.email, name: user.name };
+        return {
+          id: user.id,
+          email: user.email,
+          name: user.name,
+          // Carried into the JWT so the token records which "generation" of the
+          // account it was minted for (see the jwt callback below).
+          sessionVersion: user.sessionVersion,
+        };
       },
     }),
   ],
   callbacks: {
     jwt({ token, user }) {
+      // `user` is only present on the sign-in call; later invocations just pass
+      // the existing token through. That is exactly what we want — the version
+      // must be frozen at issue time, not refreshed, or a stolen token would
+      // heal itself on the next request and never be evicted.
       if (user?.id) {
         token.userId = user.id;
+        token.sessionVersion = user.sessionVersion;
       }
       return token;
     },
     session({ session, token }) {
       if (token.userId) {
         session.user.id = token.userId as string;
+        // Surfaced so getSessionContext() can compare it against the live DB
+        // value it already loads (no extra query).
+        session.user.sessionVersion = token.sessionVersion as number | undefined;
       }
       return session;
     },

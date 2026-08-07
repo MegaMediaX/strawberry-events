@@ -23,6 +23,7 @@ import {
   checkInBySecret,
   reprintBadge,
   searchAttendees,
+  liveCounters,
   NAME_SIMILARITY_THRESHOLD,
 } from "@/lib/checkin/service";
 
@@ -245,5 +246,44 @@ describe("searchAttendees (fuzzy)", () => {
       (v) => typeof v === "string" && /%\d{3,}%/.test(v),
     );
     expect(hasPhonePattern).toBe(false);
+  });
+});
+
+describe("liveCounters", () => {
+  it("finance role cannot read live counters (canAccessEvent alone would allow it)", async () => {
+    await expect(liveCounters(finance, "e1", 5)).rejects.toThrow();
+    expect(pretixCheckin.checkinCounters).not.toHaveBeenCalled();
+  });
+
+  it("impersonating session cannot read live counters", async () => {
+    await expect(
+      liveCounters({ ...staff, impersonating: true }, "e1", 5),
+    ).rejects.toThrow();
+    expect(pretixCheckin.checkinCounters).not.toHaveBeenCalled();
+  });
+
+  it("staff not assigned to the event → denied", async () => {
+    const otherStaff: SessionContext = {
+      userId: "s2", isSuperAdmin: false,
+      memberships: [{ organizationId: "orgA", role: "checkin_staff", assignedEventIds: ["locX"] }],
+    };
+    await expect(liveCounters(otherStaff, "e1", 5)).rejects.toThrow();
+    expect(pretixCheckin.checkinCounters).not.toHaveBeenCalled();
+  });
+
+  it("checkin_staff reads counters from pretix", async () => {
+    const res = await liveCounters(staff, "e1", 5);
+    expect(res).toEqual({ total: 10, checkedIn: 3 });
+    expect(pretixCheckin.checkinCounters).toHaveBeenCalledWith("acme", "expo", 5, "env_tok");
+  });
+
+  it("organizer_admin reads counters", async () => {
+    const orgAdmin: SessionContext = {
+      userId: "a1",
+      isSuperAdmin: false,
+      memberships: [{ organizationId: "orgA", role: "organizer_admin", assignedEventIds: [] }],
+    };
+    const res = await liveCounters(orgAdmin, "e1", 5);
+    expect(res).toEqual({ total: 10, checkedIn: 3 });
   });
 });

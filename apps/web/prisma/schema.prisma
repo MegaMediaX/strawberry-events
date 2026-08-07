@@ -116,6 +116,15 @@ enum AttendeeApprovalStatus {
   rejected
 }
 
+// Which channel produced an attendee order's consent record. Stored so the row
+// can never imply the data subject ticked the public web form when a staff
+// member or an API integrator created the order on their behalf.
+enum ConsentSource {
+  web_form
+  staff_walkin
+  api
+}
+
 enum WaitlistStatus {
   waiting
   promoted
@@ -135,6 +144,11 @@ model User {
   image         String?
   passwordHash  String?
   status        UserStatus @default(active)
+  // Session invalidation counter, frozen into each JWT at sign-in and compared
+  // on every request. A password reset increments it, which is what actually
+  // evicts a thief: rotating passwordHash alone leaves already-issued JWTs
+  // valid until natural expiry, so a compromised account stays compromised.
+  sessionVersion Int      @default(0)
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
@@ -770,7 +784,11 @@ model AttendeeOrder {
   attendeeType   String?
   phone          String?
   phoneCC        String?
+  // Set ONLY when consent was actually obtained from the data subject on the
+  // channel below. NULL means nobody attested consent for this row — an honest
+  // "unknown", never a stand-in for "assumed".
   consentAt      DateTime?
+  consentSource  ConsentSource          @default(web_form)
   userId         String?
   status         AttendeeOrderStatus    @default(pending)
   approvalStatus AttendeeApprovalStatus @default(not_required)
@@ -779,6 +797,13 @@ model AttendeeOrder {
   totalCents     Int                    @default(0)
   pretixSecret   String? // pretix position secret (QR payload, used for check-in redeem)
   magicLinkToken String                 @unique
+  // Revocation controls for the emailed ticket link. The version must match the
+  // claim inside the token; legacy two-part tokens carry no claim and count as
+  // 0, so the default keeps every already-mailed link working. Bumping the
+  // version invalidates every link issued so far, and magicLinkRevokedAt is the
+  // hard kill switch. Neither one cancels the registration.
+  magicLinkVersion   Int              @default(0)
+  magicLinkRevokedAt DateTime?
   createdAt      DateTime            @default(now())
   updatedAt      DateTime            @updatedAt
 
