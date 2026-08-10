@@ -4,6 +4,21 @@ export { PretixError };
 
 const API_PREFIX = "/api/v1";
 
+/**
+ * Request timeouts. Node's undici defaults to a 300s headers/body timeout, which
+ * is indistinguishable from "down" at a check-in desk: a stalled pretix would
+ * hang every scan for five minutes while staff stare at a spinner and the queue
+ * grows. Fail fast instead, so the operator can retry or fall back to the
+ * printed list.
+ *
+ * REQUEST_TIMEOUT_MS covers single-object calls on the human-waiting path
+ * (redeem, create order, mark paid). LIST_TIMEOUT_MS is the ceiling for
+ * paginated sweeps, which are admin-side, legitimately slower, and never block
+ * an attendee.
+ */
+const REQUEST_TIMEOUT_MS = 10_000;
+const LIST_TIMEOUT_MS = 20_000;
+
 interface PretixConfig {
   baseUrl: string;
   token: string;
@@ -35,16 +50,37 @@ async function rawFetch<T>(
   url: string,
   token: string,
   init: RequestInit = {},
+  timeoutMs: number = REQUEST_TIMEOUT_MS,
 ): Promise<T> {
-  const res = await fetch(url, {
-    ...init,
-    headers: {
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      ...init,
+      // A caller-supplied signal wins; otherwise bound the request so a stalled
+      // pretix surfaces as a fast, explicit failure rather than a hang.
+      signal: init.signal ?? AbortSignal.timeout(timeoutMs),
+      headers: {
       Authorization: `Token ${token}`,
       "Content-Type": "application/json",
-      Accept: "application/json",
-      ...(init.headers as Record<string, string> | undefined),
-    },
-  });
+        Accept: "application/json",
+        ...(init.headers as Record<string, string> | undefined),
+      },
+    });
+  } catch (err) {
+    // AbortSignal.timeout rejects with a TimeoutError DOMException; a network
+    // failure rejects with a TypeError. Both are opaque to callers, so map them
+    // onto PretixError (504) with a message an operator can act on.
+    if (err instanceof Error && err.name === "TimeoutError") {
+      throw new PretixError(
+        `pretix did not respond within ${timeoutMs}ms for ${url}`,
+        504,
+      );
+    }
+    throw new PretixError(
+      `pretix is unreachable for ${url}: ${(err as Error).message}`,
+      504,
+    );
+  }
 
   if (!res.ok) {
     let detail: unknown;
@@ -103,7 +139,9 @@ export async function pretixFetchAll<T = unknown>(
   const out: T[] = [];
 
   while (url) {
-    const page: Paginated<T> = await rawFetch<Paginated<T>>(url, token);
+    // Per-page ceiling, not a budget for the whole sweep: each page is its own
+    // request, and a large catalogue legitimately takes several of them.
+    const page: Paginated<T> = await rawFetch<Paginated<T>>(url, token, {}, LIST_TIMEOUT_MS);
     out.push(...page.results);
     url = page.next;
   }

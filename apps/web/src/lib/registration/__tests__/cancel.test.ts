@@ -11,7 +11,7 @@ vi.mock("@/lib/db/client", () => ({
 vi.mock("@/lib/pretix/context", () => ({
   resolvePretixContext: () => ({ organizerSlug: "acme", token: "tok" }),
 }));
-vi.mock("@/lib/pretix/orders", () => ({ cancelOrder: vi.fn() }));
+vi.mock("@/lib/pretix/orders", () => ({ cancelOrder: vi.fn(), getOrder: vi.fn() }));
 vi.mock("@/lib/seats/service", () => ({ releaseSeats: vi.fn() }));
 vi.mock("@/lib/webhooks/service", () => ({ emit: vi.fn() }));
 vi.mock("@/lib/email/service", () => ({ sendEmail: vi.fn(() => Promise.resolve(true)) }));
@@ -95,11 +95,40 @@ describe("cancelRegistration", () => {
     );
   });
 
-  it("tolerates pretix already-canceled (PretixValidationError) and still reconciles locally", async () => {
+  it("tolerates pretix already-canceled and still reconciles locally", async () => {
+    // A 400 alone is not proof of "already canceled" — we confirm against
+    // pretix's actual status rather than trusting the error body's shape.
     m(prisma.attendeeOrder.findUnique).mockResolvedValue(issuedOrder());
     m(pretixOrders.cancelOrder).mockRejectedValue(new PretixValidationError("already canceled", {}));
+    m(pretixOrders.getOrder).mockResolvedValue({ code: "ABC12", status: "c" });
     const res = await cancelRegistration(orgAdmin, "o1");
     expect(prisma.attendeeOrder.updateMany).toHaveBeenCalled();
     expect(res.status).toBe("canceled");
+  });
+
+  it("does NOT mark local canceled when pretix 400s for some OTHER reason", async () => {
+    // The regression this fix exists for. Previously every 400 fell through
+    // silently: the attendee got a cancellation email, finance saw it canceled,
+    // and their QR still opened the door because pretix never canceled it.
+    m(prisma.attendeeOrder.findUnique).mockResolvedValue(issuedOrder());
+    m(pretixOrders.cancelOrder).mockRejectedValue(
+      new PretixValidationError("order is locked by a payment provider", {}),
+    );
+    m(pretixOrders.getOrder).mockResolvedValue({ code: "ABC12", status: "p" }); // still paid
+    await expect(cancelRegistration(orgAdmin, "o1")).rejects.toThrow(/sync with pretix failed/i);
+    expect(prisma.attendeeOrder.updateMany).not.toHaveBeenCalled();
+    expect(prisma.auditLog.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ action: "order.cancel_failed", success: false }),
+      }),
+    );
+  });
+
+  it("fails closed when pretix's status cannot be confirmed", async () => {
+    m(prisma.attendeeOrder.findUnique).mockResolvedValue(issuedOrder());
+    m(pretixOrders.cancelOrder).mockRejectedValue(new PretixValidationError("who knows", {}));
+    m(pretixOrders.getOrder).mockRejectedValue(new Error("pretix unreachable"));
+    await expect(cancelRegistration(orgAdmin, "o1")).rejects.toThrow(/sync with pretix failed/i);
+    expect(prisma.attendeeOrder.updateMany).not.toHaveBeenCalled();
   });
 });

@@ -246,7 +246,15 @@ export async function register(input: RegisterInput): Promise<RegisterResult> {
           ctx.token,
         );
       } catch (err) {
-        if (!(err instanceof PretixValidationError)) throw err;
+        if (!(err instanceof PretixValidationError)) {
+          // Everything above this point releases the invite claim on failure
+          // (order creation, seat hold/confirm) — this branch did not. A network
+          // blip or pretix 500 here left the invite stamped redeemed with no
+          // order to bind it to, so the attendee could never retry: every later
+          // attempt hits "already used". Release before rethrowing.
+          await releaseInviteClaim();
+          throw err;
+        }
       }
     }
     status = "paid";
