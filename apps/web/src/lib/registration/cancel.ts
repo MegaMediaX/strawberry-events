@@ -58,7 +58,30 @@ export async function cancelRegistration(session: SessionContext, orderId: strin
       ctx.token,
     );
   } catch (err) {
-    if (!(err instanceof PretixValidationError)) {
+    // A 400 does NOT automatically mean "already canceled". pretix returns 400
+    // for any validation refusal, and previously every one of them fell through
+    // silently — marking the order canceled locally while pretix kept it live.
+    // That is the worst possible direction to be wrong in: the attendee gets a
+    // cancellation email, finance sees it canceled, and their QR still opens the
+    // door. Rather than guess from the error body (whose shape is not
+    // guaranteed), ask pretix what the order's status actually is.
+    let tolerable = false;
+    if (err instanceof PretixValidationError) {
+      try {
+        const remote = await pretixOrders.getOrder(
+          ctx.organizerSlug,
+          order.eventMapping.pretixEventSlug,
+          order.orderCode,
+          ctx.token,
+        );
+        tolerable = remote.status === "c";
+      } catch {
+        // Can't confirm pretix's view — treat as not tolerable and fail closed.
+        tolerable = false;
+      }
+    }
+
+    if (!tolerable) {
       await prisma.auditLog.create({
         data: {
           organizationId: order.eventMapping.organizationId,

@@ -19,6 +19,22 @@
  */
 export const VENUE_TIME_ZONE = "UTC";
 
+/**
+ * The venue's REAL IANA zone.
+ *
+ * Distinct from VENUE_TIME_ZONE on purpose, and the difference matters:
+ * - VENUE_TIME_ZONE ("UTC") is for DISPLAY. Stored times are naive venue
+ *   wall-clock that Prisma hands back labelled UTC, so formatting them in "UTC"
+ *   prints the digits exactly as an organiser typed them.
+ * - VENUE_IANA_ZONE is for EXPORT, where a true instant is required — an .ics
+ *   or a Google Calendar link must carry a real moment, because the receiving
+ *   calendar will convert it into the reader's own zone.
+ *
+ * Use this only where something leaves the app and gets re-interpreted
+ * elsewhere. Everything rendered on our own pages uses VENUE_TIME_ZONE.
+ */
+export const VENUE_IANA_ZONE = "Asia/Beirut";
+
 const ISO_RE = /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})/;
 
 interface Parts {
@@ -62,4 +78,75 @@ export function formatUk(iso: string | null | undefined): string {
   const p = parseParts(iso);
   if (!p) return "";
   return `${p.d}/${p.mo}/${p.y} ${p.h}:${p.mi}`;
+}
+
+/**
+ * Read the wall-clock an instant shows in a given IANA zone, expressed as the
+ * epoch ms of those same digits treated as UTC. Used only by
+ * {@link venueWallClockToUtc} to derive the zone's offset at a point in time.
+ */
+function wallClockMsInZone(ms: number, timeZone: string): number {
+  const parts = Object.fromEntries(
+    new Intl.DateTimeFormat("en-US", {
+      timeZone,
+      hour12: false,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+    })
+      .formatToParts(new Date(ms))
+      .map((p) => [p.type, p.value]),
+  ) as Record<string, string>;
+  // Some engines render midnight as hour "24" under hour12:false.
+  const hour = parts.hour === "24" ? "00" : parts.hour;
+  return Date.UTC(
+    Number(parts.year),
+    Number(parts.month) - 1,
+    Number(parts.day),
+    Number(hour),
+    Number(parts.minute),
+    Number(parts.second),
+  );
+}
+
+/**
+ * Naive venue wall-clock → the true UTC instant it refers to.
+ *
+ * Stored session/event times carry no zone: "2026-08-28T09:30" means half past
+ * nine *at the venue*. Anything that hands a time to an external calendar must
+ * publish the real instant instead, or every attendee's calendar silently
+ * shifts the event by their own offset.
+ *
+ * Derives the offset from the IANA database rather than hardcoding one, so it
+ * stays correct across DST (Beirut is UTC+3 in August, UTC+2 in winter — an
+ * event moved to November would otherwise land an hour out).
+ *
+ * Returns null when the input is absent or unparseable.
+ */
+export function venueWallClockToUtc(
+  iso: string | null | undefined,
+  timeZone: string = VENUE_IANA_ZONE,
+): Date | null {
+  const p = parseParts(iso);
+  if (!p) return null;
+  // First guess: pretend the digits are UTC.
+  const target = Date.UTC(Number(p.y), Number(p.mo) - 1, Number(p.d), Number(p.h), Number(p.mi), 0);
+
+  // Whatever an instant displays as in the venue zone, its distance from that
+  // display IS the zone's offset there. Subtract to land on the real instant.
+  const offset = wallClockMsInZone(target, timeZone) - target;
+  let candidate = target - offset;
+
+  // Second pass, and it is not academic. The first offset is sampled at the
+  // WRONG instant (the digits read as UTC), so near a DST change the sample can
+  // come from the other side of the transition — putting ordinary evening times
+  // on the Saturday before a change out by an hour. Re-sample at the candidate
+  // and reapply if the zone disagrees.
+  const candidateOffset = wallClockMsInZone(candidate, timeZone) - candidate;
+  if (candidateOffset !== offset) candidate = target - candidateOffset;
+
+  return new Date(candidate);
 }

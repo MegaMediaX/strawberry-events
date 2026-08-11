@@ -5,6 +5,8 @@ import { prisma } from "@/lib/db/client";
 import { canAccessEvent } from "@/lib/auth/org-scope";
 import { resolvePretixContext } from "@/lib/pretix/context";
 import { listCheckinLists, checkinCounters } from "@/lib/pretix/checkin";
+import { selectListIdForDate, venueToday } from "@/lib/checkin/select-list";
+import { VENUE_IANA_ZONE } from "@/lib/datetime/uk";
 import { CheckinPanel } from "./checkin-panel";
 
 export const dynamic = "force-dynamic";
@@ -36,7 +38,19 @@ export default async function CheckinPage({
   } catch {
     lists = [];
   }
-  const listId = sp.list ? Number(sp.list) : (lists[0]?.id ?? 0);
+  // Pick the list for whatever day it is at the venue. An explicit ?list= still
+  // wins — it is the manual override for reprints, reconciliation, or the day a
+  // reality does not match the schedule — but nobody has to remember it.
+  // Every session, not just one category — selectListIdForDate reduces these to
+  // distinct venue DATES, so this works regardless of how categories are named.
+  const days = await prisma.subEvent.findMany({
+    where: { eventMappingId: mapping.id },
+    select: { dateFrom: true },
+    orderBy: { dateFrom: "asc" },
+  });
+  const autoListId = selectListIdForDate(days, lists, venueToday(VENUE_IANA_ZONE));
+  const listId = sp.list ? Number(sp.list) : (autoListId ?? lists[0]?.id ?? 0);
+  const activeList = lists.find((l) => l.id === listId) ?? null;
   if (listId) {
     try {
       counters = await checkinCounters(ctx.organizerSlug, mapping.pretixEventSlug, listId, ctx.token);
@@ -52,6 +66,26 @@ export default async function CheckinPage({
         Checked in {counters.checkedIn} / {counters.total}
         {listId ? "" : " · no check-in list configured in pretix"}
       </p>
+      {/* Name the active list. The day is chosen automatically, so this is the
+          only way staff can spot a wrong-day session before it turns into a
+          queue of "already redeemed" refusals at the door. */}
+      {activeList && (
+        <p className="mt-0.5 text-sm font-medium">{activeList.name}</p>
+      )}
+      {/* Auto-selection declined — the session dates and the check-in lists no
+          longer line up (usually an extra session added on a new date). The
+          page has silently fallen back to the FIRST list, which is the exact
+          behaviour that refuses returning attendees on later days. Say so
+          loudly: a quiet fallback here looks identical to working correctly. */}
+      {autoListId === null && lists.length > 1 && !sp.list && (
+        <p className="mt-2 rounded-[var(--radius-md)] border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+          Could not match today to a check-in list ({days.length} session date
+          {days.length === 1 ? "" : "s"} vs {lists.length} lists), so
+          <span className="font-semibold"> {activeList?.name ?? "the first list"} </span>
+          is selected. Confirm this is today&apos;s list before scanning — add
+          <span className="font-mono"> ?list=&lt;id&gt; </span> to override.
+        </p>
+      )}
       <div className="mt-4">
         <CheckinPanel eventId={mapping.id} listId={listId} />
       </div>

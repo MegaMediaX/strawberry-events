@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "@/components/ui/toast";
 import { centsToPrice } from "@/lib/pretix/mappers";
+import { isoToLocalInput, localInputToIso } from "@/lib/datetime/uk";
 import { InviteControls } from "./invite-controls";
 import { saveTicketsAction } from "../../actions";
 
@@ -64,14 +65,6 @@ export interface InitialSubEvent {
   requiresOptIn: boolean;
 }
 
-const pad = (n: number) => String(n).padStart(2, "0");
-// Render a stored UTC instant as the admin's LOCAL wall-clock for the
-// datetime-local input, so the value round-trips without a timezone shift
-// (the browser interprets datetime-local as local time).
-const toLocalInput = (iso: string) => {
-  const d = new Date(iso);
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
-};
 const centsField = (c: number) => (c / 100).toFixed(2);
 
 function ticketFrom(t: InitialTicket): TicketRow {
@@ -95,8 +88,11 @@ function subFrom(s: InitialSubEvent): SubRow {
     location: s.location ?? "",
     descriptionEn: s.descriptionEn ?? "",
     descriptionAr: s.descriptionAr ?? "",
-    dateFrom: toLocalInput(s.dateFrom),
-    dateTo: toLocalInput(s.dateTo),
+    // Textual conversion — session times are naive VENUE wall-clock, so they
+    // must never be routed through a Date (which would re-read them in the
+    // admin's browser zone and display every session shifted by their offset).
+    dateFrom: isoToLocalInput(s.dateFrom),
+    dateTo: isoToLocalInput(s.dateTo),
     price: centsField(s.priceCents),
     maxAttendees: s.maxAttendees == null ? "" : String(s.maxAttendees),
     ticketsPerUser: String(s.ticketsPerUser),
@@ -120,8 +116,11 @@ const subInput = (s: SubRow) => ({
   location: s.location || null,
   descriptionEn: s.descriptionEn || null,
   descriptionAr: s.descriptionAr || null,
-  dateFrom: s.dateFrom,
-  dateTo: s.dateTo,
+  // Emit an explicit UTC marker so the server's `new Date(...)` is unambiguous
+  // regardless of the container's zone — the wall-clock the admin typed is the
+  // wall-clock that gets stored.
+  dateFrom: localInputToIso(s.dateFrom) ?? "",
+  dateTo: localInputToIso(s.dateTo) ?? "",
   priceCents: Math.round(parseFloat(s.price || "0") * 100),
   maxAttendees: s.maxAttendees === "" ? null : parseInt(s.maxAttendees, 10),
   ticketsPerUser: parseInt(s.ticketsPerUser || "1", 10),
