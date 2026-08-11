@@ -20,9 +20,29 @@ describe("selectListIdForDate", () => {
   });
 
   it("deduplicates sessions sharing a date", () => {
-    // Four sessions, three dates, three lists — the counts only line up if the
-    // helper is comparing dates rather than rows.
+    // Four sessions, three dates, three lists. If the helper counted ROWS it
+    // would see 4 vs 3, decide the pairing is untrustworthy and return null.
+    expect(selectListIdForDate(DAYS, LISTS, "2026-08-29")).not.toBeNull();
     expect(selectListIdForDate(DAYS, LISTS, "2026-08-29")).toBe(2);
+  });
+
+  it("pairs by creation order even when the API returns lists out of order", () => {
+    // pretix orders check-in lists by (subevent__date_from, name, pk). With no
+    // subevents, NAME decides — so renaming "Day 1" to "Opening Day" reorders
+    // the response. Taking that order verbatim would point day one at day two's
+    // list and refuse every returning attendee the next morning.
+    const asPretixWouldSort = [{ id: 2 }, { id: 3 }, { id: 1 }];
+    expect(selectListIdForDate(DAYS, asPretixWouldSort, "2026-08-28")).toBe(1);
+    expect(selectListIdForDate(DAYS, asPretixWouldSort, "2026-08-29")).toBe(2);
+    expect(selectListIdForDate(DAYS, asPretixWouldSort, "2026-08-30")).toBe(3);
+  });
+
+  it("declines when a stray extra session date appears", () => {
+    // An organiser adding a setup slot or a speaker dinner on a fourth date
+    // makes the ordinal pairing meaningless. Returning null is correct — the
+    // caller falls back and the page shows a warning rather than guessing.
+    const withSetupDay = [{ dateFrom: "2026-08-27T18:00:00.000Z" }, ...DAYS];
+    expect(selectListIdForDate(withSetupDay, LISTS, "2026-08-28")).toBeNull();
   });
 
   it("clamps to day one before the event (setup and rehearsal)", () => {

@@ -70,3 +70,51 @@ describe("venueWallClockToUtc", () => {
     expect(VENUE_IANA_ZONE).toBe("Asia/Beirut");
   });
 });
+
+/**
+ * DST boundaries. A single-pass offset derivation samples the offset at the
+ * digits-read-as-UTC instant, which near a transition can fall on the far side
+ * of the change — putting ORDINARY evening times on the preceding Saturday out
+ * by an hour. These are not the ambiguous/nonexistent hour; they are normal
+ * times that a single pass gets wrong.
+ *
+ * Beirut: forward last Sunday of March, back last Sunday of October.
+ */
+describe("venueWallClockToUtc across DST transitions", () => {
+  const displaysAs = (d: Date, timeZone: string) =>
+    new Intl.DateTimeFormat("en-CA", {
+      timeZone,
+      hour12: false,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+    }).format(d);
+
+  const roundTrips = (wall: string) => {
+    const d = venueWallClockToUtc(wall);
+    expect(d).not.toBeNull();
+    // The instant we produce must DISPLAY as the wall-clock we asked for.
+    const shown = displaysAs(d!, VENUE_IANA_ZONE).replace(", ", "T").slice(0, 16);
+    expect(shown).toBe(wall.slice(0, 16));
+  };
+
+  it("holds on the evening before the spring forward", () => {
+    roundTrips("2026-03-28T22:00");
+    roundTrips("2026-03-28T23:00");
+    roundTrips("2026-03-28T23:30");
+  });
+
+  it("holds on the evening before the autumn back", () => {
+    roundTrips("2026-10-24T21:00");
+    roundTrips("2026-10-24T22:00");
+    roundTrips("2026-10-24T22:59");
+  });
+
+  it("holds well clear of any transition", () => {
+    roundTrips("2026-08-28T09:30");
+    roundTrips("2026-08-30T18:00");
+    roundTrips("2026-01-15T12:00");
+  });
+});

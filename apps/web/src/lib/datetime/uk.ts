@@ -133,9 +133,20 @@ export function venueWallClockToUtc(
   const p = parseParts(iso);
   if (!p) return null;
   // First guess: pretend the digits are UTC.
-  const guess = Date.UTC(Number(p.y), Number(p.mo) - 1, Number(p.d), Number(p.h), Number(p.mi), 0);
-  // Whatever that instant displays as in the venue zone, its distance from the
-  // guess IS the zone's offset there. Subtract it to land on the real instant.
-  const offset = wallClockMsInZone(guess, timeZone) - guess;
-  return new Date(guess - offset);
+  const target = Date.UTC(Number(p.y), Number(p.mo) - 1, Number(p.d), Number(p.h), Number(p.mi), 0);
+
+  // Whatever an instant displays as in the venue zone, its distance from that
+  // display IS the zone's offset there. Subtract to land on the real instant.
+  const offset = wallClockMsInZone(target, timeZone) - target;
+  let candidate = target - offset;
+
+  // Second pass, and it is not academic. The first offset is sampled at the
+  // WRONG instant (the digits read as UTC), so near a DST change the sample can
+  // come from the other side of the transition — putting ordinary evening times
+  // on the Saturday before a change out by an hour. Re-sample at the candidate
+  // and reapply if the zone disagrees.
+  const candidateOffset = wallClockMsInZone(candidate, timeZone) - candidate;
+  if (candidateOffset !== offset) candidate = target - candidateOffset;
+
+  return new Date(candidate);
 }

@@ -52,21 +52,56 @@ async function rawFetch<T>(
   init: RequestInit = {},
   timeoutMs: number = REQUEST_TIMEOUT_MS,
 ): Promise<T> {
-  let res: Response;
+  // The WHOLE exchange is wrapped, not just the fetch call. AbortSignal aborts
+  // the body stream as well as the connection, and a saturated pretix typically
+  // flushes headers and then stalls mid-body — so a timeout surfaces from
+  // res.json(), not from fetch(). Mapping only the fetch would have left the
+  // exact failure this timeout exists for escaping unmapped, reaching callers
+  // as a raw DOMException and, at the check-in desk, a bare 500.
   try {
-    res = await fetch(url, {
+    const res = await fetch(url, {
       ...init,
-      // A caller-supplied signal wins; otherwise bound the request so a stalled
-      // pretix surfaces as a fast, explicit failure rather than a hang.
+      // A caller-supplied signal wins; otherwise bound the request.
       signal: init.signal ?? AbortSignal.timeout(timeoutMs),
       headers: {
-      Authorization: `Token ${token}`,
-      "Content-Type": "application/json",
+        Authorization: `Token ${token}`,
+        "Content-Type": "application/json",
         Accept: "application/json",
         ...(init.headers as Record<string, string> | undefined),
       },
     });
+
+    if (!res.ok) {
+      let detail: unknown;
+      try {
+        detail = await res.json();
+      } catch {
+        detail = await res.text().catch(() => undefined);
+      }
+      if (
+        res.status === 400 &&
+        detail &&
+        typeof detail === "object" &&
+        !Array.isArray(detail)
+      ) {
+        throw new PretixValidationError(
+          `pretix validation error for ${url}`,
+          detail as Record<string, string[]>,
+        );
+      }
+      throw new PretixError(
+        `pretix API error ${res.status} for ${url}`,
+        res.status,
+        detail,
+      );
+    }
+
+    if (res.status === 204) return undefined as T;
+    return (await res.json()) as T;
   } catch (err) {
+    // Already-mapped errors pass through untouched — otherwise a 400 would be
+    // rewritten as a 504 and every validation message would be lost.
+    if (err instanceof PretixError) throw err;
     // AbortSignal.timeout rejects with a TimeoutError DOMException; a network
     // failure rejects with a TypeError. Both are opaque to callers, so map them
     // onto PretixError (504) with a message an operator can act on.
@@ -81,34 +116,6 @@ async function rawFetch<T>(
       504,
     );
   }
-
-  if (!res.ok) {
-    let detail: unknown;
-    try {
-      detail = await res.json();
-    } catch {
-      detail = await res.text().catch(() => undefined);
-    }
-    if (
-      res.status === 400 &&
-      detail &&
-      typeof detail === "object" &&
-      !Array.isArray(detail)
-    ) {
-      throw new PretixValidationError(
-        `pretix validation error for ${url}`,
-        detail as Record<string, string[]>,
-      );
-    }
-    throw new PretixError(
-      `pretix API error ${res.status} for ${url}`,
-      res.status,
-      detail,
-    );
-  }
-
-  if (res.status === 204) return undefined as T;
-  return (await res.json()) as T;
 }
 
 /**

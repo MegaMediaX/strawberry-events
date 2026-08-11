@@ -247,12 +247,34 @@ export async function register(input: RegisterInput): Promise<RegisterResult> {
         );
       } catch (err) {
         if (!(err instanceof PretixValidationError)) {
-          // Everything above this point releases the invite claim on failure
-          // (order creation, seat hold/confirm) — this branch did not. A network
-          // blip or pretix 500 here left the invite stamped redeemed with no
-          // order to bind it to, so the attendee could never retry: every later
-          // attempt hits "already used". Release before rethrowing.
-          await releaseInviteClaim();
+          // Unlike the earlier failure paths, the pretix order ALREADY EXISTS
+          // here. Freeing the invite without removing it would let the attendee
+          // register again and leave an orphan order holding a quota slot that
+          // no local row references — and nothing reconciles it, because the
+          // order.paid handler deliberately ignores orders it doesn't know.
+          //
+          // So cancel first, and only release the claim if that succeeds. If the
+          // cancel fails we keep the invite consumed: a stuck invite an operator
+          // can reissue is recoverable, a silent duplicate paid order is not.
+          //
+          // Note a timeout lands here too (PretixError 504, not a validation
+          // error) and a timeout is NOT proof pretix skipped the mark-paid —
+          // which is exactly why the order must be cancelled rather than
+          // abandoned.
+          try {
+            await pretixOrders.cancelOrder(
+              ctx.organizerSlug,
+              event.pretixEventSlug,
+              order.code,
+              ctx.token,
+            );
+            await releaseInviteClaim();
+          } catch (cancelErr) {
+            console.error(
+              `[register] could not cancel ${order.code} after markOrderPaid failed; invite left consumed:`,
+              (cancelErr as Error).message,
+            );
+          }
           throw err;
         }
       }

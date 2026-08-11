@@ -47,11 +47,19 @@ export function venueToday(timeZone: string, now: Date = new Date()): string {
 /**
  * Choose the check-in list matching `today`.
  *
- * Days and lists are paired BY ORDINAL — first day to first list — rather than
- * by parsing names, so renaming a list in pretix cannot silently break the
- * mapping. It does mean the two must stay the same length and order: adding or
- * removing a check-in list mid-event would shift every pairing, which is why
- * that is called out in the door runbook.
+ * Days and lists are paired BY ORDINAL — first day to first list — after
+ * sorting lists by id, i.e. creation order.
+ *
+ * The sort is load-bearing, not tidiness. pretix orders check-in lists by
+ * `(subevent__date_from, name, pk)`, and with no subevents configured that
+ * makes NAME the effective sort key. Taking the API's order verbatim would mean
+ * renaming "Day 1 …" to "Opening Day …" silently re-points day one at day two's
+ * list — and every attendee who came on day one is then refused on day two.
+ * Sorting by id makes names cosmetic, which is what an operator will assume.
+ *
+ * The two must still stay the same length: adding or removing a check-in list
+ * mid-event shifts every pairing, which is why that is called out in the door
+ * runbook.
  *
  * Outside the event window it clamps to the nearest end: before day one you get
  * day one (setup and rehearsal), after the last day you get the last day (late
@@ -67,6 +75,9 @@ export function selectListIdForDate(
   // One list and nothing to disambiguate: the answer is never in doubt.
   if (lists.length === 1) return lists[0].id;
 
+  // Creation order — see the note above on why the API's own order is unsafe.
+  const ordered = [...lists].sort((a, b) => a.id - b.id);
+
   const dayKeys = [...days]
     .map((d) => venueDateKey(d.dateFrom))
     .sort()
@@ -75,13 +86,13 @@ export function selectListIdForDate(
   // A mismatched count means the ordinal pairing is not trustworthy. Fail back
   // to the caller's default rather than confidently checking people into the
   // wrong day.
-  if (dayKeys.length !== lists.length) return null;
+  if (dayKeys.length !== ordered.length) return null;
 
   const exact = dayKeys.indexOf(today);
-  if (exact !== -1) return lists[exact].id;
+  if (exact !== -1) return ordered[exact].id;
 
-  if (today < dayKeys[0]) return lists[0].id;
-  if (today > dayKeys[dayKeys.length - 1]) return lists[lists.length - 1].id;
+  if (today < dayKeys[0]) return ordered[0].id;
+  if (today > dayKeys[dayKeys.length - 1]) return ordered[ordered.length - 1].id;
 
   // A gap between event days (rare, but a break day is legal): use the most
   // recent day that has already started.
@@ -89,5 +100,5 @@ export function selectListIdForDate(
   for (let i = 0; i < dayKeys.length; i++) {
     if (dayKeys[i] <= today) idx = i;
   }
-  return lists[idx].id;
+  return ordered[idx].id;
 }

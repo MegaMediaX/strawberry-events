@@ -72,6 +72,20 @@ export default async function CheckinPage({
       {activeList && (
         <p className="mt-0.5 text-sm font-medium">{activeList.name}</p>
       )}
+      {/* Auto-selection declined — the session dates and the check-in lists no
+          longer line up (usually an extra session added on a new date). The
+          page has silently fallen back to the FIRST list, which is the exact
+          behaviour that refuses returning attendees on later days. Say so
+          loudly: a quiet fallback here looks identical to working correctly. */}
+      {autoListId === null && lists.length > 1 && !sp.list && (
+        <p className="mt-2 rounded-[var(--radius-md)] border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+          Could not match today to a check-in list ({days.length} session date
+          {days.length === 1 ? "" : "s"} vs {lists.length} lists), so
+          <span className="font-semibold"> {activeList?.name ?? "the first list"} </span>
+          is selected. Confirm this is today&apos;s list before scanning — add
+          <span className="font-mono"> ?list=&lt;id&gt; </span> to override.
+        </p>
+      )}
       <div className="mt-4">
         <CheckinPanel eventId={mapping.id} listId={listId} />
       </div>
