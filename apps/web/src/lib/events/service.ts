@@ -885,6 +885,15 @@ export async function listInvites(
   });
 }
 
+/**
+ * Shown instead of a raw pretix error. The underlying messages embed the
+ * internal pretix base URL, and every other pretix failure in this codebase is
+ * either translated or degrades silently — leaking one here for an operator to
+ * puzzle over would be a lone exception to that discipline. The real reason is
+ * logged server-side.
+ */
+const PRETIX_UNAVAILABLE = "figures unavailable";
+
 export interface SubEventBookings {
   id: string;
   titleEn: string;
@@ -925,16 +934,42 @@ export async function listSubEventBookings(
 ): Promise<SubEventBookings[]> {
   const mapping = await getEventForSession(session, eventId);
   if (!mapping) throw new Error("Event not found or access denied");
-  const org = await prisma.organization.findUnique({
-    where: { id: mapping.organizationId },
-  });
-  if (!org) throw new Error("Organization not found");
-  const ctx = resolvePretixContext(org);
 
   const subEvents = await prisma.subEvent.findMany({
     where: { eventMappingId: mapping.id },
     orderBy: { dateFrom: "asc" },
   });
+
+  const row = (se: (typeof subEvents)[number], booked: number | null, error: string | null) => ({
+    id: se.id,
+    titleEn: se.titleEn,
+    category: se.category,
+    location: se.location,
+    dateFrom: se.dateFrom,
+    dateTo: se.dateTo,
+    capacity: se.maxAttendees,
+    booked,
+    remaining: null,
+    pending: 0,
+    error,
+  });
+
+  // Resolving pretix credentials can throw — no per-org token and no env
+  // fallback, or ciphertext that will not decrypt. That happens BEFORE any
+  // per-row isolation, so letting it escape would blank the whole page and
+  // defeat the point of isolating rows at all. Degrade to a table that still
+  // lists every session, each saying why its figures are missing.
+  let ctx;
+  try {
+    const org = await prisma.organization.findUnique({
+      where: { id: mapping.organizationId },
+    });
+    if (!org) throw new Error("Organization not found");
+    ctx = resolvePretixContext(org);
+  } catch (err) {
+    console.error("[sessions] pretix context unavailable:", (err as Error).message);
+    return subEvents.map((se) => row(se, null, PRETIX_UNAVAILABLE));
+  }
 
   return Promise.all(
     subEvents.map(async (se): Promise<SubEventBookings> => {
@@ -953,7 +988,7 @@ export async function listSubEventBookings(
           booked: null,
           remaining: null,
           pending: 0,
-          error: "no pretix quota linked",
+          error: "not linked to a pretix quota",
         };
       }
       try {
@@ -966,20 +1001,28 @@ export async function listSubEventBookings(
         return {
           ...base,
           booked: q.paid_orders,
-          // Prefer pretix's own view of the cap — it is what actually enforces
-          // capacity, and a drift from maxAttendees is worth showing honestly.
-          capacity: q.total_size ?? se.maxAttendees,
+          // pretix's quota is the ONLY thing that enforces capacity, so report
+          // it verbatim — including null for uncapped. Falling back to the local
+          // maxAttendees here would paint a fill bar and a percentage for a
+          // ceiling pretix will happily sell straight through, while Remaining
+          // sat at "—" in the same row. A comforting number that stops nobody is
+          // worse than an honest "uncapped".
+          capacity: q.total_size,
           remaining: q.available_number,
           pending: q.pending_orders + q.cart_positions,
           error: null,
         };
       } catch (err) {
+        console.error(
+          `[sessions] quota ${se.pretixQuotaId} unreadable:`,
+          (err as Error).message,
+        );
         return {
           ...base,
           booked: null,
           remaining: null,
           pending: 0,
-          error: (err as Error).message,
+          error: PRETIX_UNAVAILABLE,
         };
       }
     }),

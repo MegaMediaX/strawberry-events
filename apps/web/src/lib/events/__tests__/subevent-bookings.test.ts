@@ -89,9 +89,7 @@ describe("listSubEventBookings", () => {
     expect(row.pending).toBe(3); // pending orders + carts, both hold a seat
   });
 
-  it("prefers pretix's cap over the local one when they disagree", async () => {
-    // pretix's quota is what actually enforces capacity. If the local column has
-    // drifted, showing the local number would be a comfortable lie.
+  it("reports pretix's cap, not the local one, when they disagree", async () => {
     m(prisma.subEvent.findMany).mockResolvedValue([sub({ maxAttendees: 80 })]);
     m(pretixProducts.quotaBookings).mockResolvedValue({
       paid_orders: 10,
@@ -105,6 +103,38 @@ describe("listSubEventBookings", () => {
 
     const [row] = await listSubEventBookings(admin, "e1");
     expect(row.capacity).toBe(50);
+  });
+
+  it("reports UNCAPPED when pretix is uncapped, even if a local cap is set", async () => {
+    // The misleading case: a local maxAttendees that pretix does not enforce.
+    // Showing it would paint a fill bar and a percentage for a ceiling pretix
+    // will sell straight through, while Remaining sat at "—" in the same row.
+    m(prisma.subEvent.findMany).mockResolvedValue([sub({ maxAttendees: 80 })]);
+    m(pretixProducts.quotaBookings).mockResolvedValue({
+      paid_orders: 120,
+      pending_orders: 0,
+      cart_positions: 0,
+      waiting_list: 0,
+      available_number: null,
+      total_size: null,
+      available: true,
+    });
+
+    const [row] = await listSubEventBookings(admin, "e1");
+    expect(row.capacity).toBeNull();
+    expect(row.booked).toBe(120);
+  });
+
+  it("still lists every session when pretix credentials cannot be resolved", async () => {
+    // Throws BEFORE the per-row map. Previously this blanked the entire page,
+    // which defeated the point of isolating rows at all.
+    m(prisma.subEvent.findMany).mockResolvedValue([sub({ id: "a" }), sub({ id: "b" })]);
+    m(prisma.organization.findUnique).mockResolvedValue(null);
+
+    const rows = await listSubEventBookings(admin, "e1");
+    expect(rows).toHaveLength(2);
+    expect(rows.every((r) => r.booked === null && r.error)).toBe(true);
+    expect(pretixProducts.quotaBookings).not.toHaveBeenCalled();
   });
 
   it("isolates a failing session instead of blanking the page", async () => {
@@ -132,14 +162,16 @@ describe("listSubEventBookings", () => {
     expect(rows.find((r) => r.id === "ok")?.booked).toBe(5);
     const broken = rows.find((r) => r.id === "broken");
     expect(broken?.booked).toBeNull();
-    expect(broken?.error).toMatch(/404/);
+    // Sanitised: the raw message embeds the internal pretix URL.
+    expect(broken?.error).toBe("figures unavailable");
+    expect(broken?.error).not.toMatch(/http/);
   });
 
   it("handles a session with no quota linked at all", async () => {
     m(prisma.subEvent.findMany).mockResolvedValue([sub({ pretixQuotaId: null })]);
     const [row] = await listSubEventBookings(admin, "e1");
     expect(row.booked).toBeNull();
-    expect(row.error).toMatch(/no pretix quota/i);
+    expect(row.error).toMatch(/pretix quota/i);
     expect(pretixProducts.quotaBookings).not.toHaveBeenCalled();
   });
 

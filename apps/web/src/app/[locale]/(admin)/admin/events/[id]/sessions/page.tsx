@@ -19,8 +19,12 @@ function fmt(d: Date): string {
 }
 
 function FillBar({ booked, capacity }: { booked: number; capacity: number | null }) {
-  if (!capacity) {
+  // `capacity === 0` is a deliberate "closed" session, not an absent cap.
+  if (capacity === null) {
     return <span className="text-xs text-muted-foreground">uncapped</span>;
+  }
+  if (capacity === 0) {
+    return <span className="text-xs text-destructive">closed</span>;
   }
   const pct = Math.min(100, Math.round((booked / capacity) * 100));
   // Amber from 75%, red at 90% — an organiser needs to see a room filling up
@@ -45,7 +49,7 @@ export default async function SessionsPage({
 }) {
   const { locale, id } = await params;
   setRequestLocale(locale);
-  await requireRole(["super_admin", "organizer_admin", "finance"], `/${locale}/admin`);
+  await requireRole(["super_admin", "organizer_admin"], `/${locale}/admin`);
   const session = await getSessionContext();
 
   const event = session ? await getEventForSession(session, id) : null;

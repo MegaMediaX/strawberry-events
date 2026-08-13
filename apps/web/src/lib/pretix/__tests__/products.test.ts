@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { listItems, createItem, updateItem, createQuota, listQuotas } from "@/lib/pretix/products";
+import { listItems, createItem, updateItem, createQuota, listQuotas, quotaBookings } from "@/lib/pretix/products";
 import { installFetchMock, jsonResponse, setPretixEnv } from "./helpers";
 
 const originalEnv = { ...process.env };
@@ -150,5 +150,47 @@ describe("listQuotas", () => {
       "https://pretix.example.com/api/v1/organizers/strawberry/events/expo/quotas/?with_availability=true",
     );
     expect(quotas[0].available_number).toBe(80);
+  });
+});
+
+describe("quotaBookings", () => {
+  it("GETs one quota's availability endpoint", async () => {
+    const spy = installFetchMock(
+      jsonResponse({
+        paid_orders: 71,
+        pending_orders: 0,
+        cart_positions: 0,
+        waiting_list: 0,
+        available_number: 9,
+        total_size: 80,
+        available: true,
+      }),
+    );
+    const q = await quotaBookings("strawberry", "expo", 11);
+    expect(spy.mock.calls[0][0]).toBe(
+      "https://pretix.example.com/api/v1/organizers/strawberry/events/expo/quotas/11/availability/",
+    );
+    expect(q.paid_orders).toBe(71);
+    expect(q.total_size).toBe(80);
+  });
+
+  it("reports paid_orders for an UNCAPPED quota, where the bulk list reports nothing", async () => {
+    // The whole reason this endpoint is used instead of ?with_availability=true:
+    // an uncapped quota returns null for both size and available_number there,
+    // so the sessions with the most attendees would show no figures at all.
+    installFetchMock(
+      jsonResponse({
+        paid_orders: 466,
+        pending_orders: 0,
+        cart_positions: 0,
+        waiting_list: 0,
+        available_number: null,
+        total_size: null,
+        available: true,
+      }),
+    );
+    const q = await quotaBookings("strawberry", "expo", 5);
+    expect(q.paid_orders).toBe(466);
+    expect(q.total_size).toBeNull();
   });
 });
