@@ -167,6 +167,40 @@ export async function listQuotasWithItems(
   );
 }
 
+/**
+ * Live booking figures for ONE quota.
+ *
+ * Deliberately per-quota rather than the list endpoint: `?with_availability=true`
+ * returns `size` and `available_number`, and BOTH are null for an uncapped quota
+ * — so a list-based view shows nothing at all for exactly the sessions with the
+ * most attendees. This endpoint reports `paid_orders` whether or not a cap
+ * exists, which is the number an organiser actually needs.
+ */
+export interface PretixQuotaBookings {
+  paid_orders: number;
+  pending_orders: number;
+  cart_positions: number;
+  waiting_list: number;
+  /** null when the quota is uncapped. */
+  available_number: number | null;
+  /** null when the quota is uncapped. */
+  total_size: number | null;
+  available: boolean;
+}
+
+export async function quotaBookings(
+  organizerSlug: string,
+  eventSlug: string,
+  quotaId: number,
+  token?: string,
+): Promise<PretixQuotaBookings> {
+  return pretixFetch<PretixQuotaBookings>(
+    `/organizers/${organizerSlug}/events/${eventSlug}/quotas/${quotaId}/availability/`,
+    {},
+    token,
+  );
+}
+
 /** List quotas with live availability (pretix `?with_availability=true`). */
 export async function listQuotas(
   organizerSlug: string,

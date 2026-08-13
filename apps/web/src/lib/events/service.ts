@@ -884,3 +884,104 @@ export async function listInvites(
     orderBy: { createdAt: "desc" },
   });
 }
+
+export interface SubEventBookings {
+  id: string;
+  titleEn: string;
+  category: string;
+  location: string | null;
+  dateFrom: Date;
+  dateTo: Date;
+  /** Paid attendees holding this session. null when pretix could not be read. */
+  booked: number | null;
+  /** Configured cap, or null for uncapped. */
+  capacity: number | null;
+  /** capacity - booked, or null when uncapped/unknown. */
+  remaining: number | null;
+  pending: number;
+  /** Set when this row's figures could not be fetched, with the reason. */
+  error: string | null;
+}
+
+/**
+ * Per-session booking figures for an event.
+ *
+ * The app has no record of who booked which session — `AttendeeOrder` has no
+ * link to `SubEvent`, because a session choice is a pretix order position
+ * against the session's item. So these numbers can only come from pretix, and
+ * this is the only place in the admin that surfaces them.
+ *
+ * One request per session (5-6 for a typical event). The bulk quota list is not
+ * usable here: it reports nothing for uncapped quotas, which is most of them.
+ *
+ * Each session is fetched independently and a failure is captured on that row
+ * rather than thrown. A single unreadable quota — the state a half-finished
+ * delete leaves behind, which has happened here before — must not blank the
+ * whole page.
+ */
+export async function listSubEventBookings(
+  session: SessionContext,
+  eventId: string,
+): Promise<SubEventBookings[]> {
+  const mapping = await getEventForSession(session, eventId);
+  if (!mapping) throw new Error("Event not found or access denied");
+  const org = await prisma.organization.findUnique({
+    where: { id: mapping.organizationId },
+  });
+  if (!org) throw new Error("Organization not found");
+  const ctx = resolvePretixContext(org);
+
+  const subEvents = await prisma.subEvent.findMany({
+    where: { eventMappingId: mapping.id },
+    orderBy: { dateFrom: "asc" },
+  });
+
+  return Promise.all(
+    subEvents.map(async (se): Promise<SubEventBookings> => {
+      const base = {
+        id: se.id,
+        titleEn: se.titleEn,
+        category: se.category,
+        location: se.location,
+        dateFrom: se.dateFrom,
+        dateTo: se.dateTo,
+        capacity: se.maxAttendees,
+      };
+      if (!se.pretixQuotaId) {
+        return {
+          ...base,
+          booked: null,
+          remaining: null,
+          pending: 0,
+          error: "no pretix quota linked",
+        };
+      }
+      try {
+        const q = await pretixProducts.quotaBookings(
+          ctx.organizerSlug,
+          mapping.pretixEventSlug,
+          se.pretixQuotaId,
+          ctx.token,
+        );
+        return {
+          ...base,
+          booked: q.paid_orders,
+          // Prefer pretix's own view of the cap — it is what actually enforces
+          // capacity, and a drift from maxAttendees is worth showing honestly.
+          capacity: q.total_size ?? se.maxAttendees,
+          remaining: q.available_number,
+          pending: q.pending_orders + q.cart_positions,
+          error: null,
+        };
+      } catch (err) {
+        return {
+          ...base,
+          booked: null,
+          remaining: null,
+          pending: 0,
+          error: (err as Error).message,
+        };
+      }
+    }),
+  );
+}
