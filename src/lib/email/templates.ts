@@ -121,7 +121,7 @@ export function userInviteEmail(
   }
   return {
     subject: `You've been invited to ${orgName}`,
-    text: `You've been invited to join ${orgName} on the Strawberry Events platform.\nTo set your password and activate your account, open this link (valid for 7 days):\n${inviteUrl}\nIf you weren't expecting this invitation, you can ignore this email.`,
+    text: `You've been invited to join ${orgName} on the Strawberry Agency Events platform.\nTo set your password and activate your account, open this link (valid for 7 days):\n${inviteUrl}\nIf you weren't expecting this invitation, you can ignore this email.`,
   };
 }
 

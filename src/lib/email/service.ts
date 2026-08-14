@@ -99,8 +99,8 @@ export async function sendEmail(email: OutgoingEmail, meta?: EmailMeta): Promise
   }
 
   const from = process.env.SMTP_FROM_EMAIL
-    ? `${process.env.SMTP_FROM_NAME ?? "Strawberry Events"} <${process.env.SMTP_FROM_EMAIL}>`
-    : "Strawberry Events <noreply@strawberry.local>";
+    ? `${process.env.SMTP_FROM_NAME ?? "Strawberry Agency Events"} <${process.env.SMTP_FROM_EMAIL}>`
+    : "Strawberry Agency Events <noreply@strawberry.local>";
   try {
     const info = await getTransport().sendMail({ from, ...email });
     if (mode === "dev-log") {

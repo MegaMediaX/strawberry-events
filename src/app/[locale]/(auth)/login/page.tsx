@@ -20,7 +20,7 @@ export default async function LoginPage({
             href={`/${locale}/events`}
             className="bg-[image:var(--gradient-hero)] bg-clip-text text-2xl font-extrabold tracking-tight text-transparent"
           >
-            Strawberry Events
+            Strawberry Agency Events
           </Link>
           <p className="mt-1 text-sm text-muted-foreground">Sign in to continue</p>
         </div>

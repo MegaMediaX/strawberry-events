@@ -17,7 +17,7 @@ export default async function ForgotPasswordPage({
             href={`/${locale}/events`}
             className="bg-[image:var(--gradient-hero)] bg-clip-text text-2xl font-extrabold tracking-tight text-transparent"
           >
-            Strawberry Events
+            Strawberry Agency Events
           </Link>
         </div>
         <ForgotPasswordForm locale={locale} />

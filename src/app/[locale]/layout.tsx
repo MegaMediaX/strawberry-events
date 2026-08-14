@@ -22,7 +22,7 @@ const plexArabic = IBM_Plex_Sans_Arabic({
 });
 
 export const metadata: Metadata = {
-  title: "Strawberry Events",
+  title: "Strawberry Agency Events",
   description: "Premium event registration platform.",
 };
 

@@ -17,9 +17,9 @@ export async function PublicNav({ locale }: { locale: string }) {
           /* whitespace-nowrap stops the wordmark breaking onto two lines on a
              375px viewport; the gradient clip needs an explicit text colour
              underneath it so the name is still legible if the clip fails. */
-          className="shrink-0 whitespace-nowrap bg-[image:var(--gradient-hero)] bg-clip-text text-lg font-extrabold tracking-tight text-primary [-webkit-text-fill-color:transparent] sm:text-xl"
+          className="shrink-0 whitespace-nowrap text-lg font-extrabold tracking-tight text-primary sm:text-xl"
         >
-          Strawberry Events
+          Strawberry Agency Events
         </Link>
         <nav className="flex min-w-0 items-center gap-1">
           {session ? (
