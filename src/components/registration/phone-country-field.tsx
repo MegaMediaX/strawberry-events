@@ -29,7 +29,7 @@ export function PhoneCountryField({
         onChange={(e) => onCc(e.target.value)}
         /* h-10 keeps the code select the same height as the number field
            beside it; they read as one control only when they line up. */
-        className="h-10 shrink-0 rounded-lg border border-input bg-background px-2 text-sm focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 outline-none"
+        className="well h-11 shrink-0 rounded-lg border border-input px-2 text-sm focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 outline-none"
       >
         {CODES.map((c) => (
           <option key={c} value={c}>
@@ -38,6 +38,7 @@ export function PhoneCountryField({
         ))}
       </select>
       <Input
+        className="well h-11"
         id={id}
         type="tel"
         autoComplete="tel"

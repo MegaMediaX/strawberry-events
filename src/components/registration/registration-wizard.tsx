@@ -2,6 +2,9 @@
 
 import { useId, useState } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
+import { stepMotion } from "@/lib/motion";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Programme } from "./programme";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -36,6 +39,38 @@ function RequiredMark() {
       </span>
       <span className="sr-only">(required)</span>
     </>
+  );
+}
+
+/** Editorial header per step. Keyed by step label so a 3-step event (no
+ *  sub-events) numbers itself correctly without a second lookup table. */
+const STEP_HEADLINES: Record<string, { eyebrow: string; title: string }> = {
+  Details: { eyebrow: "Who's coming", title: "Your details" },
+  Tickets: { eyebrow: "Admission", title: "Choose your ticket" },
+  Sessions: { eyebrow: "The programme", title: "Build your schedule" },
+  Confirm: { eyebrow: "Confirm", title: "Review and confirm" },
+};
+
+function StepHeader({ index, label }: { index: number; label: string }) {
+  const h = STEP_HEADLINES[label] ?? { eyebrow: label, title: label };
+  return (
+    <header className="flex flex-col gap-1.5">
+      <p className="text-[11px] font-semibold tracking-[0.14em] text-muted-foreground uppercase tabular-nums">
+        {String(index + 1).padStart(2, "0")} — {h.eyebrow}
+      </p>
+      <h2 className="font-heading text-[28px] leading-[1.05] tracking-[-0.01em] md:text-[34px]">
+        {h.title}
+      </h2>
+    </header>
+  );
+}
+
+/** Section marker above a supporting block. */
+function Eyebrow({ children }: { children: React.ReactNode }) {
+  return (
+    <p className="text-[11px] font-semibold tracking-[0.14em] text-muted-foreground uppercase">
+      {children}
+    </p>
   );
 }
 
@@ -218,7 +253,6 @@ export function RegistrationWizard({
       setErr(Object.values(res.fieldErrors).flat().join(", "));
   }
 
-  const dir = reduce ? 0 : 24;
 
   return (
     // A real <form> so Enter submits the step, browsers offer autofill across
@@ -230,21 +264,30 @@ export function RegistrationWizard({
         if (step < CONFIRM_STEP) next();
         else void submit();
       }}
-      className="mx-auto max-w-xl px-4 py-8 pb-28"
+      /* Width and horizontal padding come from <main> on the page; the sticky
+         ribbon's -mx-4 relies on that padding existing exactly once.
+         pb clears the 44px action bar + its safe-area inset, replacing the
+         previous guessed pb-28. */
+      className="pt-8"
+      style={{ paddingBottom: "calc(100px + env(safe-area-inset-bottom))" }}
     >
       <Stepper steps={STEPS} current={step} />
-      <div className="mt-6 min-h-[200px]">
+
+      {/* Below lg this is a single column and the programme renders inline
+          under each step. From lg the programme moves into a sticky rail so
+          the itinerary stays visible while the form is filled, and the wide
+          viewport stops being mostly empty. */}
+      <div className="lg:grid lg:grid-cols-[minmax(0,1fr)_320px] lg:items-start lg:gap-10">
+      <div className="mt-8 min-h-[200px]">
         <AnimatePresence mode="wait">
           <motion.div
             key={step}
-            initial={{ x: dir, opacity: 0 }}
-            animate={{ x: 0, opacity: 1 }}
-            exit={{ x: -dir, opacity: 0 }}
-            transition={{ duration: 0.22 }}
+            {...stepMotion(!!reduce)}
           >
             {step === 0 && (
-              <div className="flex flex-col gap-4">
-                <p className="text-sm text-muted-foreground">
+              <div className="flex flex-col gap-5">
+                <StepHeader index={0} label={STEPS[0]} />
+                <p className="text-xs text-muted-foreground">
                   Fields marked <RequiredMark /> are required.
                 </p>
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -253,6 +296,7 @@ export function RegistrationWizard({
                       First name <RequiredMark />
                     </Label>
                     <Input
+                      className="well h-11"
                       id={fid.firstName}
                       required
                       aria-required="true"
@@ -266,6 +310,7 @@ export function RegistrationWizard({
                       Last name <RequiredMark />
                     </Label>
                     <Input
+                      className="well h-11"
                       id={fid.lastName}
                       required
                       aria-required="true"
@@ -280,6 +325,7 @@ export function RegistrationWizard({
                     Email <RequiredMark />
                   </Label>
                   <Input
+                    className="well h-11"
                     id={fid.email}
                     type="email"
                     required
@@ -313,7 +359,7 @@ export function RegistrationWizard({
                         id={fid.attendeeType}
                         required={attendeeTypeRequired}
                         aria-required={attendeeTypeRequired || undefined}
-                        className="h-10 w-full rounded-lg border border-input bg-background px-3 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+                        className="well h-11 w-full rounded-lg border border-input px-3 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
                         value={a.attendeeType}
                         onChange={(e) =>
                           setA({
@@ -336,6 +382,7 @@ export function RegistrationWizard({
                           Company name <RequiredMark />
                         </Label>
                         <Input
+                          className="well h-11"
                           id={fid.company}
                           required
                           aria-required="true"
@@ -347,27 +394,62 @@ export function RegistrationWizard({
                     )}
                   </div>
                 )}
+
+                {hasSubEvents && (
+                  <section className="mt-8 flex flex-col gap-3 lg:hidden">
+                    <Eyebrow>What you&rsquo;re joining</Eyebrow>
+                    <Programme
+                      subEvents={subEvents}
+                      selected={subEventSelection}
+                      variant="preview"
+                    />
+                  </section>
+                )}
               </div>
             )}
 
             {step === 1 && (
-              <div className="flex flex-col gap-3">
+              <div className="flex flex-col gap-5">
+                <StepHeader index={1} label={STEPS[1]} />
                 {tickets.map((t) => (
                   <div
                     key={t.id}
-                    className="flex items-center justify-between rounded-[var(--radius-lg)] border border-border p-3"
+                    className="flex items-center justify-between gap-3 rounded-[var(--radius-lg)] border border-border bg-card p-5 shadow-[var(--shadow-1)]"
                   >
-                    <div>
-                      <div className="font-medium">{t.title}</div>
-                      <div className="text-sm text-muted-foreground">
+                    <div className="min-w-0">
+                      <div className="font-heading text-[22px] leading-[1.15] tracking-[-0.01em]">
+                        {t.title}
+                      </div>
+                      <div className="mt-0.5 text-[13px] font-medium tracking-[0.04em] text-muted-foreground uppercase">
                         {t.priceCents === 0 ? "Free" : `$${centsToPrice(t.priceCents)}`}
                       </div>
                     </div>
+                    {ticketsPerUserMain === 1 ? (
+                      <button
+                        type="button"
+                        role="switch"
+                        aria-checked={(qty[t.id] ?? 0) > 0}
+                        aria-label={t.title}
+                        onClick={() =>
+                          setQty({ ...qty, [t.id]: (qty[t.id] ?? 0) > 0 ? 0 : 1 })
+                        }
+                        className={[
+                          "flex size-11 shrink-0 items-center justify-center rounded-full border-2 text-lg transition-colors",
+                          "outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50",
+                          (qty[t.id] ?? 0) > 0
+                            ? "border-primary bg-primary text-primary-foreground"
+                            : "border-border bg-background",
+                        ].join(" ")}
+                      >
+                        <span aria-hidden="true">{(qty[t.id] ?? 0) > 0 ? "✓" : "+"}</span>
+                      </button>
+                    ) : (
                     <div className="flex items-center gap-2">
                       <Button
                         type="button"
                         variant="outline"
                         size="icon-lg"
+                        className="size-11"
                         aria-label={`Remove one ${t.title} ticket`}
                         disabled={(qty[t.id] ?? 0) === 0}
                         onClick={() =>
@@ -389,6 +471,7 @@ export function RegistrationWizard({
                         type="button"
                         variant="outline"
                         size="icon-lg"
+                        className="size-11"
                         aria-label={`Add one ${t.title} ticket`}
                         disabled={!canAddMainTicket}
                         onClick={() => {
@@ -399,6 +482,7 @@ export function RegistrationWizard({
                         +
                       </Button>
                     </div>
+                    )}
                   </div>
                 ))}
                 {(mainCapReached || totalCapReached) && (
@@ -409,15 +493,28 @@ export function RegistrationWizard({
                   </p>
                 )}
                 {seatSections && seatSections.length > 0 && (
-                  <div className="mt-2 rounded-[var(--radius-lg)] border border-border p-3">
+                  <div className="mt-2 rounded-[var(--radius-lg)] border border-border bg-card p-5 shadow-[var(--shadow-1)]">
                     <div className="mb-2 font-medium">Choose your seat(s)</div>
                     <SeatSelector sections={seatSections} onChange={setSeatIds} />
                   </div>
+                )}
+
+                {hasSubEvents && (
+                  <section className="mt-8 flex flex-col gap-3 lg:hidden">
+                    <Eyebrow>What you&rsquo;re joining</Eyebrow>
+                    <Programme
+                      subEvents={subEvents}
+                      selected={subEventSelection}
+                      variant="preview"
+                    />
+                  </section>
                 )}
               </div>
             )}
 
             {hasSubEvents && step === SESSIONS_STEP && (
+              <div className="flex flex-col gap-5">
+                <StepHeader index={SESSIONS_STEP} label={STEPS[SESSIONS_STEP]} />
               <SubEventPicker
                 locale={locale}
                 subEvents={subEvents}
@@ -425,11 +522,23 @@ export function RegistrationWizard({
                 totalAllowance={Math.max(0, ticketsPerUserTotal - totalQty)}
                 onChange={setSubEventSelection}
               />
+              </div>
             )}
 
             {step === CONFIRM_STEP && (
-              <div className="flex flex-col gap-4">
-                <div className="rounded-[var(--radius-lg)] border border-border p-3 text-sm">
+              <div className="flex flex-col gap-5">
+                <StepHeader index={CONFIRM_STEP} label={STEPS[CONFIRM_STEP]} />
+                {hasSubEvents && (
+                  <section className="flex flex-col gap-3">
+                    <Eyebrow>Your schedule</Eyebrow>
+                    <Programme
+                      subEvents={subEvents}
+                      selected={subEventSelection}
+                      variant="receipt"
+                    />
+                  </section>
+                )}
+                <div className="rounded-[var(--radius-lg)] border border-border bg-card p-5 text-sm shadow-[var(--shadow-1)]">
                   <div className="font-medium">Order summary</div>
                   {tickets
                     .filter((t) => (qty[t.id] ?? 0) > 0)
@@ -495,12 +604,7 @@ export function RegistrationWizard({
                     })}
                   </div>
                 )}
-                <label className="flex items-center gap-2 text-sm">
-                  <input
-                    type="checkbox"
-                    checked={terms}
-                    onChange={(e) => setTerms(e.target.checked)}
-                  />
+                <Checkbox checked={terms} onCheckedChange={setTerms}>
                   <span>
                     I agree to the{" "}
                     <a
@@ -512,13 +616,8 @@ export function RegistrationWizard({
                       Terms and Conditions
                     </a>
                   </span>
-                </label>
-                <label className="flex items-center gap-2 text-sm">
-                  <input
-                    type="checkbox"
-                    checked={privacy}
-                    onChange={(e) => setPrivacy(e.target.checked)}
-                  />
+                </Checkbox>
+                <Checkbox checked={privacy} onCheckedChange={setPrivacy}>
                   <span>
                     I agree to the{" "}
                     <a
@@ -530,11 +629,29 @@ export function RegistrationWizard({
                       Privacy Policy
                     </a>
                   </span>
-                </label>
+                </Checkbox>
               </div>
             )}
           </motion.div>
         </AnimatePresence>
+      </div>
+
+      {hasSubEvents && (
+        <aside className="sticky top-24 hidden lg:block">
+          <div className="rounded-[var(--radius-lg)] border border-border bg-card p-6 shadow-[var(--shadow-1)]">
+            <Eyebrow>The programme</Eyebrow>
+            <Programme
+              className="mt-3"
+              subEvents={subEvents}
+              selected={subEventSelection}
+              variant="preview"
+            />
+            <p className="mt-4 border-t border-border pt-3 text-[13px] font-medium tracking-[0.04em] text-muted-foreground tabular-nums">
+              {totalCents === 0 ? "Total — Free" : `Total — $${centsToPrice(totalCents)}`}
+            </p>
+          </div>
+        </aside>
+      )}
       </div>
 
       {/* role="alert" so a validation failure is announced. The region is
@@ -557,17 +674,18 @@ export function RegistrationWizard({
           type="button"
           variant="ghost"
           size="lg"
+          className="h-11"
           onClick={() => setStep((s) => Math.max(0, s - 1))}
           disabled={step === 0 || busy}
         >
           Back
         </Button>
         {step < CONFIRM_STEP ? (
-          <Button type="submit" size="lg">
+          <Button type="submit" size="lg" className="h-11 px-6">
             Next
           </Button>
         ) : (
-          <Button type="submit" size="lg" disabled={busy}>
+          <Button type="submit" size="lg" className="h-11 px-6" disabled={busy}>
             {busy ? "Submitting…" : "Complete registration"}
           </Button>
         )}

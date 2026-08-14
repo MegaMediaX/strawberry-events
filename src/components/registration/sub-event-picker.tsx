@@ -1,6 +1,7 @@
 "use client";
 
 import { rangesOverlap } from "@/lib/events/conflicts";
+import { dateStamp, timeRange } from "./programme";
 
 export interface SubEventItem {
   id: string;
@@ -33,20 +34,6 @@ interface Props {
   onChange: (next: SubEventSelection[]) => void;
 }
 
-function fmt(iso: string, locale: string): string {
-  try {
-    return new Date(iso).toLocaleString(locale === "ar" ? "ar-LB" : "en-GB", {
-      weekday: "short",
-      month: "short",
-      day: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-    });
-  } catch {
-    return iso;
-  }
-}
-
 function groupBy<T>(arr: T[], key: (v: T) => string): Map<string, T[]> {
   const map = new Map<string, T[]>();
   for (const item of arr) {
@@ -58,9 +45,7 @@ function groupBy<T>(arr: T[], key: (v: T) => string): Map<string, T[]> {
   return map;
 }
 
-export function SubEventPicker({ locale, subEvents, selected, totalAllowance, onChange }: Props) {
-  const isRtl = locale === "ar";
-
+export function SubEventPicker({ subEvents, selected, totalAllowance, onChange }: Props) {
   function qtyFor(itemId: number): number {
     return selected.find((s) => s.itemId === itemId)?.quantity ?? 0;
   }
@@ -80,129 +65,173 @@ export function SubEventPicker({ locale, subEvents, selected, totalAllowance, on
   );
 
   const totalSelected = selected.reduce((sum, s) => sum + s.quantity, 0);
-
   const grouped = groupBy(subEvents, (se) => se.category);
 
+  if (subEvents.length === 0) {
+    return <p className="text-sm text-muted-foreground">No sessions available.</p>;
+  }
+
   return (
-    <div className="flex flex-col gap-6" dir={isRtl ? "rtl" : "ltr"}>
-      <div className="flex items-center justify-between text-sm text-muted-foreground">
-        <span>{isRtl ? "اختر الجلسات" : "Choose sessions"}</span>
-        <span>
-          {totalSelected}/{totalAllowance}{" "}
-          {isRtl ? "تذاكر مختارة" : "tickets selected"}
-        </span>
-      </div>
+    <div className="flex flex-col gap-8">
+      <p
+        className="text-[13px] font-medium tracking-[0.04em] text-muted-foreground tabular-nums"
+        aria-live="polite"
+      >
+        {totalSelected} of {totalAllowance} selected
+      </p>
 
       {[...grouped.entries()].map(([category, items]) => (
-        <div key={category}>
-          <h3 className="mb-2 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-            {category}
+        <section key={category}>
+          {/* The count comes from the group itself, so "AI FOR HR · 3 PARTS"
+              is derived rather than hardcoded for this one event. */}
+          <h3 className="flex items-baseline gap-2 border-b border-border pb-2 text-[11px] font-semibold tracking-[0.14em] text-muted-foreground uppercase">
+            <span>{category}</span>
+            <span aria-hidden="true">·</span>
+            <span>
+              {items.length} {items.length === 1 ? "part" : "parts"}
+            </span>
           </h3>
-          <div className="flex flex-col gap-2">
+
+          <ul>
             {items.map((se) => {
               if (se.pretixItemId === null) return null;
               const itemId = se.pretixItemId;
               const qty = qtyFor(itemId);
-              const title =
-                isRtl && se.titleAr ? se.titleAr : se.titleEn;
+              const on = qty > 0;
+              const { day, month } = dateStamp(se.dateFrom);
 
-              // Conflict: does this session overlap any currently selected one (excluding itself)?
+              // Conflict: does this session overlap any currently selected one?
               const othersSelected = selectedItems.filter((s) => s.id !== se.id);
               const conflicts = othersSelected.filter((other) => rangesOverlap(se, other));
               const hasConflict = qty === 0 && conflicts.length > 0;
-              const conflictTitle =
-                isRtl && conflicts[0]?.titleAr
-                  ? conflicts[0].titleAr
-                  : conflicts[0]?.titleEn;
+              const conflictTitle = conflicts[0]?.titleEn;
 
               const atPerItemCap = qty >= se.ticketsPerUser;
               const atTotalCap = totalSelected >= totalAllowance && qty === 0;
               const soldOut = se.remaining !== null && se.remaining <= 0;
               const disabled = hasConflict || soldOut || atTotalCap;
+              // A per-item cap of 1 is a yes/no choice — a stepper that can only
+              // ever read 0 or 1 misrepresents the interaction.
+              const isToggle = se.ticketsPerUser === 1;
 
               return (
-                <div
+                <li
                   key={se.id}
                   className={[
-                    "flex items-start justify-between rounded-[var(--radius-lg)] border border-border p-3 gap-3",
-                    disabled ? "opacity-50" : "",
+                    "relative grid grid-cols-[56px_1fr_auto] items-start gap-3 border-b border-border px-4 py-5 last:border-b-0",
+                    "transition-[background-color,box-shadow] duration-200",
+                    on ? "bg-card shadow-[var(--shadow-1)]" : "",
+                    disabled ? "opacity-45" : "",
                   ]
                     .join(" ")
                     .trim()}
                 >
-                  <div className="min-w-0 flex-1">
-                    <div className="font-medium leading-snug">{title}</div>
-                    {se.location && (
-                      <div className="mt-0.5 text-xs text-muted-foreground">
-                        {se.location}
-                      </div>
-                    )}
-                    <div className="mt-0.5 text-xs text-muted-foreground">
-                      {fmt(se.dateFrom, locale)} — {fmt(se.dateTo, locale)}
-                    </div>
-                    {se.remaining !== null && se.remaining > 0 && (
-                      <div className="mt-0.5 text-xs text-muted-foreground">
-                        {se.remaining}{" "}
-                        {isRtl ? "مقعد متبقي" : "seats left"}
-                      </div>
-                    )}
+                  <span
+                    aria-hidden="true"
+                    className="absolute inset-y-0 start-0 w-[3px] origin-top bg-primary transition-transform duration-300 ease-out motion-reduce:transition-none"
+                    style={{ transform: on ? "scaleY(1)" : "scaleY(0)" }}
+                  />
+
+                  {/* Date stamp bleeds into the gutter so the numeral reads as a
+                      stamp on the page rather than a cell in a table. */}
+                  <span className="-ms-3 flex flex-col items-start">
+                    <span
+                      className={[
+                        "font-heading text-[36px] leading-[0.85] tracking-[-0.03em] tabular-nums transition-colors duration-200",
+                        on ? "text-foreground" : "text-muted-foreground",
+                      ].join(" ")}
+                    >
+                      {day}
+                    </span>
+                    <span className="text-[10px] font-semibold tracking-[0.12em] text-muted-foreground">
+                      {month}
+                    </span>
+                  </span>
+
+                  <span className="min-w-0">
+                    <span className="block font-heading text-[22px] leading-[1.15] tracking-[-0.01em]">
+                      {se.titleEn}
+                    </span>
+                    <span className="mt-1 block text-[13px] font-medium tracking-[0.04em] text-muted-foreground tabular-nums">
+                      {timeRange(se.dateFrom, se.dateTo)}
+                      {se.location && (
+                        <>
+                          <span aria-hidden="true"> · </span>
+                          <span className="uppercase">{se.location}</span>
+                        </>
+                      )}
+                    </span>
                     {soldOut && (
-                      <div className="mt-0.5 text-xs text-destructive">
-                        {isRtl ? "نفذت التذاكر" : "Sold out"}
-                      </div>
+                      <span className="mt-1 block text-xs text-destructive">Sold out</span>
                     )}
                     {hasConflict && (
-                      <div className="mt-0.5 text-xs text-destructive">
-                        {isRtl
-                          ? `تعارض مع "${conflictTitle}"`
-                          : `Overlaps with "${conflictTitle}"`}
-                      </div>
+                      <span className="mt-1 block text-xs text-destructive">
+                        {`Overlaps with "${conflictTitle}"`}
+                      </span>
                     )}
                     {atTotalCap && !hasConflict && !soldOut && (
-                      <div className="mt-0.5 text-xs text-muted-foreground">
-                        {isRtl ? "وصلت للحد الأقصى" : "Selection limit reached"}
-                      </div>
+                      <span className="mt-1 block text-xs text-muted-foreground">
+                        Selection limit reached
+                      </span>
                     )}
-                  </div>
+                  </span>
 
-                  <div className="flex shrink-0 flex-col items-end gap-1">
-                    <div className="text-sm font-medium">
-                      {se.priceCents === 0
-                        ? isRtl ? "مجاني" : "Free"
-                        : `$${(se.priceCents / 100).toFixed(2)}`}
-                    </div>
-                    <div className="flex items-center gap-1">
+                  {/* 44px targets. These were raw 28px buttons with no
+                      accessible name and no live count. */}
+                  {isToggle ? (
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={on}
+                      aria-label={`${se.titleEn}, ${timeRange(se.dateFrom, se.dateTo)}`}
+                      disabled={disabled && !on}
+                      onClick={() => setQty(itemId, on ? 0 : 1)}
+                      className={[
+                        "flex size-11 shrink-0 items-center justify-center rounded-full border-2 text-lg transition-colors",
+                        "outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50",
+                        "disabled:pointer-events-none disabled:opacity-40",
+                        on
+                          ? "border-primary bg-primary text-primary-foreground"
+                          : "border-border bg-background",
+                      ].join(" ")}
+                    >
+                      <span aria-hidden="true">{on ? "✓" : "+"}</span>
+                    </button>
+                  ) : (
+                    <span className="flex shrink-0 items-center gap-1">
                       <button
                         type="button"
+                        aria-label={`Remove one ${se.titleEn}`}
                         disabled={qty === 0}
                         onClick={() => setQty(itemId, qty - 1)}
-                        className="flex size-7 items-center justify-center rounded-md border border-border text-sm disabled:opacity-40"
+                        className="flex size-11 items-center justify-center rounded-lg border border-border outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-40"
                       >
-                        −
+                        <span aria-hidden="true">−</span>
                       </button>
-                      <span className="w-5 text-center text-sm">{qty}</span>
+                      <span
+                        className="w-6 text-center text-sm tabular-nums"
+                        aria-live="polite"
+                        aria-label={`${qty} × ${se.titleEn}`}
+                      >
+                        {qty}
+                      </span>
                       <button
                         type="button"
+                        aria-label={`Add one ${se.titleEn}`}
                         disabled={disabled || atPerItemCap}
                         onClick={() => setQty(itemId, qty + 1)}
-                        className="flex size-7 items-center justify-center rounded-md border border-border text-sm disabled:opacity-40"
+                        className="flex size-11 items-center justify-center rounded-lg border border-border outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-40"
                       >
-                        +
+                        <span aria-hidden="true">+</span>
                       </button>
-                    </div>
-                  </div>
-                </div>
+                    </span>
+                  )}
+                </li>
               );
             })}
-          </div>
-        </div>
+          </ul>
+        </section>
       ))}
-
-      {subEvents.length === 0 && (
-        <p className="text-sm text-muted-foreground">
-          {isRtl ? "لا توجد جلسات متاحة." : "No sessions available."}
-        </p>
-      )}
     </div>
   );
 }

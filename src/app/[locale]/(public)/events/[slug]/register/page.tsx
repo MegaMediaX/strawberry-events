@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { setRequestLocale } from "next-intl/server";
 import { getPublicEvent } from "@/lib/events/public";
+import { coverImageUrl } from "@/lib/events/cover-image";
 import { getSeatMap } from "@/lib/seats/service";
 import { getEventFields } from "@/lib/admin/custom-fields";
 import { RegistrationWizard } from "@/components/registration/registration-wizard";
@@ -10,6 +11,41 @@ import type { SectionNode } from "@/components/seats/seat-selector";
 import type { SubEventItem } from "@/components/registration/sub-event-picker";
 
 export const dynamic = "force-dynamic";
+
+/** "28—30 AUG 2026 · VENUE". Each half is dropped when its data is absent. */
+function buildMetaLine(
+  from: string | null,
+  to: string | null,
+  venue: string | null,
+): string | null {
+  const parts: string[] = [];
+
+  if (from) {
+    const a = new Date(from);
+    const b = to ? new Date(to) : null;
+    const day = (d: Date) =>
+      new Intl.DateTimeFormat("en-GB", { day: "numeric", timeZone: "UTC" }).format(d);
+    const monthYear = (d: Date) =>
+      new Intl.DateTimeFormat("en-GB", {
+        month: "short",
+        year: "numeric",
+        timeZone: "UTC",
+      }).format(d);
+    const sameMonth =
+      b && a.getUTCMonth() === b.getUTCMonth() && a.getUTCFullYear() === b.getUTCFullYear();
+
+    if (b && sameMonth && day(a) !== day(b)) {
+      parts.push(`${day(a)}—${day(b)} ${monthYear(a)}`);
+    } else if (b && !sameMonth) {
+      parts.push(`${day(a)} ${monthYear(a)} — ${day(b)} ${monthYear(b)}`);
+    } else {
+      parts.push(`${day(a)} ${monthYear(a)}`);
+    }
+  }
+
+  if (venue) parts.push(venue);
+  return parts.length > 0 ? parts.join(" · ") : null;
+}
 
 export default async function RegisterPage({
   params,
@@ -37,6 +73,14 @@ export default async function RegisterPage({
   }
 
   const title = locale === "ar" && data.event.titleAr ? data.event.titleAr : data.event.titleEn;
+
+  const coverUrl = data.event.coverImagePath
+    ? coverImageUrl(data.event.coverImagePath)
+    : null;
+
+  // "28—30 AUG 2026 · LE ROYAL HOTEL BEIRUT", collapsing to a single date when
+  // the event runs one day and omitting either half when the data is missing.
+  const metaLine = buildMetaLine(data.dateFrom, data.dateTo, data.event.venueName);
 
   const unlockedInviteTickets = data.inviteOnlyTickets.filter((t) =>
     unlockedItemIds.has(t.id),
@@ -99,12 +143,45 @@ export default async function RegisterPage({
 
   return (
     // <main> was missing here, so the page had no main landmark to skip to.
-    <main>
-      <div className="mx-auto max-w-xl px-4 pt-6">
-        <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">
-          Register — {title}
+    <main className="mx-auto max-w-xl px-4 pb-4 lg:max-w-5xl lg:px-8">
+      {/* Cover band. No text is ever placed over it: the image is admin-uploaded
+          at an unknown crop, and type below it on cream is both safer and a
+          better composition than a scrim. When there is no cover the masthead
+          stands on its own — that is a complete design, not a fallback. */}
+      {coverUrl && (
+        <div className="-mx-4 overflow-hidden sm:mx-0 sm:rounded-[var(--radius-xl)]">
+          <img
+            src={coverUrl}
+            alt=""
+            className="aspect-[16/9] w-full object-cover object-center sm:aspect-[21/9]"
+            style={{ filter: "saturate(0.9) contrast(1.03)" }}
+          />
+        </div>
+      )}
+
+      <header className="flex flex-col gap-2 pt-6">
+        <p className="text-[11px] font-semibold tracking-[0.14em] text-muted-foreground uppercase">
+          Registration
+        </p>
+        <h1 className="font-heading text-[40px] leading-[0.98] tracking-[-0.02em] lg:text-[60px] lg:leading-[0.94]">
+          {title}
         </h1>
-      </div>
+        <div className="h-[3px] w-11 rounded-full bg-primary" />
+        {metaLine && (
+          <p className="text-[13px] font-medium tracking-[0.04em] text-muted-foreground uppercase tabular-nums">
+            {metaLine}
+          </p>
+        )}
+        {/* Clamped to 3 lines on purpose. Unclamped, this description is ~390px
+            tall and pushes the first form field below the fold on a 812px
+            viewport — you would land on a registration page and see no form.
+            The full text lives on the event detail page. */}
+        {data.event.descriptionEn && (
+          <p className="mt-1 line-clamp-3 max-w-[42ch] text-[15px] leading-[1.55] text-muted-foreground">
+            {data.event.descriptionEn}
+          </p>
+        )}
+      </header>
       <RegistrationWizard
         locale={locale}
         slug={slug}
