@@ -117,6 +117,9 @@ export function EventList({
                   <Link className="ms-3 text-primary underline" href={`/${locale}/admin/events/${e.id}/tickets`}>
                     Tickets
                   </Link>
+                  <Link className="ms-3 text-primary underline" href={`/${locale}/admin/events/${e.id}/sessions`}>
+                    Sessions
+                  </Link>
                   <Link className="ms-3 text-primary underline" href={`/${locale}/admin/events/${e.id}/waitlist`}>
                     Waitlist
                   </Link>
@@ -152,6 +155,7 @@ export function EventList({
                 <Link className="text-primary underline" href={editHref(e.id)}>Edit</Link>
                 <Link className="text-primary underline" href={`/${locale}/admin/events/${e.id}/fields`}>Fields</Link>
                 <Link className="text-primary underline" href={`/${locale}/admin/events/${e.id}/tickets`}>Tickets</Link>
+                <Link className="text-primary underline" href={`/${locale}/admin/events/${e.id}/sessions`}>Sessions</Link>
                 <Link className="text-primary underline" href={`/${locale}/admin/events/${e.id}/waitlist`}>Waitlist</Link>
                 <button
                   type="button"
