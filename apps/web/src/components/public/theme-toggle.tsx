@@ -32,6 +32,9 @@ export function ThemeToggle({ initialDark = false }: { initialDark?: boolean }) 
     <Button
       variant="ghost"
       size="icon"
+      // size="icon" is 32px, below the 40px touch-target floor the rest of the
+      // public flow now holds to.
+      className="size-10"
       aria-label="Toggle theme"
       onClick={toggle}
     >

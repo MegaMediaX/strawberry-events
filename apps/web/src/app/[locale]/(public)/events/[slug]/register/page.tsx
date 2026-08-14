@@ -1,6 +1,9 @@
 import { notFound } from "next/navigation";
 import { setRequestLocale } from "next-intl/server";
 import { getPublicEvent } from "@/lib/events/public";
+import { coverImageUrl } from "@/lib/events/cover-image";
+import { ExpandableText } from "@/components/public/expandable-text";
+import { eventMetaLine } from "@/lib/events/format";
 import { getSeatMap } from "@/lib/seats/service";
 import { getEventFields } from "@/lib/admin/custom-fields";
 import { RegistrationWizard } from "@/components/registration/registration-wizard";
@@ -37,6 +40,14 @@ export default async function RegisterPage({
   }
 
   const title = locale === "ar" && data.event.titleAr ? data.event.titleAr : data.event.titleEn;
+
+  const coverUrl = data.event.coverImagePath
+    ? coverImageUrl(data.event.coverImagePath)
+    : null;
+
+  // "28—30 AUG 2026 · LE ROYAL HOTEL BEIRUT", collapsing to a single date when
+  // the event runs one day and omitting either half when the data is missing.
+  const metaLine = eventMetaLine(data.dateFrom, data.dateTo, data.event.venueName);
 
   const unlockedInviteTickets = data.inviteOnlyTickets.filter((t) =>
     unlockedItemIds.has(t.id),
@@ -103,10 +114,45 @@ export default async function RegisterPage({
     }));
 
   return (
-    <div>
-      <div className="mx-auto max-w-xl px-4 pt-6">
-        <h1 className="text-xl font-semibold">Register — {title}</h1>
-      </div>
+    // <main> was missing here, so the page had no main landmark to skip to.
+    <main className="mx-auto max-w-xl px-4 pb-4 lg:max-w-5xl lg:px-8">
+      {/* Cover band. No text is ever placed over it: the image is admin-uploaded
+          at an unknown crop, and type below it on cream is both safer and a
+          better composition than a scrim. When there is no cover the masthead
+          stands on its own — that is a complete design, not a fallback. */}
+      {coverUrl && (
+        <div className="-mx-4 overflow-hidden sm:mx-0 sm:rounded-[var(--radius-xl)]">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={coverUrl}
+            alt=""
+            className="aspect-[16/9] w-full object-cover object-center sm:aspect-[21/9]"
+            style={{ filter: "saturate(0.9) contrast(1.03)" }}
+          />
+        </div>
+      )}
+
+      <header className="flex flex-col gap-2 pt-6">
+        <p className="text-[11px] font-semibold tracking-[0.14em] text-muted-foreground uppercase">
+          Registration
+        </p>
+        <h1 className="font-heading text-[40px] leading-[0.98] tracking-[-0.02em] lg:text-[60px] lg:leading-[0.94]">
+          {title}
+        </h1>
+        <div className="h-[3px] w-11 rounded-full bg-primary" />
+        {metaLine && (
+          <p className="text-[13px] font-medium tracking-[0.04em] text-muted-foreground uppercase tabular-nums">
+            {metaLine}
+          </p>
+        )}
+        {/* Shown in full behind a disclosure rather than truncated. Rendering
+            all ~390px of it inline pushes the first form field below the fold
+            on an 812px viewport; cutting it off loses event copy the organiser
+            wrote. The text is always in the DOM — only the clamp is visual. */}
+        {data.event.descriptionEn && (
+          <ExpandableText className="mt-1" text={data.event.descriptionEn} lines={3} />
+        )}
+      </header>
       <RegistrationWizard
         locale={locale}
         slug={slug}
@@ -120,6 +166,6 @@ export default async function RegisterPage({
         attendeeTypeEnabled={data.event.attendeeTypeEnabled}
         attendeeTypeRequired={data.event.attendeeTypeRequired}
       />
-    </div>
+    </main>
   );
 }

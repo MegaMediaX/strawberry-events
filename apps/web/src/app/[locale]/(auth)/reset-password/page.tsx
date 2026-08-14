@@ -21,7 +21,7 @@ export default async function ResetPasswordPage({
             href={`/${locale}/events`}
             className="bg-[image:var(--gradient-hero)] bg-clip-text text-2xl font-extrabold tracking-tight text-transparent"
           >
-            Strawberry Events
+            Strawberry Agency Events
           </Link>
         </div>
         {token ? (

@@ -83,7 +83,7 @@ export function LoginForm({ locale, justReset = false }: { locale: string; justR
             </p>
           )}
           {error && <p className="text-sm text-destructive">{error}</p>}
-          <Button type="submit" disabled={isSubmitting}>
+          <Button type="submit" size="lg" className="h-11 px-6" disabled={isSubmitting}>
             {t("submit")}
           </Button>
         </form>
