@@ -2,7 +2,9 @@ import { describe, it, expect } from "vitest";
 import { dirForLocale, locales, defaultLocale } from "@/lib/i18n/dir";
 
 describe("dirForLocale", () => {
-  it("ar is rtl", () => {
+  // "ar" is no longer a served locale, but dirForLocale still classifies it
+  // correctly so the mapping is intact if Arabic is ever restored.
+  it("ar is still classified rtl even though it is not served", () => {
     expect(dirForLocale("ar")).toBe("rtl");
   });
 
@@ -15,7 +17,7 @@ describe("dirForLocale", () => {
   });
 
   it("exposes the supported locales and default", () => {
-    expect(locales).toEqual(["en", "ar"]);
+    expect(locales).toEqual(["en"]);
     expect(defaultLocale).toBe("en");
   });
 });
