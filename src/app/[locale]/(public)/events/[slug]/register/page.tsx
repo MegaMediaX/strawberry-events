@@ -2,6 +2,8 @@ import { notFound } from "next/navigation";
 import { setRequestLocale } from "next-intl/server";
 import { getPublicEvent } from "@/lib/events/public";
 import { coverImageUrl } from "@/lib/events/cover-image";
+import { ExpandableText } from "@/components/public/expandable-text";
+import { eventMetaLine } from "@/lib/events/format";
 import { getSeatMap } from "@/lib/seats/service";
 import { getEventFields } from "@/lib/admin/custom-fields";
 import { RegistrationWizard } from "@/components/registration/registration-wizard";
@@ -11,41 +13,6 @@ import type { SectionNode } from "@/components/seats/seat-selector";
 import type { SubEventItem } from "@/components/registration/sub-event-picker";
 
 export const dynamic = "force-dynamic";
-
-/** "28—30 AUG 2026 · VENUE". Each half is dropped when its data is absent. */
-function buildMetaLine(
-  from: string | null,
-  to: string | null,
-  venue: string | null,
-): string | null {
-  const parts: string[] = [];
-
-  if (from) {
-    const a = new Date(from);
-    const b = to ? new Date(to) : null;
-    const day = (d: Date) =>
-      new Intl.DateTimeFormat("en-GB", { day: "numeric", timeZone: "UTC" }).format(d);
-    const monthYear = (d: Date) =>
-      new Intl.DateTimeFormat("en-GB", {
-        month: "short",
-        year: "numeric",
-        timeZone: "UTC",
-      }).format(d);
-    const sameMonth =
-      b && a.getUTCMonth() === b.getUTCMonth() && a.getUTCFullYear() === b.getUTCFullYear();
-
-    if (b && sameMonth && day(a) !== day(b)) {
-      parts.push(`${day(a)}—${day(b)} ${monthYear(a)}`);
-    } else if (b && !sameMonth) {
-      parts.push(`${day(a)} ${monthYear(a)} — ${day(b)} ${monthYear(b)}`);
-    } else {
-      parts.push(`${day(a)} ${monthYear(a)}`);
-    }
-  }
-
-  if (venue) parts.push(venue);
-  return parts.length > 0 ? parts.join(" · ") : null;
-}
 
 export default async function RegisterPage({
   params,
@@ -80,7 +47,7 @@ export default async function RegisterPage({
 
   // "28—30 AUG 2026 · LE ROYAL HOTEL BEIRUT", collapsing to a single date when
   // the event runs one day and omitting either half when the data is missing.
-  const metaLine = buildMetaLine(data.dateFrom, data.dateTo, data.event.venueName);
+  const metaLine = eventMetaLine(data.dateFrom, data.dateTo, data.event.venueName);
 
   const unlockedInviteTickets = data.inviteOnlyTickets.filter((t) =>
     unlockedItemIds.has(t.id),
@@ -131,6 +98,7 @@ export default async function RegisterPage({
       titleEn: se.titleEn,
       titleAr: se.titleAr,
       category: se.category,
+      descriptionEn: se.descriptionEn,
       location: se.location,
       dateFrom: se.dateFrom.toISOString(),
       dateTo: se.dateTo.toISOString(),
@@ -172,14 +140,12 @@ export default async function RegisterPage({
             {metaLine}
           </p>
         )}
-        {/* Clamped to 3 lines on purpose. Unclamped, this description is ~390px
-            tall and pushes the first form field below the fold on a 812px
-            viewport — you would land on a registration page and see no form.
-            The full text lives on the event detail page. */}
+        {/* Shown in full behind a disclosure rather than truncated. Rendering
+            all ~390px of it inline pushes the first form field below the fold
+            on an 812px viewport; cutting it off loses event copy the organiser
+            wrote. The text is always in the DOM — only the clamp is visual. */}
         {data.event.descriptionEn && (
-          <p className="mt-1 line-clamp-3 max-w-[42ch] text-[15px] leading-[1.55] text-muted-foreground">
-            {data.event.descriptionEn}
-          </p>
+          <ExpandableText className="mt-1" text={data.event.descriptionEn} lines={3} />
         )}
       </header>
       <RegistrationWizard

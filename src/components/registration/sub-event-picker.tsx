@@ -1,6 +1,7 @@
 "use client";
 
 import { rangesOverlap } from "@/lib/events/conflicts";
+import { ExpandableText } from "@/components/public/expandable-text";
 import { dateStamp, timeRange } from "./programme";
 
 export interface SubEventItem {
@@ -8,6 +9,8 @@ export interface SubEventItem {
   titleEn: string;
   titleAr: string | null;
   category: string;
+  /** Organiser-written detail (speakers, session breakdown). Often null. */
+  descriptionEn: string | null;
   location: string | null;
   dateFrom: string;
   dateTo: string;
@@ -161,6 +164,14 @@ export function SubEventPicker({ subEvents, selected, totalAllowance, onChange }
                         </>
                       )}
                     </span>
+                    {se.descriptionEn && (
+                      <ExpandableText
+                        className="mt-2"
+                        text={se.descriptionEn}
+                        lines={2}
+                        textClassName="text-[13px] leading-[1.5] text-muted-foreground"
+                      />
+                    )}
                     {soldOut && (
                       <span className="mt-1 block text-xs text-destructive">Sold out</span>
                     )}

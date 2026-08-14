@@ -1,4 +1,4 @@
-// Strawberry Events Platform — custom-layer schema.
+// Strawberry Agency Events Platform — custom-layer schema.
 // pretix remains the source of truth for orders/tickets/check-ins; this DB
 // holds platform-specific data pretix does not own.
 
@@ -351,6 +351,14 @@ model SubEvent {
   titleEn        String
   titleAr        String?
   category       String
+  // These three already exist in the database via the applied migration
+  // 20260805000000_sub_event_opt_in_and_description, whose file is missing from
+  // this source tree (see prisma/migrations — the DB is 4 migrations ahead).
+  // They were absent from this model, so the generated client could not read
+  // them and the organiser-written session detail was invisible in the UI.
+  descriptionEn  String?
+  descriptionAr  String?
+  requiresOptIn  Boolean   @default(false)
   location       String?
   dateFrom       DateTime
   dateTo         DateTime
