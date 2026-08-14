@@ -26,14 +26,14 @@ export async function PublicNav({ locale }: { locale: string }) {
             <>
               <Link
                 href={`/${locale}/my-tickets`}
-                className="shrink-0 whitespace-nowrap rounded-md px-2 py-1.5 text-sm font-medium text-muted-foreground transition hover:bg-muted hover:text-foreground sm:px-3"
+                className="inline-flex min-h-10 shrink-0 items-center whitespace-nowrap rounded-md px-2 text-sm font-medium text-muted-foreground transition hover:bg-muted hover:text-foreground sm:px-3"
               >
                 My tickets
               </Link>
               <form action={signOutAction.bind(null, locale)}>
                 <button
                   type="submit"
-                  className="shrink-0 whitespace-nowrap rounded-md px-2 py-1.5 text-sm font-medium text-muted-foreground transition hover:bg-muted hover:text-foreground sm:px-3"
+                  className="inline-flex min-h-10 shrink-0 items-center whitespace-nowrap rounded-md px-2 text-sm font-medium text-muted-foreground transition hover:bg-muted hover:text-foreground sm:px-3"
                 >
                   Sign out
                 </button>
@@ -42,7 +42,7 @@ export async function PublicNav({ locale }: { locale: string }) {
           ) : (
             <Link
               href={`/${locale}/login`}
-              className="shrink-0 whitespace-nowrap rounded-md px-2 py-1.5 text-sm font-medium text-muted-foreground transition hover:bg-muted hover:text-foreground sm:px-3"
+              className="inline-flex min-h-10 shrink-0 items-center whitespace-nowrap rounded-md px-2 text-sm font-medium text-muted-foreground transition hover:bg-muted hover:text-foreground sm:px-3"
             >
               Sign in
             </Link>
