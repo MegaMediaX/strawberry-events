@@ -1,0 +1,577 @@
+"use client";
+
+import { useId, useState } from "react";
+import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { centsToPrice } from "@/lib/pretix/mappers";
+import { Stepper } from "./stepper";
+import { PhoneCountryField } from "./phone-country-field";
+import { SeatSelector } from "@/components/seats/seat-selector";
+import { getFieldsForTicket, validateRequiredAnswers, fieldOptions, type FieldDef } from "@/lib/forms/fields";
+import { registerAction } from "@/app/[locale]/(public)/events/[slug]/register/actions";
+import { SubEventPicker, type SubEventItem, type SubEventSelection } from "./sub-event-picker";
+import { checkAttendeeEmail } from "@/lib/registration/email-validation";
+
+interface WizardTicket {
+  id: number;
+  title: string;
+  priceCents: number;
+}
+
+/** Step labels — Sessions step is skipped when there are no sub-events. */
+function buildSteps(hasSubEvents: boolean): string[] {
+  return hasSubEvents
+    ? ["Details", "Tickets", "Sessions", "Confirm"]
+    : ["Details", "Tickets", "Confirm"];
+}
+
+/** Required marker: the asterisk is decorative, the word carries the meaning. */
+function RequiredMark() {
+  return (
+    <>
+      <span aria-hidden="true" className="text-destructive">
+        *
+      </span>
+      <span className="sr-only">(required)</span>
+    </>
+  );
+}
+
+const CONFIRM_STEP_NO_SUB = 2;
+const CONFIRM_STEP_WITH_SUB = 3;
+const SESSIONS_STEP = 2;
+
+export function RegistrationWizard({
+  locale,
+  slug,
+  tickets,
+  seatSections,
+  customFields = [],
+  subEvents = [],
+  ticketsPerUserMain = 1,
+  ticketsPerUserTotal = 1,
+  inviteToken,
+  attendeeTypeEnabled = false,
+  attendeeTypeRequired = false,
+}: {
+  locale: string;
+  slug: string;
+  tickets: WizardTicket[];
+  seatSections?: import("@/components/seats/seat-selector").SectionNode[];
+  customFields?: FieldDef[];
+  subEvents?: SubEventItem[];
+  ticketsPerUserMain?: number;
+  ticketsPerUserTotal?: number;
+  inviteToken?: string;
+  attendeeTypeEnabled?: boolean;
+  attendeeTypeRequired?: boolean;
+}) {
+  const hasSubEvents = subEvents.length > 0;
+  const STEPS = buildSteps(hasSubEvents);
+  const CONFIRM_STEP = hasSubEvents ? CONFIRM_STEP_WITH_SUB : CONFIRM_STEP_NO_SUB;
+
+  const reduce = useReducedMotion();
+  // Explicit ids: <Label> and <Input> were siblings with no htmlFor/id pair, so
+  // nothing associated them and every field was announced unlabelled.
+  const uid = useId();
+  const fid = {
+    firstName: `${uid}-first-name`,
+    lastName: `${uid}-last-name`,
+    email: `${uid}-email`,
+    phone: `${uid}-phone`,
+    attendeeType: `${uid}-attendee-type`,
+    company: `${uid}-company`,
+    error: `${uid}-error`,
+  };
+  const [step, setStep] = useState(0);
+  const [err, setErr] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [seatIds, setSeatIds] = useState<string[]>([]);
+
+  const [a, setA] = useState({
+    firstName: "",
+    lastName: "",
+    email: "",
+    phoneCC: "+961",
+    phone: "",
+    company: "",
+    attendeeType: "",
+  });
+  const [qty, setQty] = useState<Record<number, number>>({});
+  const [subEventSelection, setSubEventSelection] = useState<SubEventSelection[]>([]);
+  const [terms, setTerms] = useState(false);
+  const [privacy, setPrivacy] = useState(false);
+  const [answers, setAnswers] = useState<Record<string, string>>({});
+
+  // Custom fields that apply to the currently-selected tickets (deduped).
+  const scopedFields = (() => {
+    const byId = new Map<string, FieldDef>();
+    for (const t of tickets) {
+      if ((qty[t.id] ?? 0) > 0) {
+        for (const f of getFieldsForTicket(customFields, t.id)) byId.set(f.id, f);
+      }
+    }
+    return [...byId.values()];
+  })();
+
+  const subEventCents = subEventSelection.reduce((sum, s) => {
+    const se = subEvents.find((x) => x.pretixItemId === s.itemId);
+    return sum + (se ? se.priceCents * s.quantity : 0);
+  }, 0);
+  const totalCents =
+    tickets.reduce((sum, t) => sum + (qty[t.id] ?? 0) * t.priceCents, 0) +
+    subEventCents;
+  const hasTickets = Object.values(qty).some((q) => q > 0);
+  const totalQty = Object.values(qty).reduce((sum, q) => sum + (q ?? 0), 0);
+  // Per-user ticket caps (admin-set on the event). Main tickets count toward
+  // both the main cap and the overall total; sub-events count toward the total.
+  const subQty = subEventSelection.reduce((sum, s) => sum + s.quantity, 0);
+  const mainCapReached = totalQty >= ticketsPerUserMain;
+  const totalCapReached = totalQty + subQty >= ticketsPerUserTotal;
+  const canAddMainTicket = !mainCapReached && !totalCapReached;
+  const seatsRequired = !!seatSections && seatSections.length > 0;
+  const seatsSatisfied = !seatsRequired || seatIds.length === totalQty;
+
+  function next() {
+    setErr(null);
+    if (step === 0) {
+      if (!a.firstName || !a.lastName || !a.email || !a.phone) {
+        setErr("Please complete all required fields.");
+        return;
+      }
+      const emailCheck = checkAttendeeEmail(a.email);
+      if (!emailCheck.valid) {
+        setErr(emailCheck.message ?? "Enter a valid email address.");
+        return;
+      }
+      if (attendeeTypeEnabled) {
+        if (attendeeTypeRequired && !a.attendeeType) {
+          setErr("Please select an attendee type.");
+          return;
+        }
+        if (a.attendeeType === "company" && !a.company.trim()) {
+          setErr("Company name is required.");
+          return;
+        }
+      }
+    }
+    if (step === 1) {
+      if (!hasTickets) {
+        setErr("Select at least one ticket.");
+        return;
+      }
+      if (!seatsSatisfied) {
+        setErr(`Please select a seat for each ticket (${seatIds.length}/${totalQty}).`);
+        return;
+      }
+    }
+    setStep((s) => Math.min(CONFIRM_STEP, s + 1));
+  }
+
+  async function submit() {
+    setErr(null);
+    if (!terms || !privacy) {
+      setErr("You must accept the Terms and Privacy Policy.");
+      return;
+    }
+    if (!seatsSatisfied) {
+      setErr("Please select a seat for each ticket.");
+      return;
+    }
+    const missing = validateRequiredAnswers(scopedFields, Object.entries(answers).map(([fieldId, value]) => ({ fieldId, value })));
+    if (missing.length) {
+      setErr(`Please complete: ${missing.join(", ")}`);
+      return;
+    }
+    setBusy(true);
+    const scopedAnswers = scopedFields
+      .map((f) => ({ fieldId: f.id, value: answers[f.id] ?? "" }))
+      .filter((x) => x.value.trim());
+    const mainTickets = tickets
+      .filter((t) => (qty[t.id] ?? 0) > 0)
+      .map((t) => ({ itemId: t.id, quantity: qty[t.id] }));
+    const allTickets = [...mainTickets, ...subEventSelection.filter((s) => s.quantity > 0)];
+    const res = await registerAction(locale, slug, {
+      attendee: {
+        firstName: a.firstName,
+        lastName: a.lastName,
+        email: a.email,
+        phoneCC: a.phoneCC,
+        phone: a.phone,
+        attendeeType: a.attendeeType || null,
+        // Company name is only meaningful for the "company" attendee type.
+        company: a.attendeeType === "company" ? a.company.trim() || null : null,
+      },
+      tickets: allTickets,
+      seatIds: seatSections ? seatIds : undefined,
+      answers: scopedAnswers,
+      inviteToken,
+      consentTerms: terms,
+      consentPrivacy: privacy,
+    });
+    setBusy(false);
+    // On success the action redirects; only errors return.
+    if (res?.error) setErr(res.error);
+    if (res?.fieldErrors)
+      setErr(Object.values(res.fieldErrors).flat().join(", "));
+  }
+
+  const dir = reduce ? 0 : 24;
+
+  return (
+    // A real <form> so Enter submits the step, browsers offer autofill across
+    // the whole field group, and the primary action is a genuine submit button.
+    <form
+      noValidate
+      onSubmit={(e) => {
+        e.preventDefault();
+        if (step < CONFIRM_STEP) next();
+        else void submit();
+      }}
+      className="mx-auto max-w-xl px-4 py-8 pb-28"
+    >
+      <Stepper steps={STEPS} current={step} />
+      <div className="mt-6 min-h-[200px]">
+        <AnimatePresence mode="wait">
+          <motion.div
+            key={step}
+            initial={{ x: dir, opacity: 0 }}
+            animate={{ x: 0, opacity: 1 }}
+            exit={{ x: -dir, opacity: 0 }}
+            transition={{ duration: 0.22 }}
+          >
+            {step === 0 && (
+              <div className="flex flex-col gap-4">
+                <p className="text-sm text-muted-foreground">
+                  Fields marked <RequiredMark /> are required.
+                </p>
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <div className="flex flex-col gap-1.5">
+                    <Label htmlFor={fid.firstName}>
+                      First name <RequiredMark />
+                    </Label>
+                    <Input
+                      id={fid.firstName}
+                      required
+                      aria-required="true"
+                      autoComplete="given-name"
+                      value={a.firstName}
+                      onChange={(e) => setA({ ...a, firstName: e.target.value })}
+                    />
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    <Label htmlFor={fid.lastName}>
+                      Last name <RequiredMark />
+                    </Label>
+                    <Input
+                      id={fid.lastName}
+                      required
+                      aria-required="true"
+                      autoComplete="family-name"
+                      value={a.lastName}
+                      onChange={(e) => setA({ ...a, lastName: e.target.value })}
+                    />
+                  </div>
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <Label htmlFor={fid.email}>
+                    Email <RequiredMark />
+                  </Label>
+                  <Input
+                    id={fid.email}
+                    type="email"
+                    required
+                    aria-required="true"
+                    autoComplete="email"
+                    value={a.email}
+                    onChange={(e) => setA({ ...a, email: e.target.value })}
+                  />
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <Label htmlFor={fid.phone}>
+                    Phone <RequiredMark />
+                  </Label>
+                  <PhoneCountryField
+                    id={fid.phone}
+                    required
+                    cc={a.phoneCC}
+                    phone={a.phone}
+                    onCc={(v) => setA({ ...a, phoneCC: v })}
+                    onPhone={(v) => setA({ ...a, phone: v })}
+                  />
+                </div>
+                {attendeeTypeEnabled && (
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <div className="flex flex-col gap-1.5">
+                      <Label htmlFor={fid.attendeeType}>
+                        Attendee type
+                        {attendeeTypeRequired ? <RequiredMark /> : null}
+                      </Label>
+                      <select
+                        id={fid.attendeeType}
+                        required={attendeeTypeRequired}
+                        aria-required={attendeeTypeRequired || undefined}
+                        className="h-10 w-full rounded-lg border border-input bg-background px-3 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+                        value={a.attendeeType}
+                        onChange={(e) =>
+                          setA({
+                            ...a,
+                            attendeeType: e.target.value,
+                            // Clear a stale company name when leaving "Company".
+                            company: e.target.value === "company" ? a.company : "",
+                          })
+                        }
+                      >
+                        <option value="">Select…</option>
+                        <option value="student">Student</option>
+                        <option value="company">Company</option>
+                        <option value="freelancer">Freelancer</option>
+                      </select>
+                    </div>
+                    {a.attendeeType === "company" && (
+                      <div className="flex flex-col gap-1.5">
+                        <Label htmlFor={fid.company}>
+                          Company name <RequiredMark />
+                        </Label>
+                        <Input
+                          id={fid.company}
+                          required
+                          aria-required="true"
+                          autoComplete="organization"
+                          value={a.company}
+                          onChange={(e) => setA({ ...a, company: e.target.value })}
+                        />
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {step === 1 && (
+              <div className="flex flex-col gap-3">
+                {tickets.map((t) => (
+                  <div
+                    key={t.id}
+                    className="flex items-center justify-between rounded-[var(--radius-lg)] border border-border p-3"
+                  >
+                    <div>
+                      <div className="font-medium">{t.title}</div>
+                      <div className="text-sm text-muted-foreground">
+                        {t.priceCents === 0 ? "Free" : `$${centsToPrice(t.priceCents)}`}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="icon-lg"
+                        aria-label={`Remove one ${t.title} ticket`}
+                        disabled={(qty[t.id] ?? 0) === 0}
+                        onClick={() =>
+                          setQty({ ...qty, [t.id]: Math.max(0, (qty[t.id] ?? 0) - 1) })
+                        }
+                      >
+                        −
+                      </Button>
+                      {/* aria-live so the new count is announced after a tap;
+                          the buttons themselves keep their static labels. */}
+                      <span
+                        className="w-8 text-center tabular-nums"
+                        aria-live="polite"
+                        aria-label={`${qty[t.id] ?? 0} ${t.title} tickets`}
+                      >
+                        {qty[t.id] ?? 0}
+                      </span>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="icon-lg"
+                        aria-label={`Add one ${t.title} ticket`}
+                        disabled={!canAddMainTicket}
+                        onClick={() => {
+                          if (!canAddMainTicket) return;
+                          setQty({ ...qty, [t.id]: (qty[t.id] ?? 0) + 1 });
+                        }}
+                      >
+                        +
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+                {(mainCapReached || totalCapReached) && (
+                  <p className="text-sm text-muted-foreground">
+                    {totalCapReached && !mainCapReached
+                      ? `You can register for up to ${ticketsPerUserTotal} item(s) in total.`
+                      : `You can register for up to ${ticketsPerUserMain} ticket(s) per person.`}
+                  </p>
+                )}
+                {seatSections && seatSections.length > 0 && (
+                  <div className="mt-2 rounded-[var(--radius-lg)] border border-border p-3">
+                    <div className="mb-2 font-medium">Choose your seat(s)</div>
+                    <SeatSelector sections={seatSections} onChange={setSeatIds} />
+                  </div>
+                )}
+              </div>
+            )}
+
+            {hasSubEvents && step === SESSIONS_STEP && (
+              <SubEventPicker
+                locale={locale}
+                subEvents={subEvents}
+                selected={subEventSelection}
+                totalAllowance={Math.max(0, ticketsPerUserTotal - totalQty)}
+                onChange={setSubEventSelection}
+              />
+            )}
+
+            {step === CONFIRM_STEP && (
+              <div className="flex flex-col gap-4">
+                <div className="rounded-[var(--radius-lg)] border border-border p-3 text-sm">
+                  <div className="font-medium">Order summary</div>
+                  {tickets
+                    .filter((t) => (qty[t.id] ?? 0) > 0)
+                    .map((t) => (
+                      <div key={t.id} className="mt-1 flex justify-between">
+                        <span>
+                          {t.title} × {qty[t.id]}
+                        </span>
+                        <span>${centsToPrice(t.priceCents * (qty[t.id] ?? 0))}</span>
+                      </div>
+                    ))}
+                  {subEventSelection.filter((s) => s.quantity > 0).map((s) => {
+                    const se = subEvents.find((x) => x.pretixItemId === s.itemId);
+                    if (!se) return null;
+                    const title = locale === "ar" && se.titleAr ? se.titleAr : se.titleEn;
+                    return (
+                      <div key={s.itemId} className="mt-1 flex justify-between">
+                        <span>{title} × {s.quantity}</span>
+                        <span>${centsToPrice(se.priceCents * s.quantity)}</span>
+                      </div>
+                    );
+                  })}
+                  <div className="mt-2 flex justify-between border-t border-border pt-2 font-semibold">
+                    <span>Total</span>
+                    <span>{totalCents === 0 ? "Free" : `$${centsToPrice(totalCents)}`}</span>
+                  </div>
+                </div>
+                {scopedFields.length > 0 && (
+                  <div className="flex flex-col gap-3 rounded-[var(--radius-lg)] border border-border p-3">
+                    <div className="font-medium">Additional details</div>
+                    {scopedFields.map((f) => {
+                      const label = locale === "ar" && f.labelAr ? f.labelAr : f.labelEn;
+                      const ph = (locale === "ar" ? f.placeholderAr : f.placeholderEn) ?? "";
+                      const help = locale === "ar" ? f.helpTextAr : f.helpTextEn;
+                      const val = answers[f.id] ?? "";
+                      const set = (v: string) => setAnswers((s) => ({ ...s, [f.id]: v }));
+                      const cls = "mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-sm";
+                      return (
+                        <div key={f.id}>
+                          <Label>{label}{f.required ? " *" : ""}</Label>
+                          {f.type === "textarea" ? (
+                            <textarea className={cls} value={val} placeholder={ph} onChange={(e) => set(e.target.value)} />
+                          ) : f.type === "select" || f.type === "multiselect" ? (
+                            <select className={cls} value={val} onChange={(e) => set(e.target.value)}>
+                              <option value="">—</option>
+                              {fieldOptions(f.options).map((o) => <option key={o} value={o}>{o}</option>)}
+                            </select>
+                          ) : f.type === "checkbox" ? (
+                            <label className="mt-1 flex items-center gap-2 text-sm">
+                              <input type="checkbox" checked={val === "true"} onChange={(e) => set(e.target.checked ? "true" : "")} /> Yes
+                            </label>
+                          ) : (
+                            <Input
+                              type={f.type === "email" ? "email" : f.type === "date" ? "date" : "text"}
+                              value={val}
+                              placeholder={ph}
+                              onChange={(e) => set(e.target.value)}
+                            />
+                          )}
+                          {help && <p className="mt-1 text-xs text-muted-foreground">{help}</p>}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+                <label className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={terms}
+                    onChange={(e) => setTerms(e.target.checked)}
+                  />
+                  <span>
+                    I agree to the{" "}
+                    <a
+                      href={`/${locale}/legal/terms`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-primary underline"
+                    >
+                      Terms and Conditions
+                    </a>
+                  </span>
+                </label>
+                <label className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={privacy}
+                    onChange={(e) => setPrivacy(e.target.checked)}
+                  />
+                  <span>
+                    I agree to the{" "}
+                    <a
+                      href={`/${locale}/legal/privacy`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-primary underline"
+                    >
+                      Privacy Policy
+                    </a>
+                  </span>
+                </label>
+              </div>
+            )}
+          </motion.div>
+        </AnimatePresence>
+      </div>
+
+      {/* role="alert" so a validation failure is announced. The region is
+          always present so screen readers pick up the change in place. */}
+      <div role="alert" aria-live="assertive" id={fid.error}>
+        {err && (
+          <p className="mt-3 rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm font-medium text-destructive">
+            {err}
+          </p>
+        )}
+      </div>
+
+      {/* Sticky bottom action bar. pb uses the safe-area inset so the buttons
+          clear the iOS home indicator instead of sitting under it. */}
+      <div
+        className="fixed inset-x-0 bottom-0 z-40 flex items-center justify-between gap-3 border-t border-border bg-background/90 px-4 py-3 backdrop-blur"
+        style={{ paddingBottom: "calc(0.75rem + env(safe-area-inset-bottom))" }}
+      >
+        <Button
+          type="button"
+          variant="ghost"
+          size="lg"
+          onClick={() => setStep((s) => Math.max(0, s - 1))}
+          disabled={step === 0 || busy}
+        >
+          Back
+        </Button>
+        {step < CONFIRM_STEP ? (
+          <Button type="submit" size="lg">
+            Next
+          </Button>
+        ) : (
+          <Button type="submit" size="lg" disabled={busy}>
+            {busy ? "Submitting…" : "Complete registration"}
+          </Button>
+        )}
+      </div>
+    </form>
+  );
+}

@@ -1,0 +1,18 @@
+{
+  "home": {
+    "title": "Strawberry Events",
+    "tagline": "Premium event registration, reimagined.",
+    "browse": "Browse events"
+  },
+  "common": {
+    "language": "Language",
+    "english": "English",
+    "arabic": "العربية"
+  },
+  "auth": {
+    "login": "Sign in",
+    "email": "Email",
+    "password": "Password",
+    "submit": "Sign in"
+  }
+}
