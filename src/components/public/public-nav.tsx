@@ -1,7 +1,6 @@
 import Link from "next/link";
 import { cookies } from "next/headers";
 import { getSessionContext } from "@/lib/auth/session";
-import { LanguageSwitcher } from "@/components/language-switcher";
 import { THEME_COOKIE } from "@/lib/theme/theme";
 import { ThemeToggle } from "./theme-toggle";
 import { signOutAction } from "@/lib/auth/sign-out-action";
@@ -48,7 +47,6 @@ export async function PublicNav({ locale }: { locale: string }) {
               Sign in
             </Link>
           )}
-          <LanguageSwitcher />
           <ThemeToggle initialDark={initialDark} />
         </nav>
       </div>
