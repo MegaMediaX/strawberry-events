@@ -48,7 +48,7 @@ export function buildIcs(ev: CalendarEvent): string {
   const lines = [
     "BEGIN:VCALENDAR",
     "VERSION:2.0",
-    "PRODID:-//Strawberry Events//EN",
+    "PRODID:-//Strawberry Agency Events//EN",
     "BEGIN:VEVENT",
     `UID:${start}-${Math.random().toString(36).slice(2)}@strawberry`,
     `DTSTAMP:${instantToICalUtc(new Date().toISOString())}`,
