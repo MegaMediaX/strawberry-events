@@ -86,16 +86,20 @@ describe("selectListIdForDate", () => {
 });
 
 describe("the live LEBTECH configuration", () => {
-  // Mirrors production exactly, read from the database on 2026-08-14: five
-  // sub_events rows spanning three distinct venue dates, against the three
+  // Documents the production shape as read from the database on 2026-08-14:
+  // five sub_events rows spanning three distinct venue dates, against three
   // pretix check-in lists (ids 1-3, "Day 1 - Fri 28 Aug" .. "Day 3").
   //
-  // This is here because the ordinal pairing is only safe while distinct
-  // session DATES equal check-in LISTS. Adding a session on a fourth date —
-  // a setup slot, a speaker dinner, a sponsor breakfast — silently drops the
-  // door back to "first list always", which refuses every returning attendee
-  // on days two and three. The page warns when that happens, but this fails
-  // first, in CI, before anyone is standing at the door.
+  // This is a WORKED EXAMPLE, not a guardrail. The fixture is a hardcoded
+  // literal with no connection to the database, so it will keep passing even
+  // if production grows a fourth session date — the drift it describes is
+  // caught at runtime by the page's warning banner and by the generic
+  // "declines when a stray extra session date appears" case above, not here.
+  //
+  // It earns its place by making the real numbers legible to the next person:
+  // the ordinal pairing is only safe while distinct session DATES equal
+  // check-in LISTS, and 5 rows -> 3 dates -> 3 lists is what that currently
+  // looks like.
   const LIVE_SESSIONS = [
     { dateFrom: "2026-08-28T09:30:00.000Z" }, // Day One
     { dateFrom: "2026-08-28T10:00:00.000Z" }, // Panel one
