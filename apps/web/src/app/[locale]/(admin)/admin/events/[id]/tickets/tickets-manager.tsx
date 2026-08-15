@@ -6,7 +6,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "@/components/ui/toast";
-import { centsToPrice } from "@/lib/pretix/mappers";
 import { isoToLocalInput, localInputToIso } from "@/lib/datetime/uk";
 import { InviteControls } from "./invite-controls";
 import { saveTicketsAction } from "../../actions";
@@ -259,6 +258,22 @@ export function TicketsManager({
       setRemovedTickets([]);
       setRemovedSubs([]);
       router.refresh();
+    } catch (err) {
+      // A rejecting server action landed here with nowhere to go: this block
+      // was try/finally with no catch, so the rejection went unhandled, the
+      // spinner just stopped, and the button looked broken while nothing had
+      // been saved and nothing was said.
+      //
+      // The cause seen in production is a deploy landing while this page was
+      // open. Next content-hashes server action ids per build, so the id this
+      // tab holds stops existing and every submit is rejected with "Failed to
+      // find Server Action". A reload fixes it, which is worth saying plainly
+      // — the admin otherwise has no way to tell this from a broken form.
+      console.error("[tickets] save failed:", err);
+      toast.error(
+        "Could not save — nothing was changed. If the app was updated while this page was open, reload and try again.",
+        8000,
+      );
     } finally {
       setBusy(false);
     }
