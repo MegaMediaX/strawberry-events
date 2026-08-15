@@ -5,6 +5,8 @@ import { prisma } from "@/lib/db/client";
 import { resolvePretixContext } from "@/lib/pretix/context";
 import { listCheckinLists, redeemCheckin } from "@/lib/pretix/checkin";
 import { checkinEligibility } from "@/lib/checkin/eligibility";
+import { selectListIdForDate, venueToday } from "@/lib/checkin/select-list";
+import { VENUE_IANA_ZONE } from "@/lib/datetime/uk";
 
 export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -27,13 +29,16 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   return withApi(request, "checkins:write", async (ctx) => {
     const event = await resolveApiEvent(ctx, id);
     if (!event) return fail("not_found", "Event not found", 404);
-    let b: { orderCode?: string };
+    let b: { orderCode?: string; listId?: number };
     try {
       b = await request.json();
     } catch {
       return fail("bad_request", "Invalid JSON body", 400);
     }
     if (!b.orderCode) return fail("bad_request", "orderCode is required", 400);
+    if (b.listId !== undefined && !Number.isInteger(b.listId)) {
+      return fail("bad_request", "listId must be an integer", 400);
+    }
 
     const order = await prisma.attendeeOrder.findFirst({
       where: { eventMappingId: event.id, orderCode: b.orderCode },
@@ -46,7 +51,28 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     const org = await prisma.organization.findUniqueOrThrow({ where: { id: event.organizationId } });
     const pctx = resolvePretixContext(org);
     const lists = await listCheckinLists(pctx.organizerSlug, event.pretixEventSlug, pctx.token);
-    const listId = lists[0]?.id;
+
+    // Same rule as the door screen: pretix tracks redemption PER LIST, so on a
+    // multi-day event the first list is only correct on day one. Taking
+    // `lists[0]` here meant every caller redeemed against day one forever, and
+    // an attendee already scanned in on the 28th is refused as "already
+    // redeemed" on the 29th and 30th. An explicit listId still wins, for
+    // reconciliation and for callers that manage days themselves.
+    let listId: number | undefined;
+    if (b.listId !== undefined) {
+      if (!lists.some((l) => l.id === b.listId)) {
+        return fail("bad_request", `listId ${b.listId} is not a check-in list for this event`, 400);
+      }
+      listId = b.listId;
+    } else {
+      const days = await prisma.subEvent.findMany({
+        where: { eventMappingId: event.id },
+        select: { dateFrom: true },
+        orderBy: { dateFrom: "asc" },
+      });
+      listId =
+        selectListIdForDate(days, lists, venueToday(VENUE_IANA_ZONE)) ?? lists[0]?.id;
+    }
     if (!listId) return fail("no_checkin_list", "No check-in list configured", 409);
 
     const redeem = await redeemCheckin(
