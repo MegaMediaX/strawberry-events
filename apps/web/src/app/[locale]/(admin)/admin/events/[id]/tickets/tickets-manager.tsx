@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { toast } from "@/components/ui/toast";
 import { isoToLocalInput, localInputToIso } from "@/lib/datetime/uk";
@@ -388,15 +389,19 @@ export function TicketsManager({
                 </div>
                 <div className="col-span-2">
                   <Label>Description (EN)</Label>
-                  <Input
-                    placeholder="Short abstract shown under the title"
+                  {/* Multi-line: this renders to attendees through
+                      ExpandableText, which preserves newlines, so a list of
+                      points stays a list. A single-line input could not hold
+                      one and flattened everything into a run-on sentence. */}
+                  <Textarea
+                    placeholder={"Shown under the session title. One point per line, e.g.\n• What you'll build\n• What you'll take away"}
                     value={s.descriptionEn}
                     onChange={(e) => patchSub(s.id, { descriptionEn: e.target.value })}
                   />
                 </div>
                 <div className="col-span-2">
                   <Label>Description (ع)</Label>
-                  <Input
+                  <Textarea
                     dir="rtl"
                     value={s.descriptionAr}
                     onChange={(e) => patchSub(s.id, { descriptionAr: e.target.value })}

@@ -2,6 +2,8 @@
 
 import { useId, useState } from "react";
 
+import { cn } from "@/lib/utils";
+
 /**
  * Long prose that must stay fully readable without pushing the page's primary
  * action below the fold.
@@ -9,6 +11,16 @@ import { useId, useState } from "react";
  * Collapsed it shows `lines` lines; expanded it shows everything. The full text
  * is always in the DOM — the clamp is purely visual — so it stays available to
  * search engines and to screen readers that ignore the clamp.
+ *
+ * Newlines are preserved. Organisers write these as a list of points, and HTML
+ * would otherwise collapse every line break into a space and serve one run-on
+ * sentence. Consecutive spaces still collapse, so text pasted from a document
+ * does not arrive full of stray gaps.
+ *
+ * `whitespace-pre-line` is applied to the element rather than folded into the
+ * `textClassName` default, so a caller restyling the text cannot accidentally
+ * drop it — which is exactly what the sub-event picker's override would have
+ * done.
  */
 export function ExpandableText({
   text,
@@ -28,7 +40,7 @@ export function ExpandableText({
     <div className={className}>
       <p
         id={id}
-        className={textClassName}
+        className={cn("whitespace-pre-line", textClassName)}
         style={
           open
             ? undefined
