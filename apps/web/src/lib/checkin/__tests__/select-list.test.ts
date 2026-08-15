@@ -85,6 +85,43 @@ describe("selectListIdForDate", () => {
   });
 });
 
+describe("the live LEBTECH configuration", () => {
+  // Documents the production shape as read from the database on 2026-08-14:
+  // five sub_events rows spanning three distinct venue dates, against three
+  // pretix check-in lists (ids 1-3, "Day 1 - Fri 28 Aug" .. "Day 3").
+  //
+  // This is a WORKED EXAMPLE, not a guardrail. The fixture is a hardcoded
+  // literal with no connection to the database, so it will keep passing even
+  // if production grows a fourth session date — the drift it describes is
+  // caught at runtime by the page's warning banner and by the generic
+  // "declines when a stray extra session date appears" case above, not here.
+  //
+  // It earns its place by making the real numbers legible to the next person:
+  // the ordinal pairing is only safe while distinct session DATES equal
+  // check-in LISTS, and 5 rows -> 3 dates -> 3 lists is what that currently
+  // looks like.
+  const LIVE_SESSIONS = [
+    { dateFrom: "2026-08-28T09:30:00.000Z" }, // Day One
+    { dateFrom: "2026-08-28T10:00:00.000Z" }, // Panel one
+    { dateFrom: "2026-08-28T16:00:00.000Z" }, // AI for HR
+    { dateFrom: "2026-08-29T09:30:00.000Z" }, // Day Two
+    { dateFrom: "2026-08-30T09:30:00.000Z" }, // Day Three
+  ];
+  const LIVE_LISTS = [{ id: 1 }, { id: 2 }, { id: 3 }];
+
+  it("resolves each event day to its own list", () => {
+    expect(selectListIdForDate(LIVE_SESSIONS, LIVE_LISTS, "2026-08-28")).toBe(1);
+    expect(selectListIdForDate(LIVE_SESSIONS, LIVE_LISTS, "2026-08-29")).toBe(2);
+    expect(selectListIdForDate(LIVE_SESSIONS, LIVE_LISTS, "2026-08-30")).toBe(3);
+  });
+
+  it("still resolves when three sessions share day one", () => {
+    // Five rows, three dates. Counting rows instead of dates would see 5 vs 3
+    // and decline, sending the door back to the first-list default.
+    expect(selectListIdForDate(LIVE_SESSIONS, LIVE_LISTS, "2026-08-30")).not.toBeNull();
+  });
+});
+
 describe("venueToday", () => {
   it("reports the venue's date, not the server's", () => {
     // 22:30 UTC on the 27th is already the 28th in Beirut (UTC+3). A server
