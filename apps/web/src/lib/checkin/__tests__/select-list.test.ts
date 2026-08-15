@@ -85,6 +85,39 @@ describe("selectListIdForDate", () => {
   });
 });
 
+describe("the live LEBTECH configuration", () => {
+  // Mirrors production exactly, read from the database on 2026-08-14: five
+  // sub_events rows spanning three distinct venue dates, against the three
+  // pretix check-in lists (ids 1-3, "Day 1 - Fri 28 Aug" .. "Day 3").
+  //
+  // This is here because the ordinal pairing is only safe while distinct
+  // session DATES equal check-in LISTS. Adding a session on a fourth date —
+  // a setup slot, a speaker dinner, a sponsor breakfast — silently drops the
+  // door back to "first list always", which refuses every returning attendee
+  // on days two and three. The page warns when that happens, but this fails
+  // first, in CI, before anyone is standing at the door.
+  const LIVE_SESSIONS = [
+    { dateFrom: "2026-08-28T09:30:00.000Z" }, // Day One
+    { dateFrom: "2026-08-28T10:00:00.000Z" }, // Panel one
+    { dateFrom: "2026-08-28T16:00:00.000Z" }, // AI for HR
+    { dateFrom: "2026-08-29T09:30:00.000Z" }, // Day Two
+    { dateFrom: "2026-08-30T09:30:00.000Z" }, // Day Three
+  ];
+  const LIVE_LISTS = [{ id: 1 }, { id: 2 }, { id: 3 }];
+
+  it("resolves each event day to its own list", () => {
+    expect(selectListIdForDate(LIVE_SESSIONS, LIVE_LISTS, "2026-08-28")).toBe(1);
+    expect(selectListIdForDate(LIVE_SESSIONS, LIVE_LISTS, "2026-08-29")).toBe(2);
+    expect(selectListIdForDate(LIVE_SESSIONS, LIVE_LISTS, "2026-08-30")).toBe(3);
+  });
+
+  it("still resolves when three sessions share day one", () => {
+    // Five rows, three dates. Counting rows instead of dates would see 5 vs 3
+    // and decline, sending the door back to the first-list default.
+    expect(selectListIdForDate(LIVE_SESSIONS, LIVE_LISTS, "2026-08-30")).not.toBeNull();
+  });
+});
+
 describe("venueToday", () => {
   it("reports the venue's date, not the server's", () => {
     // 22:30 UTC on the 27th is already the 28th in Beirut (UTC+3). A server

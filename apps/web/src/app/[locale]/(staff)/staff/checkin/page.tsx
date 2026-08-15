@@ -82,9 +82,51 @@ export default async function CheckinPage({
           Could not match today to a check-in list ({days.length} session date
           {days.length === 1 ? "" : "s"} vs {lists.length} lists), so
           <span className="font-semibold"> {activeList?.name ?? "the first list"} </span>
-          is selected. Confirm this is today&apos;s list before scanning — add
-          <span className="font-mono"> ?list=&lt;id&gt; </span> to override.
+          is selected. Confirm this is today&apos;s list before scanning, and
+          pick the right day below if it is wrong.
         </p>
+      )}
+      {/* Day switcher. The list is chosen automatically and that is nearly
+          always right, so this exists for the times it is not: a rehearsal on
+          the wrong date, a reprint against yesterday, reconciliation after the
+          event. Before this, overriding meant hand-editing a ?list= query
+          param at the door — which nobody does at 8am with a queue forming.
+
+          Plain links, not a client component: the page is already
+          force-dynamic, and a control the door depends on should not need
+          JavaScript to have hydrated. Targets are 44px for gloved, hurried
+          taps on a handheld. */}
+      {lists.length > 1 && (
+        <nav aria-label="Check-in day" className="mt-3 flex flex-wrap gap-2">
+          {[...lists]
+            .sort((a, b) => a.id - b.id)
+            .map((l) => {
+              const isActive = l.id === listId;
+              return (
+                <a
+                  key={l.id}
+                  href={`?event=${encodeURIComponent(mapping.id)}&list=${l.id}`}
+                  aria-current={isActive ? "true" : undefined}
+                  className={`inline-flex min-h-11 items-center rounded-[var(--radius-md)] border px-4 text-sm font-medium transition-colors ${
+                    isActive
+                      ? "border-primary bg-primary text-primary-foreground"
+                      : "border-border bg-card hover:bg-accent"
+                  }`}
+                >
+                  {l.name}
+                  {l.id === autoListId && (
+                    <span
+                      className={`ml-2 text-xs font-normal ${
+                        isActive ? "opacity-80" : "text-muted-foreground"
+                      }`}
+                    >
+                      today
+                    </span>
+                  )}
+                </a>
+              );
+            })}
+        </nav>
       )}
       <div className="mt-4">
         <CheckinPanel eventId={mapping.id} listId={listId} />
