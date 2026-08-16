@@ -3,14 +3,14 @@ import type { SessionContext } from "@/lib/auth/types";
 
 vi.mock("@/lib/db/client", () => ({
   prisma: {
-    emailLog: { findMany: vi.fn(), findUnique: vi.fn() },
+    emailLog: { findMany: vi.fn(), findUnique: vi.fn(), findFirst: vi.fn() },
     auditLog: { create: vi.fn() },
   },
 }));
-vi.mock("@/lib/email/service", () => ({ sendEmail: vi.fn() }));
+vi.mock("@/lib/email/service", () => ({ sendEmail: vi.fn(), emailMode: vi.fn() }));
 
 import { prisma } from "@/lib/db/client";
-import { sendEmail } from "@/lib/email/service";
+import { sendEmail, emailMode } from "@/lib/email/service";
 import { listEmails, resendEmail } from "@/lib/admin/emails";
 
 const mock = <T,>(fn: T) => fn as unknown as ReturnType<typeof vi.fn>;
@@ -36,6 +36,9 @@ beforeEach(() => {
   mock(prisma.emailLog.findMany).mockResolvedValue([]);
   mock(prisma.emailLog.findUnique).mockResolvedValue(log);
   mock(sendEmail).mockResolvedValue(true);
+  // Real transport by default; the disabled/failure cases override it.
+  mock(emailMode).mockReturnValue("smtp");
+  mock(prisma.emailLog.findFirst).mockResolvedValue(null);
 });
 
 describe("listEmails — scope", () => {
@@ -85,8 +88,36 @@ describe("resendEmail", () => {
   });
   it("respects disabled mode (no fake success), still audited", async () => {
     mock(sendEmail).mockResolvedValue(false);
+    mock(emailMode).mockReturnValue("disabled");
     const res = await resendEmail(sa, "e1");
-    expect(res).toEqual({ ok: true, sent: false });
+    expect(res).toEqual({ ok: true, sent: false, reason: "disabled" });
     expect(mock(prisma.auditLog.create).mock.calls[0][0].data.success).toBe(false);
+  });
+
+  // The distinction this pair exists for: a bare `sent: false` used to mean
+  // both "switched off" and "the mailbox rejected us", and the admin UI showed
+  // the former for both. During the 2026-08-15 SMTP outage that told operators
+  // email was disabled in this environment while a live 535 sat on the page.
+  it("reports a transport failure as send_failed, with the provider's message", async () => {
+    mock(sendEmail).mockResolvedValue(false);
+    mock(emailMode).mockReturnValue("smtp");
+    mock(prisma.emailLog.findFirst).mockResolvedValue({
+      lastError: "Invalid login: 535 Incorrect authentication data",
+    });
+    const res = await resendEmail(sa, "e1");
+    expect(res).toEqual({
+      ok: true,
+      sent: false,
+      reason: "send_failed",
+      error: "Invalid login: 535 Incorrect authentication data",
+    });
+  });
+
+  it("still reports send_failed when no error was recorded", async () => {
+    mock(sendEmail).mockResolvedValue(false);
+    mock(emailMode).mockReturnValue("smtp");
+    mock(prisma.emailLog.findFirst).mockResolvedValue(null);
+    const res = await resendEmail(sa, "e1");
+    expect(res).toEqual({ ok: true, sent: false, reason: "send_failed", error: undefined });
   });
 });
