@@ -2,7 +2,7 @@ import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db/client";
 import { hasAnyRole, ForbiddenError } from "@/lib/auth/guards";
 import type { SessionContext } from "@/lib/auth/types";
-import { sendEmail } from "@/lib/email/service";
+import { sendEmail, emailMode } from "@/lib/email/service";
 
 /** Org ids the session belongs to (null = super admin, unconstrained). */
 function orgIds(session: SessionContext): string[] | null {
@@ -79,6 +79,15 @@ export async function getEmailDetail(session: SessionContext, id: string) {
 export interface ResendResult {
   ok: boolean;
   sent: boolean;
+  /**
+   * Why it did not send. `sendEmail` returns a bare false both when outbound
+   * mail is switched off and when the transport threw, and the two need very
+   * different actions from an admin — one is a deployment setting, the other
+   * is a broken mailbox. Collapsing them told operators "email is disabled in
+   * this environment" while the page above showed a live SMTP auth rejection.
+   */
+  reason?: "disabled" | "send_failed";
+  error?: string;
 }
 
 /**
@@ -99,6 +108,7 @@ export async function resendEmail(session: SessionContext, id: string): Promise<
     throw new ForbiddenError("Access denied");
   }
 
+  const mode = emailMode();
   const sent = await sendEmail(
     { to: log.recipient, subject: log.subject, text: log.bodyText },
     {
@@ -120,5 +130,15 @@ export async function resendEmail(session: SessionContext, id: string): Promise<
     },
   });
 
-  return { ok: true, sent };
+  if (sent) return { ok: true, sent };
+  if (mode === "disabled") return { ok: true, sent, reason: "disabled" };
+  // The transport threw. sendEmail has already written the failure — including
+  // the provider's own message — to the email log, so read it back rather than
+  // inventing a summary here.
+  const failure = await prisma.emailLog.findFirst({
+    where: { recipient: log.recipient, status: "failed" },
+    orderBy: { createdAt: "desc" },
+    select: { lastError: true },
+  });
+  return { ok: true, sent, reason: "send_failed", error: failure?.lastError ?? undefined };
 }

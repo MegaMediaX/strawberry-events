@@ -20,7 +20,18 @@ export function ResendButton({ id, canResend }: { id: string; canResend: boolean
     const res = await resendEmailAction(id);
     setBusy(false);
     if (!res.ok) return setMsg(res.error ?? "Failed");
-    setMsg(res.sent ? "Resent." : "Logged, but email is disabled in this environment (not sent).");
+    if (res.sent) return setMsg("Resent.");
+    // Two very different failures used to share this one line. "Disabled" is a
+    // deployment setting; a send failure is a broken mailbox, and saying the
+    // wrong one sends an admin hunting for a config flag during an outage.
+    if (res.reason === "disabled") {
+      return setMsg("Not sent — outbound email is switched off in this environment.");
+    }
+    return setMsg(
+      res.error
+        ? `Not sent — the mail server rejected it: ${res.error}`
+        : "Not sent — the mail server rejected it. See Last error above.",
+    );
     router.refresh();
   }
 
