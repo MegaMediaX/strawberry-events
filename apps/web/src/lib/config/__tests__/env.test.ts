@@ -88,3 +88,33 @@ describe("validateEnv", () => {
     expect(joined).not.toContain("change_me");
   });
 });
+
+describe("DATABASE_URL embedded credentials", () => {
+  it("rejects compose's dev fallback password in production", () => {
+    const env = {
+      ...goodProd(),
+      DATABASE_URL: "postgresql://app:password@postgres-app:5432/strawberry_platform?schema=public",
+    };
+    expect(validateEnv(env, "production").some((e) => e.includes("DATABASE_URL"))).toBe(true);
+  });
+
+  it.each(["change_me", "changeme", "secret", "test"])("rejects %s as a db password", (pw) => {
+    const env = { ...goodProd(), DATABASE_URL: `postgresql://app:${pw}@db:5432/app` };
+    expect(validateEnv(env, "production").some((e) => e.includes("DATABASE_URL"))).toBe(true);
+  });
+
+  it("accepts a strong password, including percent-encoded characters", () => {
+    const env = { ...goodProd(), DATABASE_URL: "postgresql://app:Hx7%2Fq9Lm4RtZ2w@db:5432/app" };
+    expect(validateEnv(env, "production").filter((e) => e.includes("DATABASE_URL"))).toEqual([]);
+  });
+
+  it("does not fire on a URL carrying no password", () => {
+    const env = { ...goodProd(), DATABASE_URL: "postgresql://postgres-app:5432/app" };
+    expect(validateEnv(env, "production").filter((e) => e.includes("DATABASE_URL"))).toEqual([]);
+  });
+
+  it("stays quiet outside production", () => {
+    const env = { DATABASE_URL: "postgresql://app:password@db:5432/app" };
+    expect(validateEnv(env, "development")).toEqual([]);
+  });
+});

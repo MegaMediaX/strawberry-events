@@ -50,6 +50,35 @@ function checkSecret(env: Env, name: string, errors: string[], minLen = 16) {
   }
 }
 
+/**
+ * Validate credentials embedded in a connection URL.
+ *
+ * A weak password inside a URL slips past the plain isWeak() check: the whole
+ * string is neither an exact placeholder nor contains one of the placeholder
+ * substrings. compose.yaml's dev fallback builds
+ * `postgresql://app:password@postgres-app:5432/…`, and "password" IS in
+ * WEAK_EXACT — it just never gets tested on its own. So pull the password out
+ * and check that component directly.
+ *
+ * No length rule here on purpose: rejecting a short-but-real password would
+ * refuse to boot a working deployment on upgrade. Placeholders only.
+ */
+function checkUrlCredentials(env: Env, name: string, errors: string[]) {
+  const raw = env[name];
+  if (!raw) return; // absence is already reported by checkPresent
+  let password: string;
+  try {
+    password = decodeURIComponent(new URL(raw).password);
+  } catch {
+    return; // malformed URL — not this check's concern
+  }
+  if (password && isWeak(password)) {
+    errors.push(
+      `${name} embeds a development/default password; set a strong database password`,
+    );
+  }
+}
+
 function checkPresent(env: Env, name: string, errors: string[]) {
   const v = env[name];
   if (!v || v.trim() === "") errors.push(`${name} is required in production (missing or empty)`);
@@ -88,6 +117,7 @@ export function validateEnv(env: Env, nodeEnv: string | undefined): string[] {
 
   // Connection / URL config — must be present and non-placeholder.
   checkPresent(env, "DATABASE_URL", errors);
+  checkUrlCredentials(env, "DATABASE_URL", errors);
   checkPresent(env, "PRETIX_BASE_URL", errors);
   checkSecret(env, "PRETIX_API_TOKEN", errors, 8);
 
