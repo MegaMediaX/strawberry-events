@@ -44,7 +44,10 @@ export async function changeRoleAction(
   userId: string,
   organizationId: string,
   role: MemberRole,
-  assignedEventIds: string[] = [],
+  // NOT defaulted to []. changeRole() preserves the stored assignment only when
+  // this is undefined; a default would make every role change wipe a check-in
+  // member's events and lock them out of the door.
+  assignedEventIds?: string[],
 ): Promise<ActionResult> {
   const session = await getSessionContext();
   if (!session) return { ok: false, error: "Not authenticated" };

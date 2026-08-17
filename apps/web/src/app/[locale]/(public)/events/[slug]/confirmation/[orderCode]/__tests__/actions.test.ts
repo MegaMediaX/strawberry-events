@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 vi.mock("@/lib/registration/access", () => ({ getOrderByCode: vi.fn() }));
-vi.mock("@/lib/security/order-lookup", () => ({ clientIp: async () => "203.0.113.9" }));
+vi.mock("@/lib/security/client-ip", () => ({ clientIp: async () => "203.0.113.9" }));
 vi.mock("@/lib/security/rate-limit", () => ({ rateLimit: vi.fn() }));
 vi.mock("@/lib/email/service", () => ({ sendEmail: vi.fn().mockResolvedValue(true) }));
 vi.mock("@/lib/email/recipient-locale", () => ({ recipientLocale: vi.fn(async () => "en") }));

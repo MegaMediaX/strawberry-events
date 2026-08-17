@@ -1,10 +1,15 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 
 let forwardedFor: string | null = null;
+let realIp: string | null = null;
 
 vi.mock("next/headers", () => ({
   headers: async () => ({
-    get: (name: string) => (name === "x-forwarded-for" ? forwardedFor : null),
+    get: (name: string) => {
+      if (name === "x-forwarded-for") return forwardedFor;
+      if (name === "x-real-ip") return realIp;
+      return null;
+    },
   }),
 }));
 
@@ -18,6 +23,7 @@ import {
 beforeEach(() => {
   __resetRateLimits();
   forwardedFor = "203.0.113.9";
+  realIp = null;
 });
 
 describe("orderLookupKey", () => {
@@ -34,14 +40,27 @@ describe("allowOrderCodeLookup", () => {
     expect(await allowOrderCodeLookup("expo")).toBe(false);
   });
 
-  it("counts a proxied client by its first x-forwarded-for hop", async () => {
+  it("keys a proxied client by the proxy-appended hop, not the spoofable one", async () => {
     forwardedFor = "198.51.100.7, 10.0.0.1";
     for (let i = 0; i < ORDER_LOOKUP_LIMIT; i += 1) {
       await allowOrderCodeLookup("expo");
     }
     expect(await allowOrderCodeLookup("expo")).toBe(false);
-    // A different client behind the same proxy still gets its own budget.
+    // Rotating the attacker-controlled LEFTMOST entry must not mint a fresh
+    // budget. Reading it was the bypass that made order-code enumeration free.
     forwardedFor = "198.51.100.8, 10.0.0.1";
+    expect(await allowOrderCodeLookup("expo")).toBe(false);
+  });
+
+  it("still separates genuine clients by the proxy-set x-real-ip", async () => {
+    realIp = "198.51.100.7";
+    for (let i = 0; i < ORDER_LOOKUP_LIMIT; i += 1) {
+      await allowOrderCodeLookup("expo");
+    }
+    expect(await allowOrderCodeLookup("expo")).toBe(false);
+    // x-real-ip is written by the adjacent proxy from the TCP peer and
+    // overwrites anything the client sent, so it is safe to distinguish on.
+    realIp = "198.51.100.8";
     expect(await allowOrderCodeLookup("expo")).toBe(true);
   });
 

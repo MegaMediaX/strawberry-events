@@ -30,10 +30,47 @@ export function isPrivateIPv4(addr: string): boolean {
   return false;
 }
 
-/** True for IPv6 loopback, link-local (fe80::/10), and unique-local (fc00::/7). */
+/**
+ * Extract the IPv4 address embedded in an IPv4-mapped/compatible IPv6 literal,
+ * or null when there isn't one.
+ *
+ * Both spellings must be handled. An operator types the dotted form
+ * (`::ffff:169.254.169.254`), but `new URL()` normalizes it to hex groups
+ * (`::ffff:a9fe:a9fe`) before this module ever sees it — so matching only the
+ * dotted form would still let the normalized literal straight through.
+ */
+export function embeddedIPv4(addr: string): string | null {
+  // ::ffff:1.2.3.4, ::ffff:0:1.2.3.4 (SIIT), and the deprecated ::1.2.3.4.
+  const dotted = /^::(?:ffff:(?:0:)?)?((?:\d{1,3}\.){3}\d{1,3})$/.exec(addr);
+  if (dotted) return octets(dotted[1]) ? dotted[1] : null;
+
+  // ::ffff:c0a8:101 — the form Node's URL parser produces.
+  const hex = /^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/.exec(addr);
+  if (hex) {
+    const hi = Number.parseInt(hex[1], 16);
+    const lo = Number.parseInt(hex[2], 16);
+    return `${hi >> 8}.${hi & 0xff}.${lo >> 8}.${lo & 0xff}`;
+  }
+  return null;
+}
+
+/**
+ * True for IPv6 loopback, unspecified, link-local (fe80::/10), unique-local
+ * (fc00::/7), and any literal wrapping a private IPv4 address.
+ *
+ * The wrapped-IPv4 case is the one that bites: the OS dual-stack routes
+ * `::ffff:169.254.169.254` to plain 169.254.169.254, so treating it as an
+ * ordinary IPv6 address hands out exactly the metadata-service access
+ * isPrivateIPv4 blocks by name a few lines above.
+ */
 function isPrivateIPv6(addr: string): boolean {
   const a = addr.toLowerCase();
+
+  const v4 = embeddedIPv4(a);
+  if (v4) return isPrivateIPv4(v4);
+
   if (a === "::1") return true;
+  if (a === "::" || a === "::0") return true; // unspecified — connects to loopback
   if (a.startsWith("fe80:") || a.startsWith("fe80::")) return true;
   if (a.startsWith("fc") || a.startsWith("fd")) return true; // fc00::/7
   return false;

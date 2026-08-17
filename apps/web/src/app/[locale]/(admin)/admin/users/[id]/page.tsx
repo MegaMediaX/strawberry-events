@@ -36,6 +36,15 @@ export default async function UserDetailPage({
     orderBy: { name: "asc" },
   });
 
+  // Events assignable to check-in staff, scoped to the orgs the actor may act in.
+  // Selected by localEventId because that is the value assignedEventIds holds and
+  // canAccessEvent() / lib/admin/scope.ts compare against.
+  const events = await prisma.eventMapping.findMany({
+    where: { organizationId: { in: orgs.map((o) => o.id) } },
+    select: { localEventId: true, titleEn: true, organizationId: true },
+    orderBy: { titleEn: "asc" },
+  });
+
   return (
     <div className="mx-auto max-w-2xl">
       <Link className="text-sm text-primary underline" href={`/${locale}/admin/users`}>← Users</Link>
@@ -70,6 +79,12 @@ export default async function UserDetailPage({
           suspended={user.status === "suspended"}
           isSuper={session.isSuperAdmin}
           orgs={orgs}
+          events={events}
+          memberships={user.memberships.map((m) => ({
+            organizationId: m.organizationId,
+            role: m.role,
+            assignedEventIds: m.assignedEventIds,
+          }))}
         />
       </section>
     </div>

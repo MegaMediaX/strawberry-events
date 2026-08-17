@@ -1,4 +1,4 @@
-import { headers } from "next/headers";
+import { clientIp } from "./client-ip";
 import { rateLimit } from "./rate-limit";
 
 /**
@@ -13,15 +13,6 @@ import { rateLimit } from "./rate-limit";
  */
 export const ORDER_LOOKUP_LIMIT = 20;
 export const ORDER_LOOKUP_WINDOW_MS = 60_000;
-
-export async function clientIp(): Promise<string> {
-  const h = await headers();
-  return (
-    h.get("x-forwarded-for")?.split(",")[0]?.trim() ||
-    h.get("x-real-ip") ||
-    "unknown"
-  );
-}
 
 /** Namespaced so one event's traffic cannot exhaust another event's budget. */
 export function orderLookupKey(scope: string, ip: string): string {

@@ -16,10 +16,14 @@ async function main() {
   // env var fails loudly (see the guard below).
   const adminEmail = process.env.SEED_ADMIN_EMAIL ?? "marvenmouaalem@gmail.com";
   const adminName = process.env.SEED_ADMIN_NAME ?? "Marven";
-  const adminPassword = process.env.SEED_ADMIN_PASSWORD ?? "ChangeMe!123";
+  // Blank counts as unset. compose.yaml passes SEED_ADMIN_PASSWORD through with
+  // an empty default, so the variable EXISTS in the container as "" — `??` would
+  // happily accept that and seed an empty password.
+  const seedPassword = process.env.SEED_ADMIN_PASSWORD?.trim() || undefined;
+  const adminPassword = seedPassword ?? "ChangeMe!123";
   const orgSlug = process.env.PRETIX_DEFAULT_ORGANIZER ?? "strawberry";
 
-  if (process.env.NODE_ENV === "production" && !process.env.SEED_ADMIN_PASSWORD) {
+  if (process.env.NODE_ENV === "production" && !seedPassword) {
     throw new Error(
       "Refusing to seed a production super admin with the placeholder password. " +
         "Set SEED_ADMIN_PASSWORD (and optionally SEED_ADMIN_EMAIL/SEED_ADMIN_NAME) first.",

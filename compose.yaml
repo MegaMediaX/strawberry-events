@@ -109,7 +109,11 @@ services:
       SMTP_FROM_NAME: ${SMTP_FROM_NAME:-Strawberry Events}
       ALLOW_EMAIL_DISABLED_IN_PRODUCTION: ${ALLOW_EMAIL_DISABLED_IN_PRODUCTION:-false}
       SEED_ADMIN_EMAIL: ${SEED_ADMIN_EMAIL:-admin@strawberry.local}
-      SEED_ADMIN_PASSWORD: ${SEED_ADMIN_PASSWORD:-ChangeMe!123}
+      # Empty default on purpose. A real placeholder here would populate the
+      # variable INSIDE the container, and seed.mjs's production guard only fires
+      # when it is unset or blank — so a default would silently seed a super
+      # admin with a password published in this repository.
+      SEED_ADMIN_PASSWORD: ${SEED_ADMIN_PASSWORD:-}
       EVENT_UPLOADS_DIR: /app/.uploads/event-covers
     volumes:
       # Uploaded media (event cover photos). Without this volume every image
