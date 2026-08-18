@@ -60,9 +60,21 @@ describe("dispatch", () => {
     expect(handleOrderCanceled).toHaveBeenCalledTimes(1);
   });
 
-  it("routes checkin.created to handleCheckinCreated", async () => {
-    await dispatch({ action: "pretix.event.checkin.created", organizer: "acme", event: "expo", code: "ABC12" });
+  it("routes a pretix check-in to handleCheckinCreated", async () => {
+    // "pretix.event.checkin" is what pretix actually sends — verified against
+    // pretix/api/webhooks.py on the running build, which registers it (and
+    // "pretix.event.checkin.reverted") and has no ".created" variant.
+    await dispatch({ action: "pretix.event.checkin", organizer: "acme", event: "expo", code: "ABC12" });
     expect(handleCheckinCreated).toHaveBeenCalledTimes(1);
+  });
+
+  it("ignores the .created action string pretix never sends", async () => {
+    // This suite previously asserted "pretix.event.checkin.created", so the
+    // dispatcher waited on a string that never arrives: deliveries would be
+    // logged as "unhandled action" and nothing would reconcile, while the
+    // webhook looked correctly wired. Pin the wrong value as unroutable.
+    await dispatch({ action: "pretix.event.checkin.created", organizer: "acme", event: "expo", code: "ABC12" });
+    expect(handleCheckinCreated).not.toHaveBeenCalled();
   });
 
   it("reconciles liveOnPretix on an event-change action", async () => {
