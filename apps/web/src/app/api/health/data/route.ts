@@ -22,6 +22,12 @@ export const dynamic = "force-dynamic";
  * not the body — and it keeps live registration volume, delivery gaps and how
  * many attendees cannot be checked in off a public URL on the event's own
  * domain. Signed-in admins get the itemised checks.
+ *
+ * Scope is deliberately PLATFORM-WIDE, unlike `doorRisk` which is per event:
+ * this answers "is anything wrong here" and a cron wants one answer. On a
+ * multi-tenant deployment that means one event's problem turns the whole
+ * instance red — fine while a single event is hosted, and the reason to revisit
+ * if that changes.
  */
 const OUTAGE_MINUTES = 60;
 
