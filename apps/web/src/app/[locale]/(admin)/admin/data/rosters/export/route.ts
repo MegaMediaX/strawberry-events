@@ -1,4 +1,5 @@
 import { getSessionContext } from "@/lib/auth/session";
+import { hasAnyRole } from "@/lib/auth/guards";
 import { rosters, rosterCsv } from "@/lib/admin/data";
 
 export const dynamic = "force-dynamic";
@@ -6,6 +7,12 @@ export const dynamic = "force-dynamic";
 export async function GET(request: Request) {
   const session = await getSessionContext();
   if (!session) return new Response("Not authenticated", { status: 401 });
+  // `rosters()` authorises properly, per event and per organization. This is a
+  // second, coarser gate at the boundary so a bulk PII export never depends on
+  // a single check inside a library that someone may later refactor.
+  if (!hasAnyRole(session, ["organizer_admin"])) {
+    return new Response("Forbidden", { status: 403 });
+  }
 
   const url = new URL(request.url);
   const eventId = url.searchParams.get("event");

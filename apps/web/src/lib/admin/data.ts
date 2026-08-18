@@ -194,13 +194,20 @@ export async function doorRisk(
   const deliveredRefs = new Set(delivered.map((d) => d.attendeeRef).filter(Boolean));
   const rows: DoorRiskRow[] = [];
 
+  const blockedCodes = new Set<string>();
   for (const o of noQr) {
     // `checkInResolvedOrder` falls back to the ORDER code when pretixSecret is
     // null, but pretix redeems against a POSITION secret — so that fallback can
     // never succeed. A null here is a guaranteed refusal at the door.
     rows.push({ ...o, reason: "no_qr" });
+    blockedCodes.add(o.orderCode);
   }
   for (const o of orders) {
+    // Skip anyone already counted as blocked. `orders` is a superset of `noQr`,
+    // so without this an order with neither a QR nor a delivered ticket lands in
+    // both buckets — listed twice, and inflating a headline pair the UI presents
+    // as two distinct populations.
+    if (blockedCodes.has(o.orderCode)) continue;
     if (!deliveredRefs.has(o.orderCode)) {
       rows.push({ ...o, reason: "no_ticket_email" });
     }
@@ -286,14 +293,14 @@ export async function itemMap(
       });
     } else if (!quotaItemIds.has(se.pretixItemId)) {
       rows.push({
-        itemId: se.pretixItemId, itemName: item.titleEn ?? null, subEventId: se.id,
+        itemId: se.pretixItemId, itemName: item.titleEn || null, subEventId: se.id,
         subEventTitle: se.titleEn, category: se.category, quotaId: se.pretixQuotaId,
         severity: "critical",
         finding: "Item belongs to no quota. pretix refuses orders for it, so the session is silently unbookable.",
       });
     } else {
       rows.push({
-        itemId: se.pretixItemId, itemName: item.titleEn ?? null, subEventId: se.id,
+        itemId: se.pretixItemId, itemName: item.titleEn || null, subEventId: se.id,
         subEventTitle: se.titleEn, category: se.category, quotaId: se.pretixQuotaId,
         severity: "ok", finding: "Linked to a live item in a quota.",
       });
@@ -305,11 +312,16 @@ export async function itemMap(
   const otherwiseUsed = new Set<number>([
     ...(mapping.autoApproveItemIds ?? []),
     ...(mapping.inviteOnlyItemIds ?? []),
+    // itemTagMap is a third place the app deliberately references items outside
+    // sub_events — a standalone staff or media pass carrying a role tag. Without
+    // it, those are reported as orphans: a false positive on the very check
+    // added to remove false negatives.
+    ...Object.keys((mapping.itemTagMap as Record<string, unknown> | null) ?? {}).map(Number).filter(Number.isFinite),
   ]);
   for (const item of items) {
     if (referenced.has(item.id) || otherwiseUsed.has(item.id)) continue;
     rows.push({
-      itemId: item.id, itemName: item.titleEn ?? null, subEventId: null, subEventTitle: null,
+      itemId: item.id, itemName: item.titleEn || null, subEventId: null, subEventTitle: null,
       category: null, quotaId: null, severity: "warn",
       finding: "pretix product that no session references. Anyone who books it appears in no list and no room is staffed for them.",
     });
@@ -440,6 +452,13 @@ export interface RosterEntry {
   company: string;
   phone: string;
   attendeeType: string;
+  /**
+   * Seats this order holds for this session. Registration expands `quantity`
+   * into one pretix position per ticket, so one order can be several people —
+   * only the purchaser is named. Counting orders instead of seats undercounts
+   * the room by exactly the group bookings.
+   */
+  seats: number;
   /** False when the order exists in pretix but has no row here — see below. */
   inAppDb: boolean;
 }
@@ -451,6 +470,8 @@ export interface Roster {
   category: string | null;
   dateFrom: Date | null;
   entries: RosterEntry[];
+  /** Total seats — the number to staff a room against. */
+  headcount: number;
 }
 
 /**
@@ -485,7 +506,7 @@ export async function rosters(
   const seByItem = new Map(
     subEvents.filter((s) => s.pretixItemId != null).map((s) => [s.pretixItemId!, s]),
   );
-  const itemName = new Map(items.map((i) => [i.id, i.titleEn ?? `item ${i.id}`]));
+  const itemName = new Map(items.map((i) => [i.id, i.titleEn || `item ${i.id}`]));
 
   const byItem = new Map<number, Map<string, RosterEntry>>();
 
@@ -499,7 +520,12 @@ export async function rosters(
       const bucket = byItem.get(pos.item) ?? new Map<string, RosterEntry>();
       // One row per ORDER per item — a duplicate position should not become a
       // duplicate human in a printed roster.
-      if (!bucket.has(order.code)) {
+      const existing = bucket.get(order.code);
+      if (existing) {
+        // Another position on the same order and item: a second seat, not a
+        // second person.
+        existing.seats += 1;
+      } else {
         bucket.set(order.code, {
           orderCode: order.code,
           name: app?.attendeeName || pos.attendee_name || "",
@@ -507,6 +533,7 @@ export async function rosters(
           company: app?.company || pos.company || "",
           phone: normalisePhone(app?.phoneCC ?? null, app?.phone ?? null),
           attendeeType: app?.attendeeType ?? "",
+          seats: 1,
           inAppDb: Boolean(app),
         });
       }
@@ -526,6 +553,7 @@ export async function rosters(
       entries: [...entries.values()].sort((a, b) =>
         (a.name || "￿").localeCompare(b.name || "￿"),
       ),
+      headcount: [...entries.values()].reduce((n, e) => n + e.seats, 0),
     });
   }
   return out.sort((a, b) => {
@@ -545,12 +573,16 @@ export function normalisePhone(cc: string | null, phone: string | null): string 
   const m = /^(\+\d{1,4})\+(\d.*)$/.exec(raw);
   if (!m) return raw;
   const [, prefix, rest] = m;
-  return rest.startsWith(prefix.slice(1)) ? `+${rest}` : `${prefix}${rest}`;
+  // Only collapse when the number genuinely repeats the country code. The cc
+  // field is free text, so "+961" alongside a French "+33…" is possible; gluing
+  // those together would produce a number that is neither, and looks plausible
+  // on a printed roster. Show both instead, visibly wrong.
+  return rest.startsWith(prefix.slice(1)) ? `+${rest}` : `${prefix} / +${rest}`;
 }
 
 /** CSV with the same formula-injection guard the registrations export uses. */
 export function rosterCsv(roster: Roster): string {
-  const headers = ["Order", "Name", "Email", "Company", "Phone", "Attendee type", "In app DB"];
+  const headers = ["Order", "Name", "Email", "Company", "Phone", "Attendee type", "Seats", "In app DB"];
   const esc = (v: unknown) => {
     let s = v == null ? "" : String(v);
     if (/^[=+\-@\t\r]/.test(s)) s = `'${s}`;
@@ -559,7 +591,7 @@ export function rosterCsv(roster: Roster): string {
   const lines = [headers.join(",")];
   for (const e of roster.entries) {
     lines.push(
-      [e.orderCode, e.name, e.email, e.company, e.phone, e.attendeeType, e.inAppDb ? "yes" : "NO"]
+      [e.orderCode, e.name, e.email, e.company, e.phone, e.attendeeType, e.seats, e.inAppDb ? "yes" : "NO"]
         .map(esc)
         .join(","),
     );

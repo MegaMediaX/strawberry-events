@@ -25,7 +25,7 @@ export default async function RostersPage({
   searchParams,
 }: {
   params: Promise<{ locale: string }>;
-  searchParams: Promise<{ event?: string; item?: string }>;
+  searchParams: Promise<{ event?: string; item?: string; load?: string }>;
 }) {
   const { locale } = await params;
   const sp = await searchParams;
@@ -36,6 +36,30 @@ export default async function RostersPage({
 
   const eventId = await resolveEventId(session, sp.event);
   if (!eventId) return <p className="text-sm text-muted-foreground">No event configured.</p>;
+
+  // The sweep is ~16 sequential pretix calls. During the event pretix is the
+  // critical path for every door scan, so this must never run just because
+  // someone opened or refreshed a tab — the adapter's own doc says as much and
+  // an earlier version of this page ignored it. Explicit load only.
+  if (!sp.load) {
+    return (
+      <div>
+        <Link className="text-sm underline" href={`/${locale}/admin/data`}>← Data</Link>
+        <h1 className="mt-2 text-2xl font-bold">Rosters</h1>
+        <p className="mt-2 max-w-[70ch] text-sm text-muted-foreground">
+          Building this reads every order from pretix — roughly 16 sequential API
+          calls. That is fine now and a bad idea on event days, when pretix is
+          answering the door scanner, so it only runs when you ask.
+        </p>
+        <Link
+          className="mt-4 inline-flex min-h-11 items-center rounded-[var(--radius-md)] border border-primary bg-primary px-4 text-sm font-medium text-primary-foreground"
+          href={`/${locale}/admin/data/rosters?event=${eventId}&load=1`}
+        >
+          Load rosters from pretix
+        </Link>
+      </div>
+    );
+  }
 
   let all;
   try {
@@ -54,7 +78,7 @@ export default async function RostersPage({
   }
 
   const selected = sp.item ? all.find((r) => String(r.itemId) === sp.item) : all[0];
-  const base = `/${locale}/admin/data/rosters?event=${eventId}`;
+  const base = `/${locale}/admin/data/rosters?event=${eventId}&load=1`;
   const th = "px-3 py-2 text-left text-xs font-semibold tracking-[0.04em] uppercase text-muted-foreground";
   const td = "px-3 py-2";
 
@@ -86,7 +110,7 @@ export default async function RostersPage({
             >
               {r.subEventTitle ?? r.itemName}
               <span className={`ml-2 text-xs ${active ? "opacity-80" : "text-muted-foreground"}`}>
-                {r.entries.length}
+                {r.headcount}
               </span>
               {!r.subEventTitle && (
                 <span className="ml-2 rounded bg-amber-500/20 px-1 text-[11px] text-amber-700">
@@ -108,7 +132,9 @@ export default async function RostersPage({
                 {selected.subEventTitle ?? selected.itemName}
               </h2>
               <p className="text-sm text-muted-foreground">
-                {selected.entries.length} booked
+                {selected.headcount} booked
+                {selected.headcount !== selected.entries.length &&
+                  ` across ${selected.entries.length} orders`}
                 {selected.dateFrom && ` · ${whenLabel(selected.dateFrom)}`}
                 {selected.category && ` · ${selected.category}`}
                 {!selected.subEventTitle &&
@@ -147,7 +173,14 @@ export default async function RostersPage({
                         </span>
                       )}
                     </td>
-                    <td className={td}>{e.company}</td>
+                    <td className={td}>
+                      {e.company}
+                      {e.seats > 1 && (
+                        <span className="ml-2 rounded bg-muted px-1 text-[11px] text-muted-foreground">
+                          {e.seats} seats
+                        </span>
+                      )}
+                    </td>
                     <td className={td}>{e.email}</td>
                     <td className={`${td} whitespace-nowrap`}>{e.phone}</td>
                     <td className={`${td} font-mono text-xs`}>{e.orderCode}</td>
