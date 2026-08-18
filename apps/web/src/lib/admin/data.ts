@@ -1,3 +1,4 @@
+import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db/client";
 import { hasAnyRole, ForbiddenError } from "@/lib/auth/guards";
 import type { SessionContext } from "@/lib/auth/types";
@@ -151,11 +152,13 @@ export async function doorRisk(
   assertCanReadData(session);
   const mapping = await eventForSession(session, eventId);
 
-  const issued = {
+  // Not `as const`: Prisma's WhereInput wants a mutable array for `in`, and a
+  // readonly tuple is rejected.
+  const issued: Prisma.AttendeeOrderWhereInput = {
     eventMappingId: mapping.id,
     status: "paid",
     approvalStatus: { in: ["not_required", "approved"] },
-  } as const;
+  };
 
   const [noQr, orders, delivered] = await Promise.all([
     prisma.attendeeOrder.findMany({
