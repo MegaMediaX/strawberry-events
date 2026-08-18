@@ -61,15 +61,18 @@ export default async function DataPage({
 
   const [risk, mail, asserts, hooks] = await Promise.all([
     doorRisk(session, eventId),
-    emailHealth(session),
+    emailHealth(session, eventId),
     configAssertions(session, eventId),
-    webhookStatus(session, eventId).catch((err) => ({
-      registered: false,
-      expectedUrl: "",
-      hooks: [],
-      missingActions: [],
-      error: (err as Error).message,
-    })),
+    webhookStatus(session, eventId).catch((err) => {
+      console.error("[data] webhookStatus failed:", (err as Error).message);
+      return {
+        registered: false,
+        expectedUrl: "",
+        hooks: [],
+        missingActions: [],
+        error: "unavailable",
+      };
+    }),
   ]);
 
   const base = `/${locale}/admin/data`;
@@ -128,7 +131,9 @@ export default async function DataPage({
 
         <Card title="pretix webhook" tone={hooks.registered ? "ok" : "critical"}>
           {hooks.error ? (
-            <p className="text-destructive">Could not read from pretix: {hooks.error}</p>
+            <p className="text-destructive">
+              Could not read webhook state from pretix. Details are in the server log.
+            </p>
           ) : hooks.registered ? (
             <p>Registered and enabled for paid, canceled and check-in events.</p>
           ) : (

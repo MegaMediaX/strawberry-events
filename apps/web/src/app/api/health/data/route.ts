@@ -1,5 +1,7 @@
 import { prisma } from "@/lib/db/client";
 import { emailMode } from "@/lib/email/service";
+import { getSessionContext } from "@/lib/auth/session";
+import { hasAnyRole } from "@/lib/auth/guards";
 
 export const dynamic = "force-dynamic";
 
@@ -13,10 +15,20 @@ export const dynamic = "force-dynamic";
  * The check that earns its place: email going quiet WHILE registrations arrive.
  * A failure rate says nothing once sending stops altogether — zero attempts is
  * zero failures — which is how a two-day outage went unnoticed.
+ *
+ * DETAIL IS PRIVILEGED. Anonymous callers get only `{ ok }` and the status
+ * code, matching `health/db` and `health/ready`, which deliberately return a
+ * bare status. That is everything the cron needs — `curl -f` reads the code,
+ * not the body — and it keeps live registration volume, delivery gaps and how
+ * many attendees cannot be checked in off a public URL on the event's own
+ * domain. Signed-in admins get the itemised checks.
  */
 const OUTAGE_MINUTES = 60;
 
 export async function GET() {
+  const session = await getSessionContext().catch(() => null);
+  const detailed = Boolean(session && hasAnyRole(session, ["organizer_admin"]));
+
   const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
 
   const [lastSent, failed24h, issuedNoTicket, noQr] = await Promise.all([
@@ -97,8 +109,9 @@ export async function GET() {
   ];
 
   const failedCritical = checks.filter((c) => c.critical && !c.ok);
+  const ok = failedCritical.length === 0;
   return Response.json(
-    { ok: failedCritical.length === 0, checks },
-    { status: failedCritical.length === 0 ? 200 : 503 },
+    detailed ? { ok, checks } : { ok },
+    { status: ok ? 200 : 503 },
   );
 }

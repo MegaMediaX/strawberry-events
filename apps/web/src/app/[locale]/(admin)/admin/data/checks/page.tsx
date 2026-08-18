@@ -30,7 +30,10 @@ export default async function ChecksPage({
   if (!eventId) return <p className="text-sm text-muted-foreground">No event configured.</p>;
 
   const [map, risk] = await Promise.all([
-    itemMap(session, eventId).catch((err) => ({ error: (err as Error).message }) as const),
+    itemMap(session, eventId).catch((err) => {
+      console.error("[data] itemMap failed:", (err as Error).message);
+      return { error: true } as const;
+    }),
     doorRisk(session, eventId),
   ]);
 
@@ -52,7 +55,7 @@ export default async function ChecksPage({
 
       {"error" in map ? (
         <p className="mt-3 rounded-[var(--radius-md)] border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-          Could not reach pretix: {map.error}
+          Could not reach pretix. The details are in the server log.
         </p>
       ) : (
         <div className="mt-3 overflow-x-auto rounded-[var(--radius-md)] border border-border">

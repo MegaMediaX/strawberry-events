@@ -1,6 +1,7 @@
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db/client";
-import { hasAnyRole, ForbiddenError } from "@/lib/auth/guards";
+import { ForbiddenError } from "@/lib/auth/guards";
+import { canAccessEvent, rolesInOrg } from "@/lib/auth/org-scope";
 import type { SessionContext } from "@/lib/auth/types";
 import { emailMode } from "@/lib/email/service";
 import { resolvePretixContext } from "@/lib/pretix/context";
@@ -23,20 +24,29 @@ import { listWebhooks } from "@/lib/pretix/webhooks";
  * list behind it and a sentence saying what breaks if it is non-zero.
  */
 
-function assertCanReadData(session: SessionContext) {
-  if (!hasAnyRole(session, ["organizer_admin"])) {
-    throw new ForbiddenError("Requires organizer admin or super admin");
-  }
-}
-
-async function eventForSession(session: SessionContext, eventId: string) {
+/**
+ * Resolve the event AND authorise it in one step, scoped to the organization
+ * that owns it.
+ *
+ * These were two independent checks — "holds organizer_admin somewhere" and
+ * "is a member of this event's org in some role". `hasAnyRole` flattens roles
+ * across every membership, so the pair was satisfiable by holding
+ * organizer_admin in an unrelated organization while being mere checkin_staff
+ * in this one, which handed over the full attendee roster. Role and org must be
+ * checked together or not at all.
+ */
+async function authorizeEvent(session: SessionContext, eventId: string) {
   const mapping = await prisma.eventMapping.findUnique({ where: { id: eventId } });
   if (!mapping) throw new ForbiddenError("Event not found");
-  const orgs = session.isSuperAdmin
-    ? null
-    : session.memberships.map((m) => m.organizationId);
-  if (orgs && !orgs.includes(mapping.organizationId)) {
+
+  if (!canAccessEvent(session, mapping.organizationId, mapping.localEventId)) {
     throw new ForbiddenError("Access denied");
+  }
+  // canAccessEvent also admits finance and assigned checkin_staff. This section
+  // exports attendee PII in bulk, so require admin WITHIN this organization.
+  const roles = rolesInOrg(session, mapping.organizationId);
+  if (!session.isSuperAdmin && !roles.includes("organizer_admin")) {
+    throw new ForbiddenError("Requires organizer admin or super admin");
   }
   return mapping;
 }
@@ -67,21 +77,28 @@ export interface EmailHealth {
 
 const OUTAGE_MINUTES = 60;
 
-export async function emailHealth(session: SessionContext): Promise<EmailHealth> {
-  assertCanReadData(session);
+export async function emailHealth(
+  session: SessionContext,
+  eventId: string,
+): Promise<EmailHealth> {
+  // Scoped to one event: email_logs and attendee_orders are organization-wide
+  // tables, and an unscoped read would report another organization's delivery
+  // health to whoever opened this page.
+  const mapping = await authorizeEvent(session, eventId);
+  const scope = { eventMappingId: mapping.id };
   const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
 
   const [last, sent24h, failed24h, disabled24h, lastFailure] = await Promise.all([
     prisma.emailLog.findFirst({
-      where: { status: "sent" },
+      where: { ...scope, status: "sent" },
       orderBy: { createdAt: "desc" },
       select: { createdAt: true },
     }),
-    prisma.emailLog.count({ where: { status: "sent", createdAt: { gte: since } } }),
-    prisma.emailLog.count({ where: { status: "failed", createdAt: { gte: since } } }),
-    prisma.emailLog.count({ where: { status: "disabled", createdAt: { gte: since } } }),
+    prisma.emailLog.count({ where: { ...scope, status: "sent", createdAt: { gte: since } } }),
+    prisma.emailLog.count({ where: { ...scope, status: "failed", createdAt: { gte: since } } }),
+    prisma.emailLog.count({ where: { ...scope, status: "disabled", createdAt: { gte: since } } }),
     prisma.emailLog.findFirst({
-      where: { status: "failed" },
+      where: { ...scope, status: "failed" },
       orderBy: { createdAt: "desc" },
       select: { lastError: true },
     }),
@@ -93,8 +110,8 @@ export async function emailHealth(session: SessionContext): Promise<EmailHealth>
     : null;
 
   const registrationsSinceLastSend = lastSentAt
-    ? await prisma.attendeeOrder.count({ where: { createdAt: { gt: lastSentAt } } })
-    : await prisma.attendeeOrder.count();
+    ? await prisma.attendeeOrder.count({ where: { ...scope, createdAt: { gt: lastSentAt } } })
+    : await prisma.attendeeOrder.count({ where: scope });
 
   return {
     lastSentAt,
@@ -149,8 +166,7 @@ export async function doorRisk(
   session: SessionContext,
   eventId: string,
 ): Promise<DoorRisk> {
-  assertCanReadData(session);
-  const mapping = await eventForSession(session, eventId);
+  const mapping = await authorizeEvent(session, eventId);
 
   // Not `as const`: Prisma's WhereInput wants a mutable array for `in`, and a
   // readonly tuple is rejected.
@@ -235,8 +251,7 @@ export async function itemMap(
   session: SessionContext,
   eventId: string,
 ): Promise<ItemMapRow[]> {
-  assertCanReadData(session);
-  const mapping = await eventForSession(session, eventId);
+  const mapping = await authorizeEvent(session, eventId);
   const org = await prisma.organization.findUniqueOrThrow({
     where: { id: mapping.organizationId },
   });
@@ -318,8 +333,7 @@ export async function configAssertions(
   session: SessionContext,
   eventId: string,
 ): Promise<Assertion[]> {
-  assertCanReadData(session);
-  const mapping = await eventForSession(session, eventId);
+  const mapping = await authorizeEvent(session, eventId);
   const out: Assertion[] = [];
 
   const appUrl = process.env.APP_URL;
@@ -379,8 +393,7 @@ export async function webhookStatus(
   session: SessionContext,
   eventId: string,
 ): Promise<WebhookStatus> {
-  assertCanReadData(session);
-  const mapping = await eventForSession(session, eventId);
+  const mapping = await authorizeEvent(session, eventId);
   const org = await prisma.organization.findUniqueOrThrow({
     where: { id: mapping.organizationId },
   });
@@ -406,9 +419,12 @@ export async function webhookStatus(
       error: null,
     };
   } catch (err) {
+    // Keep pretix's own message — which carries the internal base URL — in the
+    // log, and hand the UI a flag rather than a description.
+    console.error("[data] listWebhooks failed:", (err as Error).message);
     return {
       registered: false, expectedUrl, hooks: [], missingActions: [],
-      error: (err as Error).message,
+      error: "unavailable",
     };
   }
 }
@@ -452,8 +468,7 @@ export async function rosters(
   session: SessionContext,
   eventId: string,
 ): Promise<Roster[]> {
-  assertCanReadData(session);
-  const mapping = await eventForSession(session, eventId);
+  const mapping = await authorizeEvent(session, eventId);
   const org = await prisma.organization.findUniqueOrThrow({
     where: { id: mapping.organizationId },
   });

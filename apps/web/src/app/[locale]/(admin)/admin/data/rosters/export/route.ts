@@ -28,6 +28,9 @@ export async function GET(request: Request) {
       },
     });
   } catch (err) {
-    return new Response((err as Error).message, { status: 403 });
+    // pretix error strings embed the internal base URL and slugs; an
+    // authorization error should not describe the system either.
+    console.error("[data] roster export failed:", (err as Error).message);
+    return new Response("Could not build the roster", { status: 403 });
   }
 }

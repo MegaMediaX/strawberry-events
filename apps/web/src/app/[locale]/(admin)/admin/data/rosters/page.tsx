@@ -41,12 +41,13 @@ export default async function RostersPage({
   try {
     all = await rosters(session, eventId);
   } catch (err) {
+    console.error("[data] rosters failed:", (err as Error).message);
     return (
       <div>
         <Link className="text-sm underline" href={`/${locale}/admin/data`}>← Data</Link>
         <h1 className="mt-2 text-2xl font-bold">Rosters</h1>
         <p className="mt-3 rounded-[var(--radius-md)] border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-          Could not read from pretix: {(err as Error).message}
+          Could not read from pretix. The details are in the server log.
         </p>
       </div>
     );
