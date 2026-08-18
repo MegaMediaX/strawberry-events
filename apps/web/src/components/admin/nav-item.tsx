@@ -16,6 +16,7 @@ import {
   Key,
   Webhook,
   Puzzle,
+  Database,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -33,6 +34,7 @@ const ICONS = {
   Key,
   Webhook,
   Puzzle,
+  Database,
 } as const;
 
 export type NavIconName = keyof typeof ICONS;
