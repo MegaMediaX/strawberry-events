@@ -77,6 +77,9 @@ export default async function AdminLayout({
             />
             <NavItem href={`${base}/emails`} label="Emails" icon="Mail" />
             {isAdmin && (
+              <NavItem href={`${base}/data`} label="Data" icon="Database" />
+            )}
+            {isAdmin && (
               <NavItem href={`${base}/audit`} label="Audit log" icon="Shield" />
             )}
             {isAdmin && (

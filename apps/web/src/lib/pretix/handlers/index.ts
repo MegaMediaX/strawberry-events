@@ -10,7 +10,13 @@ import type { ReconcileCtx } from "./types";
 // pretix action strings for the events we reconcile.
 const ORDER_PAID = "pretix.event.order.paid";
 const ORDER_CANCELED = "pretix.event.order.canceled";
-const CHECKIN_CREATED = "pretix.event.checkin.created";
+// Verified against the running pretix build: the action is "pretix.event.checkin"
+// (pretix/api/webhooks.py registers it via ParametrizedOrderPositionCheckinWebhookEvent,
+// alongside "pretix.event.checkin.reverted"). There is no ".created" variant —
+// `checkin_created` is an internal Django signal, not a webhook action. Waiting
+// on the wrong string is worse than having no webhook: deliveries arrive, get
+// logged as "unhandled action", and nothing reconciles while it all looks wired up.
+const CHECKIN_CREATED = "pretix.event.checkin";
 // Action name for live-state toggles is not strongly documented; match the
 // plausible variants and reconcile liveOnPretix from pretix as source of truth.
 const LIVE_ACTIONS = new Set([

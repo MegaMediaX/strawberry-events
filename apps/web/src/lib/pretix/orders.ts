@@ -1,10 +1,17 @@
-import { pretixFetch } from "./client";
+import { pretixFetch, pretixFetchAll } from "./client";
 
 export type PretixOrderStatus = "n" | "p" | "e" | "c" | "r"; // pending|paid|expired|canceled|refunded
 
 export interface PretixOrderPosition {
   id: number;
   secret: string;
+  /** Which product this position is for — the link to `sub_events.pretixItemId`. */
+  item?: number;
+  /** Per-position attendee details. Often blank; the order-level email is the fallback. */
+  attendee_name?: string | null;
+  attendee_email?: string | null;
+  company?: string | null;
+  canceled?: boolean;
 }
 
 export interface PretixOrder {
@@ -65,6 +72,30 @@ export async function getOrder(
 }
 
 /** Mark a pending/manual (COD) order as paid. */
+/**
+ * Every order for an event, positions included.
+ *
+ * This is the only way to answer "who booked which session" — that association
+ * lives solely in pretix order positions, never in our database. `sub_events`
+ * records the item id; the bookings against it are here.
+ *
+ * Deliberately a sweep the caller triggers, not something a page renders on
+ * every load. ~770 orders is ~16 pages at pretix's default page size, and
+ * during the event pretix is the critical path for every door scan — an admin
+ * tab polling this competes with the scanner. Call it from an explicit refresh
+ * or a scheduled job, and cache the result upstream if you need it hot.
+ */
+export async function listOrders(
+  organizerSlug: string,
+  eventSlug: string,
+  token?: string,
+): Promise<PretixOrder[]> {
+  return pretixFetchAll<PretixOrder>(
+    `/organizers/${organizerSlug}/events/${eventSlug}/orders/`,
+    token,
+  );
+}
+
 export async function markOrderPaid(
   organizerSlug: string,
   eventSlug: string,
