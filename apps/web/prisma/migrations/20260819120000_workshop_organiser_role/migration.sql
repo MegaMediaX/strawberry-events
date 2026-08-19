@@ -9,9 +9,12 @@
 -- can reach (so the synchronous event-scope helper keeps working unchanged), and
 -- assignedSubEventIds narrows within it. A row with a session but no event is
 -- inert by construction, which is the safe direction.
-ALTER TYPE "MemberRole" ADD VALUE 'workshop_organiser';
+-- IF NOT EXISTS so applying this ahead of the deploy (to avoid the window where
+-- new code queries a column the schema does not have yet) stays safe if the
+-- pipeline runs it again.
+ALTER TYPE "MemberRole" ADD VALUE IF NOT EXISTS 'workshop_organiser';
 
 -- Sessions this member may see. Empty for every other role, so the column is a
 -- no-op for existing rows and needs no backfill.
 ALTER TABLE "organization_members"
-  ADD COLUMN "assignedSubEventIds" TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[];
+  ADD COLUMN IF NOT EXISTS "assignedSubEventIds" TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[];

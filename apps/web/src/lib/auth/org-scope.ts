@@ -57,8 +57,16 @@ export function canAccessEvent(
 
 export { rolesInOrg };
 
-/** Roles that see a whole organization rather than named sessions. */
-const BROAD_ROLES: MemberRole[] = ["super_admin", "organizer_admin", "finance", "checkin_staff"];
+/**
+ * Roles that genuinely see a whole organization.
+ *
+ * `checkin_staff` is deliberately NOT here despite also being a non-admin role:
+ * it is itself narrowed per membership by assignedEventIds, so treating it as
+ * broad meant someone holding checkin_staff in one organization got UNRESTRICTED
+ * session visibility in another where they were only a workshop organiser — and
+ * picked up the admin nav that role has never had.
+ */
+const BROAD_ROLES: MemberRole[] = ["super_admin", "organizer_admin", "finance"];
 
 /**
  * Which sub-events this session is limited to, or `null` for no limit.

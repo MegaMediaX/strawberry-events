@@ -6,7 +6,7 @@ import type { SessionContext } from "@/lib/auth/types";
 import { registrationState, type RegistrationState } from "@/lib/approval/state";
 import { orderScope } from "./scope";
 import { resolvePretixContext } from "@/lib/pretix/context";
-import { listOrders } from "@/lib/pretix/orders";
+import { listOrders, getOrder } from "@/lib/pretix/orders";
 
 export interface RegistrationFilters {
   organizationId?: string;
@@ -141,6 +141,43 @@ async function orderCodesForSubEvent(
  * given filters. The `checkedIn` filter is applied via a scoped BadgePrintLog
  * lookup (there is no direct relation). Never returns QR/secret material.
  */
+/**
+ * Shared row mapping. Annotated because without the contextual type `method`
+ * widens to string and stops satisfying the "Free" | "COD" union.
+ */
+type OrderWithEvent = Parameters<typeof registrationState>[0] & {
+  id: string;
+  orderCode: string;
+  eventMappingId: string;
+  eventMapping: { titleEn: string };
+  attendeeName: string | null;
+  email: string;
+  phone: string | null;
+  company: string | null;
+  roleTag: RegistrationRow["roleTag"];
+  provider: string;
+  createdAt: Date;
+};
+
+function toRows(orders: OrderWithEvent[]): RegistrationRow[] {
+  return orders.map((o) => ({
+    id: o.id,
+    orderCode: o.orderCode,
+    event: o.eventMapping.titleEn,
+    eventId: o.eventMappingId,
+    attendee: o.attendeeName ?? o.email,
+    email: o.email,
+    phone: o.phone,
+    company: o.company,
+    roleTag: o.roleTag,
+    method: o.provider === "free" ? "Free" : "COD",
+    status: o.status,
+    approvalStatus: o.approvalStatus,
+    state: registrationState(o),
+    createdAt: o.createdAt,
+  })) as RegistrationRow[];
+}
+
 export interface RegistrationPage {
   rows: RegistrationRow[];
   /** Total matching rows, ignoring take/skip. */
@@ -184,8 +221,31 @@ export async function listRegistrationsPage(
       return { rows: [], total: 0, capped: false, sessionFilter: { ok: true, notBookable: false } };
     }
     if (!effectiveSubEventId) {
-      // No session chosen: default to their own rather than showing everything.
-      effectiveSubEventId = allowedSubEvents[0];
+      // No session chosen: show ALL of theirs. Defaulting to the first would
+      // silently hide the rest — an organiser with two sessions would read a
+      // partial list, and export a partial CSV, as their full attendee list.
+      const perSession = await Promise.all(
+        allowedSubEvents.map((id) => orderCodesForSubEvent(session, id)),
+      );
+      const union = [...new Set(perSession.flatMap((r) => r.codes))];
+      where.AND = [
+        ...(where.AND as Prisma.AttendeeOrderWhereInput[]),
+        { orderCode: { in: union } },
+      ];
+      const orders = await prisma.attendeeOrder.findMany({
+        where,
+        include: { eventMapping: { select: { titleEn: true } } },
+        orderBy: { createdAt: "desc" },
+        take: opts.take ?? 200,
+        skip: opts.skip ?? 0,
+      });
+      const total = await prisma.attendeeOrder.count({ where });
+      return {
+        rows: toRows(orders),
+        total,
+        capped: total > orders.length + (opts.skip ?? 0),
+        sessionFilter: { ok: perSession.every((r) => r.ok), notBookable: false },
+      };
     } else if (!canAccessSubEvent(session, effectiveSubEventId)) {
       throw new ForbiddenError("Access denied for that session");
     }
@@ -225,24 +285,7 @@ export async function listRegistrationsPage(
 
   const total = await prisma.attendeeOrder.count({ where });
 
-  // Annotated: without the contextual type, `method` widens to string and no
-  // longer satisfies the "Free" | "COD" union.
-  const rows: RegistrationRow[] = orders.map((o) => ({
-    id: o.id,
-    orderCode: o.orderCode,
-    event: o.eventMapping.titleEn,
-    eventId: o.eventMappingId,
-    attendee: o.attendeeName ?? o.email,
-    email: o.email,
-    phone: o.phone,
-    company: o.company,
-    roleTag: o.roleTag,
-    method: o.provider === "free" ? "Free" : "COD",
-    status: o.status,
-    approvalStatus: o.approvalStatus,
-    state: registrationState(o),
-    createdAt: o.createdAt,
-  }));
+  const rows = toRows(orders);
 
   return { rows, total, capped: total > rows.length + (opts.skip ?? 0), sessionFilter };
 }
@@ -305,6 +348,49 @@ export interface RegistrationDetail {
  * Throws ForbiddenError on cross-org/unauthorized access. QR is exposed only
  * when the registration state is `issued`.
  */
+/**
+ * Does one order hold a position for any of these sub-events?
+ *
+ * One pretix request. Fails CLOSED on any error — an unreadable pretix must not
+ * open a registration a restricted user has no claim to.
+ */
+async function orderHoldsAnySubEvent(
+  session: SessionContext,
+  eventMappingId: string,
+  orderCode: string,
+  subEventIds: string[],
+): Promise<boolean> {
+  if (subEventIds.length === 0) return false;
+
+  const subEvents = await prisma.subEvent.findMany({
+    where: { id: { in: subEventIds }, eventMappingId },
+    select: { pretixItemId: true },
+  });
+  const itemIds = new Set(
+    subEvents.map((se) => se.pretixItemId).filter((id): id is number => id != null),
+  );
+  if (itemIds.size === 0) return false;
+
+  const mapping = await prisma.eventMapping.findUnique({
+    where: { id: eventMappingId },
+    select: { organizationId: true, pretixEventSlug: true },
+  });
+  if (!mapping) return false;
+  const org = await prisma.organization.findUnique({ where: { id: mapping.organizationId } });
+  if (!org) return false;
+
+  try {
+    const ctx = resolvePretixContext(org);
+    const order = await getOrder(ctx.organizerSlug, mapping.pretixEventSlug, orderCode, ctx.token);
+    return (order.positions ?? []).some(
+      (pos) => !pos.canceled && pos.item != null && itemIds.has(pos.item),
+    );
+  } catch (err) {
+    console.error("[registrations] order/session check failed:", (err as Error).message);
+    return false;
+  }
+}
+
 export async function getRegistrationDetail(
   session: SessionContext,
   id: string,
@@ -320,11 +406,14 @@ export async function getRegistrationDetail(
   // Event access is not enough for a sub-event-restricted session: without this
   // a workshop organiser could open any order in the event by id, which is the
   // whole attendee list one row at a time.
+  //
+  // Checked with a SINGLE order lookup rather than by sweeping every order per
+  // assigned session. The sweep would have been ~16 pretix pages per session on
+  // every detail-page load — exactly what `listOrders` documents as competing
+  // with the door scanner — to answer a question about one order.
   const allowed = subEventScope(session);
   if (allowed !== null) {
-    const codes = await Promise.all(allowed.map((id) => orderCodesForSubEvent(session, id)));
-    const permitted = new Set(codes.flatMap((c) => c.codes));
-    if (!permitted.has(order.orderCode)) {
+    if (!(await orderHoldsAnySubEvent(session, order.eventMappingId, order.orderCode, allowed))) {
       throw new ForbiddenError("Registration not found or access denied");
     }
   }

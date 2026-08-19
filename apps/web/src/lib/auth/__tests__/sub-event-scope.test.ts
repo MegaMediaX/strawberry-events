@@ -38,7 +38,19 @@ describe("subEventScope", () => {
     expect(subEventScope(ctx({ memberships: [member({})] }))).toEqual([]);
   });
 
-  it("a broader role held anywhere lifts the restriction", () => {
+  it("checkin_staff does NOT lift the restriction", () => {
+    // It is itself narrowed per membership by assignedEventIds, so treating it
+    // as broad handed an organiser unrestricted visibility in another org.
+    const s = ctx({
+      memberships: [
+        member({ assignedSubEventIds: ["se1"] }),
+        member({ organizationId: "orgB", role: "checkin_staff" }),
+      ],
+    });
+    expect(subEventScope(s)).toEqual(["se1"]);
+  });
+
+  it("a genuinely org-wide role held anywhere lifts the restriction", () => {
     // Someone can legitimately run a workshop for one org and administer
     // another. The broader grant wins rather than the narrower one clamping it.
     const s = ctx({
