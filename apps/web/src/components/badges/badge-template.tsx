@@ -1,4 +1,3 @@
-import { QrCodeDisplay } from "@/components/public/qr-code-display";
 
 export type BadgeTag = "media" | "partner" | "staff" | "speaker" | "visitor";
 
@@ -14,12 +13,20 @@ export interface BadgeData {
   tag: BadgeTag;
   fullName: string;
   company: string | null;
-  qrValue: string;
 }
 
 /**
- * A 4×6 thermal badge. Print CSS sizes the page to 4in × 6in. The role tag sits
- * on top with a tag-specific color; name, company, and QR below.
+ * The on-screen fallback badge, used when QZ Tray cannot be reached.
+ *
+ * It carries NO QR. It used to render `qrValue`, which the check-in panel set to
+ * the pretix secret — the live check-in credential — putting a re-entry pass on
+ * an attendee's chest, photographable all day, every time thermal printing
+ * failed. `(public)/t/[token]` is the only surface allowed to render that
+ * secret, and this path quietly broke that rule.
+ *
+ * Sized 60 × 40 mm to match the actual label stock. It was 4in × 6in, a leftover
+ * from before the media was known — so this fallback could never have produced a
+ * usable badge either.
  */
 export function BadgeTemplate({ badge }: { badge: BadgeData }) {
   return (
@@ -29,14 +36,10 @@ export function BadgeTemplate({ badge }: { badge: BadgeData }) {
       </div>
       <div className="badge-name">{badge.fullName}</div>
       {badge.company && <div className="badge-company">{badge.company}</div>}
-      <div className="badge-qr">
-        <QrCodeDisplay value={badge.qrValue} />
-      </div>
-
       <style>{`
-        @media print { @page { size: 4in 6in; margin: 0; } }
+        @media print { @page { size: 60mm 40mm; margin: 0; } }
         .badge-sheet {
-          width: 4in; height: 6in; box-sizing: border-box;
+          width: 60mm; height: 40mm; box-sizing: border-box;
           display: flex; flex-direction: column; align-items: center;
           padding: 0.3in 0.25in; text-align: center; color: #111; background: #fff;
         }

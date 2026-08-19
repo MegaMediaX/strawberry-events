@@ -31,10 +31,35 @@ const MARGIN = 16;
  */
 export function sanitizeZplText(value: string): string {
   return Array.from(value.replace(/[\^~]/g, " "))
-    .filter((ch) => ch.charCodeAt(0) >= 0x20)
+    // Drop control characters, AND anything above Latin-1. The printer's
+    // resident fonts are Latin-only and its default code page is single-byte,
+    // so an Arabic name arrives as UTF-8 bytes and prints as mojibake — a badge
+    // worn for three days that looks like the event is broken, rather than like
+    // a limitation. Dropping is deliberate: see `hasUnprintableName`, which lets
+    // the caller detect this BEFORE printing rather than discovering it after.
+    .filter((ch) => {
+      const c = ch.charCodeAt(0);
+      return c >= 0x20 && c <= 0xff;
+    })
     .join("")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+/**
+ * True when a name cannot be printed in the printer's Latin fonts.
+ *
+ * ZPL performs no bidirectional reordering and no Arabic contextual shaping, so
+ * even a downloaded Arabic TrueType font would render disconnected, reversed
+ * letterforms. There is no correct badge for these names on this hardware.
+ *
+ * Do NOT auto-transliterate. In Lebanon, whether محمد is Mohamad, Mohammed,
+ * Muhammad or Mhamad is personal and inherited; choosing one for someone and
+ * printing it on a badge they wear for three days is a small insult repeated all
+ * day. Ask them, or leave a ruled line and let staff write it.
+ */
+export function hasUnprintableName(value: string): boolean {
+  return Array.from(value).some((ch) => ch.charCodeAt(0) > 0xff);
 }
 
 /** A centered field block spanning the full label width (minus margins). */
