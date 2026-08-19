@@ -78,7 +78,7 @@ export function PrinterSettings() {
           <Input
             id="printer-name"
             className="mt-1"
-            placeholder="Honeywell PC42d (203 dpi)"
+            placeholder="PC42d"
             value={name}
             onChange={(e) => setName(e.target.value)}
           />
@@ -94,7 +94,7 @@ export function PrinterSettings() {
             </p>
           )}
           <p className="mt-2 text-xs text-muted-foreground">
-            Requires QZ Tray running on this machine. The name must match what QZ Tray reports.
+            Requires QZ Tray running on this machine. The name must match what QZ Tray reports exactly (for this printer: PC42d).
           </p>
         </div>
       )}
