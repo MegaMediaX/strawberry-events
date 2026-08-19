@@ -2,11 +2,11 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { SessionContext } from "@/lib/auth/types";
 
 vi.mock("@/lib/pretix/context", () => ({ resolvePretixContext: vi.fn() }));
-vi.mock("@/lib/pretix/orders", () => ({ listOrders: vi.fn() }));
+vi.mock("@/lib/pretix/orders", () => ({ listOrders: vi.fn(), getOrder: vi.fn() }));
 vi.mock("@/lib/db/client", () => ({
   prisma: {
     attendeeOrder: { findMany: vi.fn(), findUnique: vi.fn(), count: vi.fn() },
-    subEvent: { findUnique: vi.fn() },
+    subEvent: { findUnique: vi.fn(), findMany: vi.fn() },
     organization: { findUnique: vi.fn() },
     badgePrintLog: { findMany: vi.fn() },
     customFormAnswer: { findMany: vi.fn() },
@@ -49,9 +49,11 @@ describe("session filter — fails closed, and says which failure it is", () => 
     pretixItemId: 9,
     eventMapping: { id: "e1", organizationId: "orgA", localEventId: "loc1", pretixEventSlug: "expo" },
   };
+  // The resolver takes a LIST now — one pretix sweep answers every session.
+  const asList = (over: Record<string, unknown> = {}) => [{ ...subEvent, ...over }];
 
   it("reports notBookable when the session has no pretix item", async () => {
-    mock(prisma.subEvent.findUnique).mockResolvedValue({ ...subEvent, pretixItemId: null });
+    mock(prisma.subEvent.findMany).mockResolvedValue(asList({ pretixItemId: null }));
     mock(prisma.attendeeOrder.findMany).mockResolvedValue([]);
     mock(prisma.attendeeOrder.count).mockResolvedValue(0);
     const res = await listRegistrationsPage(sa, { subEventId: "se1" });
@@ -61,7 +63,7 @@ describe("session filter — fails closed, and says which failure it is", () => 
   it("reports ok:false when pretix cannot be read, rather than a confident zero", async () => {
     // Fails CLOSED — no codes, so no rows — but the caller must be able to tell
     // this apart from "nobody booked", because both render as an empty table.
-    mock(prisma.subEvent.findUnique).mockResolvedValue(subEvent);
+    mock(prisma.subEvent.findMany).mockResolvedValue(asList());
     mock(prisma.organization.findUnique).mockResolvedValue({ id: "orgA" });
     mock(resolvePretixContext).mockReturnValue({ organizerSlug: "acme", token: "t" });
     mock(listOrders).mockRejectedValue(new Error("pretix is unreachable"));
@@ -73,7 +75,7 @@ describe("session filter — fails closed, and says which failure it is", () => 
   });
 
   it("keeps only orders holding a non-canceled position for that item", async () => {
-    mock(prisma.subEvent.findUnique).mockResolvedValue(subEvent);
+    mock(prisma.subEvent.findMany).mockResolvedValue(asList());
     mock(prisma.organization.findUnique).mockResolvedValue({ id: "orgA" });
     mock(resolvePretixContext).mockReturnValue({ organizerSlug: "acme", token: "t" });
     mock(listOrders).mockResolvedValue([

@@ -99,48 +99,73 @@ export interface SubEventCodes {
 /**
  * Order codes holding a booking for one sub-event, read from pretix.
  */
-async function orderCodesForSubEvent(
+/**
+ * Order codes holding a booking for ANY of these sub-events, read from pretix.
+ *
+ * Takes a list rather than one id on purpose: `listOrders` returns positions for
+ * every item, so one sweep answers all of them. Calling this once per session
+ * would multiply ~16 sequential pretix pages by the number of sessions, on a
+ * page an organiser reloads — the same mistake this file already made once on
+ * the detail page.
+ */
+async function orderCodesForSubEvents(
   session: SessionContext,
-  subEventId: string,
+  subEventIds: string[],
 ): Promise<SubEventCodes> {
-  const subEvent = await prisma.subEvent.findUnique({
-    where: { id: subEventId },
+  if (subEventIds.length === 0) return { codes: [], ok: true, notBookable: true };
+
+  const subEvents = await prisma.subEvent.findMany({
+    where: { id: { in: subEventIds } },
     include: { eventMapping: { select: { id: true, organizationId: true, localEventId: true, pretixEventSlug: true } } },
   });
-  if (!subEvent) return { codes: [], ok: true, notBookable: true };
-  const m = subEvent.eventMapping;
-  if (!canAccessEvent(session, m.organizationId, m.localEventId)) {
-    throw new ForbiddenError("Access denied");
-  }
-  if (subEvent.pretixItemId == null) return { codes: [], ok: true, notBookable: true };
+  if (subEvents.length === 0) return { codes: [], ok: true, notBookable: true };
 
-  const org = await prisma.organization.findUnique({ where: { id: m.organizationId } });
-  if (!org) return { codes: [], ok: false, notBookable: false };
-
-  try {
-    const ctx = resolvePretixContext(org);
-    const orders = await listOrders(ctx.organizerSlug, m.pretixEventSlug, ctx.token);
-    const codes: string[] = [];
-    for (const order of orders) {
-      if (order.status === "c" || order.status === "r") continue;
-      const holds = (order.positions ?? []).some(
-        (pos) => !pos.canceled && pos.item === subEvent.pretixItemId,
-      );
-      if (holds) codes.push(order.code);
+  for (const se of subEvents) {
+    const m = se.eventMapping;
+    if (!canAccessEvent(session, m.organizationId, m.localEventId)) {
+      throw new ForbiddenError("Access denied");
     }
-    return { codes, ok: true, notBookable: false };
-  } catch (err) {
-    // pretix messages carry the internal base URL; keep them server-side.
-    console.error("[registrations] sub-event filter failed:", (err as Error).message);
-    return { codes: [], ok: false, notBookable: false };
   }
+
+  // Sessions can only be resolved together when they share an event, since the
+  // sweep is per pretix event. Group and sweep once per distinct event.
+  const byEvent = new Map<string, { slug: string; orgId: string; items: Set<number> }>();
+  for (const se of subEvents) {
+    if (se.pretixItemId == null) continue;
+    const m = se.eventMapping;
+    const entry = byEvent.get(m.id) ?? { slug: m.pretixEventSlug, orgId: m.organizationId, items: new Set<number>() };
+    entry.items.add(se.pretixItemId);
+    byEvent.set(m.id, entry);
+  }
+  if (byEvent.size === 0) return { codes: [], ok: true, notBookable: true };
+
+  const codes: string[] = [];
+  let ok = true;
+  for (const entry of byEvent.values()) {
+    const org = await prisma.organization.findUnique({ where: { id: entry.orgId } });
+    if (!org) {
+      ok = false;
+      continue;
+    }
+    try {
+      const ctx = resolvePretixContext(org);
+      const orders = await listOrders(ctx.organizerSlug, entry.slug, ctx.token);
+      for (const order of orders) {
+        if (order.status === "c" || order.status === "r") continue;
+        const holds = (order.positions ?? []).some(
+          (pos) => !pos.canceled && pos.item != null && entry.items.has(pos.item),
+        );
+        if (holds) codes.push(order.code);
+      }
+    } catch (err) {
+      // pretix messages carry the internal base URL; keep them server-side.
+      console.error("[registrations] sub-event filter failed:", (err as Error).message);
+      ok = false;
+    }
+  }
+  return { codes: [...new Set(codes)], ok, notBookable: false };
 }
 
-/**
- * List registrations the session may view, scoped by {@link orderScope} and the
- * given filters. The `checkedIn` filter is applied via a scoped BadgePrintLog
- * lookup (there is no direct relation). Never returns QR/secret material.
- */
 /**
  * Shared row mapping. Annotated because without the contextual type `method`
  * widens to string and stops satisfying the "Free" | "COD" union.
@@ -224,10 +249,8 @@ export async function listRegistrationsPage(
       // No session chosen: show ALL of theirs. Defaulting to the first would
       // silently hide the rest — an organiser with two sessions would read a
       // partial list, and export a partial CSV, as their full attendee list.
-      const perSession = await Promise.all(
-        allowedSubEvents.map((id) => orderCodesForSubEvent(session, id)),
-      );
-      const union = [...new Set(perSession.flatMap((r) => r.codes))];
+      const all = await orderCodesForSubEvents(session, allowedSubEvents);
+      const union = all.codes;
       where.AND = [
         ...(where.AND as Prisma.AttendeeOrderWhereInput[]),
         { orderCode: { in: union } },
@@ -244,7 +267,7 @@ export async function listRegistrationsPage(
         rows: toRows(orders),
         total,
         capped: total > orders.length + (opts.skip ?? 0),
-        sessionFilter: { ok: perSession.every((r) => r.ok), notBookable: false },
+        sessionFilter: { ok: all.ok, notBookable: false },
       };
     } else if (!canAccessSubEvent(session, effectiveSubEventId)) {
       throw new ForbiddenError("Access denied for that session");
@@ -253,7 +276,7 @@ export async function listRegistrationsPage(
 
   let sessionFilter: { ok: boolean; notBookable: boolean } | undefined;
   if (effectiveSubEventId) {
-    const res = await orderCodesForSubEvent(session, effectiveSubEventId);
+    const res = await orderCodesForSubEvents(session, [effectiveSubEventId]);
     sessionFilter = { ok: res.ok, notBookable: res.notBookable };
     where.AND = [
       ...(where.AND as Prisma.AttendeeOrderWhereInput[]),
