@@ -4,7 +4,12 @@ import type { SessionContext } from "@/lib/auth/types";
 vi.mock("@/lib/db/client", () => ({
   prisma: {
     eventMapping: { findUnique: vi.fn() },
-    attendeeOrder: { findFirst: vi.fn(), findMany: vi.fn() },
+    attendeeOrder: {
+      findFirst: vi.fn(),
+      findMany: vi.fn(),
+      findUnique: vi.fn(),
+      updateMany: vi.fn(),
+    },
     organization: { findUnique: vi.fn() },
     badgePrintLog: { create: vi.fn() },
     auditLog: { create: vi.fn() },
@@ -70,6 +75,10 @@ beforeEach(() => {
     id: "orgA", pretixOrganizerSlug: "acme", pretixApiToken: null,
   });
   mock(prisma.attendeeOrder.findFirst).mockResolvedValue(order());
+  // A successful check-in mints the badge slug that the printed contact QR
+  // resolves to. Default to "this row had none, the write won".
+  mock(prisma.attendeeOrder.updateMany).mockResolvedValue({ count: 1 });
+  mock(prisma.attendeeOrder.findUnique).mockResolvedValue({ badgeSlug: null });
   // clearAllMocks() resets call history but NOT implementations, so re-assert
   // the happy-path redeem to keep tests isolated from the duplicate-case test.
   mock(pretixCheckin.redeemCheckin).mockResolvedValue({ status: "ok" });
@@ -285,5 +294,45 @@ describe("liveCounters", () => {
     };
     const res = await liveCounters(orgAdmin, "e1", 5);
     expect(res).toEqual({ total: 10, checkedIn: 3 });
+  });
+});
+
+describe("badge slug assignment", () => {
+  it("mints a slug on a successful check-in", async () => {
+    const res = await checkInOrder(staff, "e1", "ABC12", 5);
+    expect(res.ok).toBe(true);
+    expect(prisma.attendeeOrder.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        // Guarded on null: the write must not rotate a slug already printed
+        // onto a badge someone is wearing.
+        where: expect.objectContaining({ badgeSlug: null }),
+      }),
+    );
+    expect(res.badge?.badgeSlug).toMatch(/^[0-9A-HJKMNP-TV-Z]{8}$/);
+  });
+
+  it("keeps the slug an order already has", async () => {
+    mock(prisma.attendeeOrder.findFirst).mockResolvedValue(order({ badgeSlug: "KEEPTHIS" }));
+    const res = await checkInOrder(staff, "e1", "ABC12", 5);
+    expect(res.badge?.badgeSlug).toBe("KEEPTHIS");
+    // No write at all — rotating this would 404 a badge already in the wild.
+    expect(prisma.attendeeOrder.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("takes the winner's slug when a concurrent print got there first", async () => {
+    mock(prisma.attendeeOrder.updateMany).mockResolvedValue({ count: 0 });
+    mock(prisma.attendeeOrder.findUnique).mockResolvedValue({ badgeSlug: "WONRACE1" });
+    const res = await checkInOrder(staff, "e1", "ABC12", 5);
+    expect(res.badge?.badgeSlug).toBe("WONRACE1");
+  });
+
+  it("still checks in when the slug cannot be assigned", async () => {
+    // A QR is a decoration; entry is not. Losing the slug must never turn into
+    // a refused attendee at the door.
+    mock(prisma.attendeeOrder.updateMany).mockRejectedValue(new Error("unique violation"));
+    mock(prisma.attendeeOrder.findUnique).mockResolvedValue({ badgeSlug: null });
+    const res = await checkInOrder(staff, "e1", "ABC12", 5);
+    expect(res.ok).toBe(true);
+    expect(res.badge?.badgeSlug).toBeNull();
   });
 });
