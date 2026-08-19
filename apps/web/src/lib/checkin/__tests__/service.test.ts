@@ -336,3 +336,64 @@ describe("badge slug assignment", () => {
     expect(res.badge?.badgeSlug).toBeNull();
   });
 });
+
+describe("the slug must never cost someone entry", () => {
+  // These are the cases the original "still checks in when the slug cannot be
+  // assigned" test could not catch: it rejected updateMany while leaving
+  // findUnique healthy, so it passed whether or not the re-read was guarded.
+  // The re-read was NOT guarded, and it runs AFTER pretix has already redeemed.
+
+  it("checks in when the re-read throws", async () => {
+    mock(prisma.attendeeOrder.updateMany).mockResolvedValue({ count: 0 });
+    mock(prisma.attendeeOrder.findUnique).mockRejectedValue(new Error("connection reset"));
+
+    const res = await checkInOrder(staff, "e1", "ABC12", 5);
+
+    // pretix already redeemed by this point. Reporting a failure here would
+    // send staff to re-scan, pretix would answer "already redeemed", and a
+    // paying attendee would be stuck at the door with no badge.
+    expect(res.ok).toBe(true);
+    expect(res.badge?.badgeSlug).toBeNull();
+    expect(pretixCheckin.redeemCheckin).toHaveBeenCalled();
+  });
+
+  it("checks in when the column does not exist yet", async () => {
+    // The deploy window: CI recreates the container before running migrations,
+    // so new code briefly runs against the old schema.
+    const missingColumn = Object.assign(new Error('column "badgeSlug" does not exist'), {
+      code: "P2022",
+    });
+    mock(prisma.attendeeOrder.updateMany).mockRejectedValue(missingColumn);
+    mock(prisma.attendeeOrder.findUnique).mockRejectedValue(missingColumn);
+
+    const res = await checkInOrder(staff, "e1", "ABC12", 5);
+    expect(res.ok).toBe(true);
+    expect(res.badge?.badgeSlug).toBeNull();
+  });
+
+  it("does not treat a non-collision error as a lost race", async () => {
+    // A missing column or dead connection is not "someone else won". Retrying
+    // it as though it were hides a real outage behind a merely-absent QR.
+    const dead = Object.assign(new Error("connection reset"), { code: "P1001" });
+    mock(prisma.attendeeOrder.updateMany).mockRejectedValue(dead);
+    mock(prisma.attendeeOrder.findUnique).mockResolvedValue({ badgeSlug: null });
+
+    const res = await checkInOrder(staff, "e1", "ABC12", 5);
+    expect(res.ok).toBe(true);
+    // Bailed on the first error rather than burning all three attempts.
+    expect(prisma.attendeeOrder.updateMany).toHaveBeenCalledTimes(1);
+  });
+
+  it("retries a genuine unique collision", async () => {
+    const collision = Object.assign(new Error("unique"), { code: "P2002" });
+    mock(prisma.attendeeOrder.updateMany)
+      .mockRejectedValueOnce(collision)
+      .mockResolvedValue({ count: 1 });
+    mock(prisma.attendeeOrder.findUnique).mockResolvedValue({ badgeSlug: null });
+
+    const res = await checkInOrder(staff, "e1", "ABC12", 5);
+    expect(res.ok).toBe(true);
+    expect(res.badge?.badgeSlug).toMatch(/^[0-9A-HJKMNP-TV-Z]{8}$/);
+    expect(prisma.attendeeOrder.updateMany).toHaveBeenCalledTimes(2);
+  });
+});

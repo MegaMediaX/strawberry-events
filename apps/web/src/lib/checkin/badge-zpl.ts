@@ -121,6 +121,27 @@ function textBlock(y: number, fontHeight: number, text: string, maxLines = 1): s
   );
 }
 
+/**
+ * The QR field, or an empty string if it cannot be built safely.
+ *
+ * `badgeProfileUrl` throws when the configured host makes the payload longer
+ * than the geometry above reserves. That is a real problem worth surfacing —
+ * but not by refusing to print a badge. This is the door: a badge with no QR
+ * still gets a paying attendee into the room, and an exception here would take
+ * check-in down over a decoration.
+ */
+function qrBlock(slug: string): string {
+  try {
+    return (
+      `^FO${QR_X},${QR_Y}^BQN,2,${QR_MAGNIFICATION},Q,7` +
+      `^FDQA,${badgeProfileUrl(slug)}^FS`
+    );
+  } catch (err) {
+    console.error("[badge] QR omitted:", (err as Error).message);
+    return "";
+  }
+}
+
 export function buildBadgeZpl(badge: BadgeData): string {
   const tag = sanitizeZplText(badge.tag).toUpperCase();
   const company = badge.company ? sanitizeZplText(badge.company) : null;
@@ -137,10 +158,7 @@ export function buildBadgeZpl(badge: BadgeData): string {
   // No slug, no QR. Reprints of orders that predate the column, and the
   // TEST_BADGE the staff page prints to prove the printer is alive, must still
   // produce a valid label rather than throwing at the door.
-  const qr = badge.badgeSlug
-    ? `^FO${QR_X},${QR_Y}^BQN,2,${QR_MAGNIFICATION},Q,7` +
-      `^FDQA,${badgeProfileUrl(badge.badgeSlug)}^FS`
-    : "";
+  const qr = badge.badgeSlug ? qrBlock(badge.badgeSlug) : "";
 
   return [
     "^XA",
