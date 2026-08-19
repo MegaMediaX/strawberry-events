@@ -147,20 +147,25 @@ async function ensureBadgeSlug(order: AttendeeOrder): Promise<string | null> {
   for (let attempt = 0; attempt < 3; attempt += 1) {
     const candidate = generateBadgeSlug();
     try {
-      const updated = await prisma.attendeeOrder.update({
+      // updateMany, not update: this is a compare-and-set. `badgeSlug: null`
+      // is a filter rather than a unique lookup, so only the first concurrent
+      // print wins and the rest see count 0 and re-read. `update` cannot
+      // express that — its where clause takes unique fields only.
+      const { count } = await prisma.attendeeOrder.updateMany({
         where: { id: order.id, badgeSlug: null },
         data: { badgeSlug: candidate },
-        select: { badgeSlug: true },
       });
-      return updated.badgeSlug;
+      if (count === 1) return candidate;
     } catch {
-      // Either the slug collided or another print already assigned one.
-      const fresh = await prisma.attendeeOrder.findUnique({
-        where: { id: order.id },
-        select: { badgeSlug: true },
-      });
-      if (fresh?.badgeSlug) return fresh.badgeSlug;
+      // A unique violation: this candidate belongs to another order. Fall
+      // through and re-read, then try a different one.
     }
+
+    const fresh = await prisma.attendeeOrder.findUnique({
+      where: { id: order.id },
+      select: { badgeSlug: true },
+    });
+    if (fresh?.badgeSlug) return fresh.badgeSlug;
   }
 
   // Printing a badge without a QR beats refusing entry over a decoration.
