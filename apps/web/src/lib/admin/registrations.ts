@@ -245,36 +245,29 @@ export async function listRegistrationsPage(
       // to an unfiltered list.
       return { rows: [], total: 0, capped: false, sessionFilter: { ok: true, notBookable: false } };
     }
-    if (!effectiveSubEventId) {
-      // No session chosen: show ALL of theirs. Defaulting to the first would
-      // silently hide the rest — an organiser with two sessions would read a
-      // partial list, and export a partial CSV, as their full attendee list.
-      const all = await orderCodesForSubEvents(session, allowedSubEvents);
-      const union = all.codes;
-      where.AND = [
-        ...(where.AND as Prisma.AttendeeOrderWhereInput[]),
-        { orderCode: { in: union } },
-      ];
-      const orders = await prisma.attendeeOrder.findMany({
-        where,
-        include: { eventMapping: { select: { titleEn: true } } },
-        orderBy: { createdAt: "desc" },
-        take: opts.take ?? 200,
-        skip: opts.skip ?? 0,
-      });
-      const total = await prisma.attendeeOrder.count({ where });
-      return {
-        rows: toRows(orders),
-        total,
-        capped: total > orders.length + (opts.skip ?? 0),
-        sessionFilter: { ok: all.ok, notBookable: false },
-      };
-    } else if (!canAccessSubEvent(session, effectiveSubEventId)) {
+    if (effectiveSubEventId && !canAccessSubEvent(session, effectiveSubEventId)) {
       throw new ForbiddenError("Access denied for that session");
     }
   }
 
   let sessionFilter: { ok: boolean; notBookable: boolean } | undefined;
+
+  // A restricted viewer with no session chosen sees ALL of theirs. Defaulting to
+  // the first would silently hide the rest — an organiser with two sessions
+  // would read a partial list and export a partial CSV as their full roster.
+  //
+  // This constrains `where` and falls through to the shared tail rather than
+  // returning early: an earlier version returned here and so skipped the
+  // `checkedIn` pass below entirely, quietly ignoring that filter for exactly
+  // the people this feature exists for.
+  if (allowedSubEvents !== null && !effectiveSubEventId) {
+    const all = await orderCodesForSubEvents(session, allowedSubEvents);
+    sessionFilter = { ok: all.ok, notBookable: false };
+    where.AND = [
+      ...(where.AND as Prisma.AttendeeOrderWhereInput[]),
+      { orderCode: { in: all.codes } },
+    ];
+  }
   if (effectiveSubEventId) {
     const res = await orderCodesForSubEvents(session, [effectiveSubEventId]);
     sessionFilter = { ok: res.ok, notBookable: res.notBookable };

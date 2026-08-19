@@ -70,6 +70,30 @@ export async function changeRoleAction(
         return { ok: false, error: "Those sessions belong to a different organization." };
       }
       eventIds = [...new Set(subEvents.map((se) => se.eventMapping.localEventId))];
+
+      // Refuse to create the one combination the scoping model cannot express.
+      //
+      // subEventScope returns ONE flat list, so it cannot say "unrestricted in
+      // org A, restricted in org B". Someone who administers another
+      // organization AND runs a workshop here therefore ends up narrowed
+      // everywhere: their own org's dashboard, finance and approvals vanish
+      // from the nav and their own registrations list comes back empty, with no
+      // explanation. Blocking the grant is honest; silently degrading their
+      // other account is not. Separate accounts are the answer.
+      const broad = await prisma.organizationMember.findMany({
+        where: {
+          userId,
+          role: { in: ["super_admin", "organizer_admin", "finance"] },
+        },
+        select: { organizationId: true },
+      });
+      if (broad.length > 0) {
+        return {
+          ok: false,
+          error:
+            "This user already administers an organization. Give them a separate account for workshop access — one login cannot be both.",
+        };
+      }
     }
     await changeRole(session, userId, organizationId, role, eventIds, assignedSubEventIds);
     return { ok: true };

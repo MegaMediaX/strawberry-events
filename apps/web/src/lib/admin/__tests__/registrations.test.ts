@@ -43,6 +43,80 @@ beforeEach(() => {
   mock(prisma.attendeeOrder.count).mockResolvedValue(1);
 });
 
+describe("workshop organiser scoping", () => {
+  const scoped = {
+    userId: "wo1",
+    isSuperAdmin: false,
+    memberships: [
+      {
+        organizationId: "orgA",
+        role: "workshop_organiser" as const,
+        assignedEventIds: ["loc1"],
+        assignedSubEventIds: ["se1", "se2"],
+      },
+    ],
+  };
+
+  const twoSessions = [
+    { id: "se1", pretixItemId: 9, eventMapping: { id: "e1", organizationId: "orgA", localEventId: "loc1", pretixEventSlug: "expo" } },
+    { id: "se2", pretixItemId: 11, eventMapping: { id: "e1", organizationId: "orgA", localEventId: "loc1", pretixEventSlug: "expo" } },
+  ];
+
+  it("sees ALL assigned sessions when none is chosen, not just the first", async () => {
+    mock(prisma.subEvent.findMany).mockResolvedValue(twoSessions);
+    mock(prisma.organization.findUnique).mockResolvedValue({ id: "orgA" });
+    mock(resolvePretixContext).mockReturnValue({ organizerSlug: "acme", token: "t" });
+    mock(listOrders).mockResolvedValue([
+      { code: "IN_SE1", status: "p", positions: [{ item: 9, canceled: false }] },
+      { code: "IN_SE2", status: "p", positions: [{ item: 11, canceled: false }] },
+      { code: "OTHER", status: "p", positions: [{ item: 5, canceled: false }] },
+    ]);
+    mock(prisma.attendeeOrder.findMany).mockResolvedValue([]);
+    mock(prisma.attendeeOrder.count).mockResolvedValue(0);
+
+    await listRegistrationsPage(scoped, {});
+
+    const where = mock(prisma.attendeeOrder.findMany).mock.calls[0][0].where;
+    const clause = (where.AND as Record<string, unknown>[])
+      .map((c) => (c as { orderCode?: { in?: string[] } }).orderCode?.in)
+      .filter(Boolean)
+      .pop();
+    expect(clause?.sort()).toEqual(["IN_SE1", "IN_SE2"]);
+  });
+
+  it("still applies the checkedIn filter when showing all their sessions", async () => {
+    // This branch used to return early, skipping the checkedIn pass entirely —
+    // an organiser filtering "checked in" silently got everyone, on screen and
+    // in the CSV.
+    mock(prisma.subEvent.findMany).mockResolvedValue(twoSessions);
+    mock(prisma.organization.findUnique).mockResolvedValue({ id: "orgA" });
+    mock(resolvePretixContext).mockReturnValue({ organizerSlug: "acme", token: "t" });
+    mock(listOrders).mockResolvedValue([
+      { code: "IN_SE1", status: "p", positions: [{ item: 9, canceled: false }] },
+    ]);
+    mock(prisma.attendeeOrder.findMany).mockResolvedValue([]);
+    mock(prisma.attendeeOrder.count).mockResolvedValue(0);
+    mock(prisma.badgePrintLog.findMany).mockResolvedValue([]);
+
+    await listRegistrationsPage(scoped, { checkedIn: true });
+
+    expect(prisma.badgePrintLog.findMany).toHaveBeenCalled();
+  });
+
+  it("refuses a session outside the assignment", async () => {
+    await expect(
+      listRegistrationsPage(scoped, { subEventId: "se-not-mine" }),
+    ).rejects.toThrow();
+  });
+
+  it("returns nothing when restricted but assigned no sessions", async () => {
+    const none = { ...scoped, memberships: [{ ...scoped.memberships[0], assignedSubEventIds: [] }] };
+    const res = await listRegistrationsPage(none, {});
+    expect(res.rows).toEqual([]);
+    expect(res.total).toBe(0);
+  });
+});
+
 describe("session filter — fails closed, and says which failure it is", () => {
   const subEvent = {
     id: "se1",

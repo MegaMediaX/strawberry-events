@@ -74,7 +74,17 @@ export function UserActions({
       <div className="flex flex-wrap items-end gap-2">
         <div>
           <label className="block text-xs text-muted-foreground">Organization</label>
-          <select className={sel} value={orgId} onChange={(e) => setOrgId(e.target.value)}>
+          <select
+            className={sel}
+            value={orgId}
+            onChange={(e) => {
+              // Clear the session picks: they belong to the previous org, are no
+              // longer rendered, and would otherwise be submitted invisibly and
+              // rejected with a message naming no particular checkbox.
+              setOrgId(e.target.value);
+              setSessionIds([]);
+            }}
+          >
             {orgs.length === 0 && <option value="">No organizations</option>}
             {orgs.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
           </select>
