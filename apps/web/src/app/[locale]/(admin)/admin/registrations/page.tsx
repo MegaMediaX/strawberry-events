@@ -3,7 +3,7 @@ import { setRequestLocale } from "next-intl/server";
 import { getSessionContext, requireRole } from "@/lib/auth/session";
 import { prisma } from "@/lib/db/client";
 import { eventScope } from "@/lib/admin/scope";
-import { listRegistrations, type RegistrationFilters } from "@/lib/admin/registrations";
+import { listRegistrationsPage, type RegistrationFilters } from "@/lib/admin/registrations";
 
 export const dynamic = "force-dynamic";
 
@@ -48,7 +48,26 @@ export default async function RegistrationsPage({
   if (!session) return null;
 
   const filters = toFilters(sp);
-  const rows = await listRegistrations(session, filters);
+  // 1000 comfortably covers current volume (812 orders, largest session 695), so
+  // nothing is cut in practice — and when it ever is, `capped` says so rather
+  // than letting a truncated list read as the total.
+  // A session id the caller cannot reach throws ForbiddenError. The single
+  // registration page already degrades rather than propagating; do the same here
+  // instead of replacing the entire Registrations screen with an error boundary
+  // because one bookmarked query param went stale.
+  let page;
+  let sessionDenied = false;
+  try {
+    page = await listRegistrationsPage(session, filters, { take: 1000 });
+  } catch {
+    sessionDenied = true;
+    page = await listRegistrationsPage(
+      session,
+      { ...filters, subEventId: undefined },
+      { take: 1000 },
+    );
+  }
+  const { rows, total, capped, sessionFilter } = page;
 
   // Accessible events for the filter dropdown.
   const ev = eventScope(session);
@@ -63,9 +82,12 @@ export default async function RegistrationsPage({
   // otherwise every session the source events allow — the label carries the
   // event name so the options stay unambiguous.
   const subEvents = await prisma.subEvent.findMany({
-    where: sp.event
-      ? { eventMappingId: sp.event }
-      : { eventMapping: ev ?? {} },
+    // Both keys, always. Narrowing by the requested event must not replace the
+    // org scope: `?event=<another org's id>` would otherwise populate this
+    // dropdown with that event's session titles, categories and bookable state.
+    // The registrant rows stay protected by orderScope, but the programme
+    // metadata leaked.
+    where: { ...(sp.event ? { eventMappingId: sp.event } : {}), eventMapping: ev ?? {} },
     select: {
       id: true,
       titleEn: true,
@@ -146,12 +168,36 @@ export default async function RegistrationsPage({
       </form>
 
       <p className="mt-3 text-sm text-muted-foreground">
-        {rows.length} registrations
+        {capped ? `Showing ${rows.length} of ${total}` : `${total}`} registrations
         {sp.session && (() => {
           const se = subEvents.find((x) => x.id === sp.session);
           return se ? ` booked into ${se.titleEn}` : "";
         })()}
       </p>
+      {sessionDenied && (
+        <p className="mt-2 rounded-[var(--radius-md)] border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+          You do not have access to that session, so the session filter was
+          ignored. Everything else still applies.
+        </p>
+      )}
+      {sessionFilter?.ok === false && (
+        <p className="mt-2 rounded-[var(--radius-md)] border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+          Could not read bookings from pretix, so this shows nothing rather than
+          everything. It is not a count of zero — try again shortly.
+        </p>
+      )}
+      {sessionFilter?.notBookable && (
+        <p className="mt-2 rounded-[var(--radius-md)] border border-amber-500/40 bg-amber-500/5 px-3 py-2 text-sm text-amber-700">
+          That session is not linked to a pretix product, so it cannot be booked
+          and will always show zero. See Data → Checks.
+        </p>
+      )}
+      {capped && (
+        <p className="mt-1 rounded-[var(--radius-md)] border border-amber-500/40 bg-amber-500/5 px-3 py-2 text-xs text-amber-700">
+          This list is truncated — narrow the filters, or use Export CSV, which
+          includes every matching row.
+        </p>
+      )}
       {sp.session && (
         <p className="mt-1 max-w-[70ch] text-xs text-muted-foreground">
           Session bookings live in pretix, not in this database, so filtering by

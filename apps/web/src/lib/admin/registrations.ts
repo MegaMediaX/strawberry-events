@@ -82,31 +82,40 @@ export interface RegistrationRow {
   createdAt: Date;
 }
 
+export interface SubEventCodes {
+  codes: string[];
+  /**
+   * False when pretix could not be read. The filter still fails CLOSED (no
+   * codes, so no rows) because failing open would quietly show every
+   * registration under a session's name — but the caller must be able to tell
+   * "pretix is down" from "nobody booked this", since both otherwise render as
+   * a confident zero.
+   */
+  ok: boolean;
+  /** True when the session has no pretix item, so it cannot be booked at all. */
+  notBookable: boolean;
+}
+
 /**
  * Order codes holding a booking for one sub-event, read from pretix.
- *
- * Returns an empty array when the session cannot be resolved, when the
- * sub-event has no pretix item, or when pretix is unreachable — which shows an
- * empty result rather than silently widening to every registration. A filter
- * that fails open would be worse than one that fails visibly.
  */
 async function orderCodesForSubEvent(
   session: SessionContext,
   subEventId: string,
-): Promise<string[]> {
+): Promise<SubEventCodes> {
   const subEvent = await prisma.subEvent.findUnique({
     where: { id: subEventId },
     include: { eventMapping: { select: { id: true, organizationId: true, localEventId: true, pretixEventSlug: true } } },
   });
-  if (!subEvent) return [];
+  if (!subEvent) return { codes: [], ok: true, notBookable: true };
   const m = subEvent.eventMapping;
   if (!canAccessEvent(session, m.organizationId, m.localEventId)) {
     throw new ForbiddenError("Access denied");
   }
-  if (subEvent.pretixItemId == null) return [];
+  if (subEvent.pretixItemId == null) return { codes: [], ok: true, notBookable: true };
 
   const org = await prisma.organization.findUnique({ where: { id: m.organizationId } });
-  if (!org) return [];
+  if (!org) return { codes: [], ok: false, notBookable: false };
 
   try {
     const ctx = resolvePretixContext(org);
@@ -119,11 +128,11 @@ async function orderCodesForSubEvent(
       );
       if (holds) codes.push(order.code);
     }
-    return codes;
+    return { codes, ok: true, notBookable: false };
   } catch (err) {
     // pretix messages carry the internal base URL; keep them server-side.
     console.error("[registrations] sub-event filter failed:", (err as Error).message);
-    return [];
+    return { codes: [], ok: false, notBookable: false };
   }
 }
 
@@ -132,18 +141,43 @@ async function orderCodesForSubEvent(
  * given filters. The `checkedIn` filter is applied via a scoped BadgePrintLog
  * lookup (there is no direct relation). Never returns QR/secret material.
  */
-export async function listRegistrations(
+export interface RegistrationPage {
+  rows: RegistrationRow[];
+  /** Total matching rows, ignoring take/skip. */
+  total: number;
+  /** True when `rows` is a truncated view of `total`. */
+  capped: boolean;
+  /**
+   * Set only when a session filter was applied: whether pretix could be read,
+   * and whether the session is bookable at all. Without this an empty table is
+   * ambiguous between "nobody booked" and "pretix is unreachable".
+   */
+  sessionFilter?: { ok: boolean; notBookable: boolean };
+}
+
+/**
+ * Rows PLUS the true total, so a caller can say "showing 200 of 812" instead of
+ * presenting a truncated page as the whole answer.
+ *
+ * The default limit had been silently cutting the list: with 812 orders the page
+ * rendered 200 and labelled it "200 registrations", and a session filter made
+ * that worse by turning a capped list into a headcount someone might staff a
+ * room from.
+ */
+export async function listRegistrationsPage(
   session: SessionContext,
   filters: RegistrationFilters = {},
   opts: { take?: number; skip?: number } = {},
-): Promise<RegistrationRow[]> {
+): Promise<RegistrationPage> {
   const where = buildWhere(session, filters);
 
+  let sessionFilter: { ok: boolean; notBookable: boolean } | undefined;
   if (filters.subEventId) {
-    const codes = await orderCodesForSubEvent(session, filters.subEventId);
+    const res = await orderCodesForSubEvent(session, filters.subEventId);
+    sessionFilter = { ok: res.ok, notBookable: res.notBookable };
     where.AND = [
       ...(where.AND as Prisma.AttendeeOrderWhereInput[]),
-      { orderCode: { in: codes } },
+      { orderCode: { in: res.codes } },
     ];
   }
 
@@ -169,7 +203,11 @@ export async function listRegistrations(
     skip: opts.skip ?? 0,
   });
 
-  return orders.map((o) => ({
+  const total = await prisma.attendeeOrder.count({ where });
+
+  // Annotated: without the contextual type, `method` widens to string and no
+  // longer satisfies the "Free" | "COD" union.
+  const rows: RegistrationRow[] = orders.map((o) => ({
     id: o.id,
     orderCode: o.orderCode,
     event: o.eventMapping.titleEn,
@@ -185,6 +223,20 @@ export async function listRegistrations(
     state: registrationState(o),
     createdAt: o.createdAt,
   }));
+
+  return { rows, total, capped: total > rows.length + (opts.skip ?? 0), sessionFilter };
+}
+
+/**
+ * Rows only. Kept so existing callers and their tests are unaffected; prefer
+ * {@link listRegistrationsPage} anywhere the count is shown to a human.
+ */
+export async function listRegistrations(
+  session: SessionContext,
+  filters: RegistrationFilters = {},
+  opts: { take?: number; skip?: number } = {},
+): Promise<RegistrationRow[]> {
+  return (await listRegistrationsPage(session, filters, opts)).rows;
 }
 
 /**
