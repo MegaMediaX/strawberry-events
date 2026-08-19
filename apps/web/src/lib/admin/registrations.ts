@@ -1,6 +1,6 @@
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db/client";
-import { canAccessEvent } from "@/lib/auth/org-scope";
+import { canAccessEvent, subEventScope, canAccessSubEvent } from "@/lib/auth/org-scope";
 import { ForbiddenError } from "@/lib/auth/guards";
 import type { SessionContext } from "@/lib/auth/types";
 import { registrationState, type RegistrationState } from "@/lib/approval/state";
@@ -171,9 +171,29 @@ export async function listRegistrationsPage(
 ): Promise<RegistrationPage> {
   const where = buildWhere(session, filters);
 
+  // A workshop organiser may only ever see registrations booked into their own
+  // sessions. That cannot be expressed in the SQL scope, because the booking
+  // lives in pretix — so it is enforced here, at the single point every list and
+  // export passes through.
+  const allowedSubEvents = subEventScope(session);
+  let effectiveSubEventId = filters.subEventId;
+  if (allowedSubEvents !== null) {
+    if (allowedSubEvents.length === 0) {
+      // Restricted, but assigned nothing. Fail closed rather than fall through
+      // to an unfiltered list.
+      return { rows: [], total: 0, capped: false, sessionFilter: { ok: true, notBookable: false } };
+    }
+    if (!effectiveSubEventId) {
+      // No session chosen: default to their own rather than showing everything.
+      effectiveSubEventId = allowedSubEvents[0];
+    } else if (!canAccessSubEvent(session, effectiveSubEventId)) {
+      throw new ForbiddenError("Access denied for that session");
+    }
+  }
+
   let sessionFilter: { ok: boolean; notBookable: boolean } | undefined;
-  if (filters.subEventId) {
-    const res = await orderCodesForSubEvent(session, filters.subEventId);
+  if (effectiveSubEventId) {
+    const res = await orderCodesForSubEvent(session, effectiveSubEventId);
     sessionFilter = { ok: res.ok, notBookable: res.notBookable };
     where.AND = [
       ...(where.AND as Prisma.AttendeeOrderWhereInput[]),
@@ -295,6 +315,18 @@ export async function getRegistrationDetail(
   });
   if (!order || !canAccessEvent(session, order.eventMapping.organizationId, order.eventMapping.localEventId)) {
     throw new ForbiddenError("Registration not found or access denied");
+  }
+
+  // Event access is not enough for a sub-event-restricted session: without this
+  // a workshop organiser could open any order in the event by id, which is the
+  // whole attendee list one row at a time.
+  const allowed = subEventScope(session);
+  if (allowed !== null) {
+    const codes = await Promise.all(allowed.map((id) => orderCodesForSubEvent(session, id)));
+    const permitted = new Set(codes.flatMap((c) => c.codes));
+    if (!permitted.has(order.orderCode)) {
+      throw new ForbiddenError("Registration not found or access denied");
+    }
   }
 
   const state = registrationState(order);

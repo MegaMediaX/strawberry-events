@@ -34,7 +34,7 @@ export default async function RegistrationDetailPage({
 }) {
   const { locale, id } = await params;
   setRequestLocale(locale);
-  await requireRole(["super_admin", "organizer_admin", "finance"], `/${locale}/admin`);
+  await requireRole(["super_admin", "organizer_admin", "finance", "workshop_organiser"], `/${locale}/admin`);
   const session = await getSessionContext();
   if (!session) return null;
 

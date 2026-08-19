@@ -13,7 +13,7 @@ export const dynamic = "force-dynamic";
 export async function GET(request: Request) {
   const session = await getSessionContext();
   if (!session) return new Response("Unauthorized", { status: 401 });
-  if (!hasAnyRole(session, ["super_admin", "organizer_admin", "finance"])) {
+  if (!hasAnyRole(session, ["super_admin", "organizer_admin", "finance", "workshop_organiser"])) {
     return new Response("Forbidden", { status: 403 });
   }
 

@@ -20,6 +20,9 @@ enum MemberRole {
   organizer_admin
   checkin_staff
   finance
+  /// Scoped to specific sub-events via assignedSubEventIds — sees only the
+  /// registrations booked into those sessions, and nothing else in the admin.
+  workshop_organiser
 }
 
 enum OrgStatus {
@@ -252,6 +255,8 @@ model OrganizationMember {
   userId           String
   role             MemberRole
   assignedEventIds String[]   @default([])
+  /// Sub-events a workshop_organiser may see. Empty for every other role.
+  assignedSubEventIds String[] @default([])
   createdAt        DateTime   @default(now())
   updatedAt        DateTime   @updatedAt
 

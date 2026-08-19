@@ -45,7 +45,7 @@ export async function invitableOrgs(
 
 /** Roles the session may grant (org admins cannot mint super admins). */
 export function grantableRoles(session: SessionContext): MemberRole[] {
-  const base: MemberRole[] = ["organizer_admin", "finance", "checkin_staff"];
+  const base: MemberRole[] = ["organizer_admin", "finance", "checkin_staff", "workshop_organiser"];
   return session.isSuperAdmin ? (["super_admin", ...base] as MemberRole[]) : base;
 }
 
@@ -186,6 +186,7 @@ export async function changeRole(
   organizationId: string,
   role: MemberRole,
   assignedEventIds?: string[],
+  assignedSubEventIds?: string[],
 ) {
   assertCanManageUsers(session);
   if (role === "super_admin" && !session.isSuperAdmin) {
@@ -199,10 +200,26 @@ export async function changeRole(
   // Preserve existing event scoping on a role change unless the caller passes a
   // new value — otherwise a checkin_staff member's assignedEventIds would be
   // silently wiped (widening access).
+  // Session scoping is meaningless for every other role, and leaving it behind
+  // on a role change would be a silent grant if the member were ever moved back
+  // to workshop_organiser. Clear it unless this role uses it.
+  const subEvents =
+    role === "workshop_organiser" ? (assignedSubEventIds ?? undefined) : [];
+
   const membership = await prisma.organizationMember.upsert({
     where: { organizationId_userId: { organizationId, userId } },
-    update: { role, ...(assignedEventIds !== undefined ? { assignedEventIds } : {}) },
-    create: { organizationId, userId, role, assignedEventIds: assignedEventIds ?? [] },
+    update: {
+      role,
+      ...(assignedEventIds !== undefined ? { assignedEventIds } : {}),
+      ...(subEvents !== undefined ? { assignedSubEventIds: subEvents } : {}),
+    },
+    create: {
+      organizationId,
+      userId,
+      role,
+      assignedEventIds: assignedEventIds ?? [],
+      assignedSubEventIds: subEvents ?? [],
+    },
   });
   await audit(session, organizationId, "user.role_changed", userId);
   return membership;

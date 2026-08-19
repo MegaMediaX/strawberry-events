@@ -3,6 +3,7 @@ import { setRequestLocale } from "next-intl/server";
 import { getSessionContext, requireRole } from "@/lib/auth/session";
 import { prisma } from "@/lib/db/client";
 import { eventScope } from "@/lib/admin/scope";
+import { subEventScope } from "@/lib/auth/org-scope";
 import { listRegistrationsPage, type RegistrationFilters } from "@/lib/admin/registrations";
 
 export const dynamic = "force-dynamic";
@@ -43,10 +44,12 @@ export default async function RegistrationsPage({
   const { locale } = await params;
   const sp = await searchParams;
   setRequestLocale(locale);
-  await requireRole(["super_admin", "organizer_admin", "finance"], `/${locale}/admin`);
+  await requireRole(["super_admin", "organizer_admin", "finance", "workshop_organiser"], `/${locale}/admin`);
   const session = await getSessionContext();
   if (!session) return null;
 
+  // null for everyone unrestricted; an array for a workshop organiser.
+  const allowedSessions = subEventScope(session);
   const filters = toFilters(sp);
   // 1000 comfortably covers current volume (812 orders, largest session 695), so
   // nothing is cut in practice — and when it ever is, `capped` says so rather
@@ -87,7 +90,13 @@ export default async function RegistrationsPage({
     // dropdown with that event's session titles, categories and bookable state.
     // The registrant rows stay protected by orderScope, but the programme
     // metadata leaked.
-    where: { ...(sp.event ? { eventMappingId: sp.event } : {}), eventMapping: ev ?? {} },
+    where: {
+      ...(sp.event ? { eventMappingId: sp.event } : {}),
+      eventMapping: ev ?? {},
+      // A session-scoped user picks from their own sessions and no others —
+      // otherwise the dropdown advertises the rest of the programme.
+      ...(allowedSessions ? { id: { in: allowedSessions } } : {}),
+    },
     select: {
       id: true,
       titleEn: true,
@@ -126,7 +135,7 @@ export default async function RegistrationsPage({
           {events.map((e) => <option key={e.id} value={e.id}>{e.titleEn}</option>)}
         </select>
         <select className={sel} name="session" defaultValue={sp.session ?? ""}>
-          <option value="">All sessions</option>
+          {!allowedSessions && <option value="">All sessions</option>}
           {subEvents.map((se) => (
             <option key={se.id} value={se.id} disabled={se.pretixItemId == null}>
               {se.titleEn}
