@@ -4,7 +4,12 @@ import type { SessionContext } from "@/lib/auth/types";
 vi.mock("@/lib/db/client", () => ({
   prisma: {
     eventMapping: { findUnique: vi.fn() },
-    attendeeOrder: { findFirst: vi.fn(), findMany: vi.fn() },
+    attendeeOrder: {
+      findFirst: vi.fn(),
+      findMany: vi.fn(),
+      findUnique: vi.fn(),
+      updateMany: vi.fn(),
+    },
     organization: { findUnique: vi.fn() },
     badgePrintLog: { create: vi.fn() },
     auditLog: { create: vi.fn() },
@@ -70,6 +75,10 @@ beforeEach(() => {
     id: "orgA", pretixOrganizerSlug: "acme", pretixApiToken: null,
   });
   mock(prisma.attendeeOrder.findFirst).mockResolvedValue(order());
+  // A successful check-in mints the badge slug that the printed contact QR
+  // resolves to. Default to "this row had none, the write won".
+  mock(prisma.attendeeOrder.updateMany).mockResolvedValue({ count: 1 });
+  mock(prisma.attendeeOrder.findUnique).mockResolvedValue({ badgeSlug: null });
   // clearAllMocks() resets call history but NOT implementations, so re-assert
   // the happy-path redeem to keep tests isolated from the duplicate-case test.
   mock(pretixCheckin.redeemCheckin).mockResolvedValue({ status: "ok" });
@@ -285,5 +294,106 @@ describe("liveCounters", () => {
     };
     const res = await liveCounters(orgAdmin, "e1", 5);
     expect(res).toEqual({ total: 10, checkedIn: 3 });
+  });
+});
+
+describe("badge slug assignment", () => {
+  it("mints a slug on a successful check-in", async () => {
+    const res = await checkInOrder(staff, "e1", "ABC12", 5);
+    expect(res.ok).toBe(true);
+    expect(prisma.attendeeOrder.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        // Guarded on null: the write must not rotate a slug already printed
+        // onto a badge someone is wearing.
+        where: expect.objectContaining({ badgeSlug: null }),
+      }),
+    );
+    expect(res.badge?.badgeSlug).toMatch(/^[0-9A-HJKMNP-TV-Z]{8}$/);
+  });
+
+  it("keeps the slug an order already has", async () => {
+    mock(prisma.attendeeOrder.findFirst).mockResolvedValue(order({ badgeSlug: "KEEPTHIS" }));
+    const res = await checkInOrder(staff, "e1", "ABC12", 5);
+    expect(res.badge?.badgeSlug).toBe("KEEPTHIS");
+    // No write at all — rotating this would 404 a badge already in the wild.
+    expect(prisma.attendeeOrder.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("takes the winner's slug when a concurrent print got there first", async () => {
+    mock(prisma.attendeeOrder.updateMany).mockResolvedValue({ count: 0 });
+    mock(prisma.attendeeOrder.findUnique).mockResolvedValue({ badgeSlug: "WONRACE1" });
+    const res = await checkInOrder(staff, "e1", "ABC12", 5);
+    expect(res.badge?.badgeSlug).toBe("WONRACE1");
+  });
+
+  it("still checks in when the slug cannot be assigned", async () => {
+    // A QR is a decoration; entry is not. Losing the slug must never turn into
+    // a refused attendee at the door.
+    mock(prisma.attendeeOrder.updateMany).mockRejectedValue(new Error("unique violation"));
+    mock(prisma.attendeeOrder.findUnique).mockResolvedValue({ badgeSlug: null });
+    const res = await checkInOrder(staff, "e1", "ABC12", 5);
+    expect(res.ok).toBe(true);
+    expect(res.badge?.badgeSlug).toBeNull();
+  });
+});
+
+describe("the slug must never cost someone entry", () => {
+  // These are the cases the original "still checks in when the slug cannot be
+  // assigned" test could not catch: it rejected updateMany while leaving
+  // findUnique healthy, so it passed whether or not the re-read was guarded.
+  // The re-read was NOT guarded, and it runs AFTER pretix has already redeemed.
+
+  it("checks in when the re-read throws", async () => {
+    mock(prisma.attendeeOrder.updateMany).mockResolvedValue({ count: 0 });
+    mock(prisma.attendeeOrder.findUnique).mockRejectedValue(new Error("connection reset"));
+
+    const res = await checkInOrder(staff, "e1", "ABC12", 5);
+
+    // pretix already redeemed by this point. Reporting a failure here would
+    // send staff to re-scan, pretix would answer "already redeemed", and a
+    // paying attendee would be stuck at the door with no badge.
+    expect(res.ok).toBe(true);
+    expect(res.badge?.badgeSlug).toBeNull();
+    expect(pretixCheckin.redeemCheckin).toHaveBeenCalled();
+  });
+
+  it("checks in when the column does not exist yet", async () => {
+    // The deploy window: CI recreates the container before running migrations,
+    // so new code briefly runs against the old schema.
+    const missingColumn = Object.assign(new Error('column "badgeSlug" does not exist'), {
+      code: "P2022",
+    });
+    mock(prisma.attendeeOrder.updateMany).mockRejectedValue(missingColumn);
+    mock(prisma.attendeeOrder.findUnique).mockRejectedValue(missingColumn);
+
+    const res = await checkInOrder(staff, "e1", "ABC12", 5);
+    expect(res.ok).toBe(true);
+    expect(res.badge?.badgeSlug).toBeNull();
+  });
+
+  it("does not treat a non-collision error as a lost race", async () => {
+    // A missing column or dead connection is not "someone else won". Retrying
+    // it as though it were hides a real outage behind a merely-absent QR.
+    const dead = Object.assign(new Error("connection reset"), { code: "P1001" });
+    mock(prisma.attendeeOrder.updateMany).mockRejectedValue(dead);
+    mock(prisma.attendeeOrder.findUnique).mockResolvedValue({ badgeSlug: null });
+
+    const res = await checkInOrder(staff, "e1", "ABC12", 5);
+    expect(res.ok).toBe(true);
+    // Bailed on the first error rather than burning all three attempts.
+    expect(prisma.attendeeOrder.updateMany).toHaveBeenCalledTimes(1);
+  });
+
+  it("retries a genuine unique collision", async () => {
+    const collision = Object.assign(new Error("unique"), { code: "P2002" });
+    mock(prisma.attendeeOrder.updateMany)
+      .mockRejectedValueOnce(collision)
+      .mockResolvedValue({ count: 1 });
+    mock(prisma.attendeeOrder.findUnique).mockResolvedValue({ badgeSlug: null });
+
+    const res = await checkInOrder(staff, "e1", "ABC12", 5);
+    expect(res.ok).toBe(true);
+    expect(res.badge?.badgeSlug).toMatch(/^[0-9A-HJKMNP-TV-Z]{8}$/);
+    expect(prisma.attendeeOrder.updateMany).toHaveBeenCalledTimes(2);
   });
 });

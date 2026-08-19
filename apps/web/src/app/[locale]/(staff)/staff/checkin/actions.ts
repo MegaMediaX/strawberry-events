@@ -45,7 +45,13 @@ export async function checkInAction(
   }
 }
 
-/** Check in from a scanned QR (the badge encodes the pretix secret). */
+/**
+ * Check in from a scanned QR.
+ *
+ * Two payloads arrive here: the pretix e-ticket QR (a pretix secret) and the
+ * printed badge QR (a contact-profile URL carrying a badgeSlug). `checkInBySecret`
+ * resolves both, trying the secret first.
+ */
 export async function scanAction(
   eventId: string,
   secret: string,

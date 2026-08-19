@@ -1,4 +1,5 @@
 import type { BadgeData } from "@/components/badges/badge-template";
+import { badgeProfileUrl } from "./badge-slug";
 
 /**
  * Generate ZPL II for a 60×40 mm (landscape) attendee badge, targeting the
@@ -9,6 +10,7 @@ import type { BadgeData } from "@/components/badges/badge-template";
  *     thermal is monochrome, so the on-screen tag color becomes black)
  *   - full name (large)
  *   - company (smaller, optional)
+ *   - contact-profile QR, bottom right (optional — omitted if no slug)
  *
  * 203 dpi ≈ 8 dots/mm, so 60 × 40 mm ≈ 480 × 320 dots.
  */
@@ -21,6 +23,11 @@ export const LABEL_WIDTH = Math.round(LABEL_W_MM * DOTS_PER_MM); // ≈ 480
 export const LABEL_HEIGHT = Math.round(LABEL_H_MM * DOTS_PER_MM); // ≈ 320
 
 const MARGIN = 16;
+
+/** Role band across the top; everything else is laid out below it. */
+const BAND_Y = 10;
+const BAND_HEIGHT = 76;
+const BAND_BOTTOM = BAND_Y + BAND_HEIGHT; // 86
 
 /**
  * Make text safe for a ZPL field: replace the control prefixes ^ and ~ with a
@@ -62,20 +69,77 @@ export function hasUnprintableName(value: string): boolean {
   return Array.from(value).some((ch) => ch.charCodeAt(0) > 0xff);
 }
 
-/** A centered field block spanning the full label width (minus margins). */
-function centeredBlock(
-  y: number,
-  fontHeight: number,
-  text: string,
-  maxLines = 1,
-): string {
-  const blockWidth = LABEL_WIDTH - MARGIN * 2;
+/**
+ * QR geometry, derived rather than guessed.
+ *
+ * The payload is 48 alphanumeric characters, which at error-correction level Q
+ * (25% recovery) is a version-3 symbol: 29 modules. At magnification 5 that is
+ * 145 dots — 18.1 mm, with 0.626 mm modules.
+ *
+ * Module size is the number that matters. Below roughly 0.5 mm a phone camera
+ * starts failing on a badge that has been creased, worn for three days and
+ * scanned in venue lighting. 0.626 mm leaves real margin. Level Q rather than H
+ * is a deliberate trade: H would force version 4 and cost that margin, and 25%
+ * recovery is already generous for a symbol this size.
+ */
+const QR_MAGNIFICATION = 5;
+const QR_MODULES = 29;
+const QR_SIZE = QR_MODULES * QR_MAGNIFICATION; // 145 dots
+
+/**
+ * Blank margin around the symbol, in MODULES. The QR spec requires at least 4;
+ * anything less and a decoder cannot find the symbol's edge and simply refuses.
+ *
+ * This is what broke the first printed badge. The QR sat 16 dots from the label
+ * edge — 3.2 modules, under spec — and would not scan. 7 modules is the spec
+ * minimum plus real headroom, which matters here because the last few
+ * millimetres of a thermal label curl away from the platen and print unevenly.
+ * The quiet zone must be blank LABEL, not blank space that runs off the edge.
+ */
+const QR_QUIET_MODULES = 7;
+const QR_QUIET = QR_QUIET_MODULES * QR_MAGNIFICATION; // 35 dots
+
+const QR_X = LABEL_WIDTH - QR_QUIET - QR_SIZE;
+
+/** Centered in the band-to-bottom-edge space, so neither margin is the tight one. */
+const QR_Y = BAND_BOTTOM + Math.round((LABEL_HEIGHT - BAND_BOTTOM - QR_SIZE) / 2);
+
+/**
+ * Horizontal room left for text. Stops a full quiet zone short of the symbol —
+ * a name wrapping to within a few dots of the QR eats the left quiet zone and
+ * kills the scan just as effectively as running off the label edge.
+ */
+const TEXT_WIDTH = QR_X - MARGIN - QR_QUIET;
+
+/** A left-aligned field block in the column beside the QR. */
+function textBlock(y: number, fontHeight: number, text: string, maxLines = 1): string {
   return (
     `^FO${MARGIN},${y}` +
     `^A0N,${fontHeight},${fontHeight}` +
-    `^FB${blockWidth},${maxLines},0,C,0` +
+    `^FB${TEXT_WIDTH},${maxLines},0,L,0` +
     `^FD${sanitizeZplText(text)}^FS`
   );
+}
+
+/**
+ * The QR field, or an empty string if it cannot be built safely.
+ *
+ * `badgeProfileUrl` throws when the configured host makes the payload longer
+ * than the geometry above reserves. That is a real problem worth surfacing —
+ * but not by refusing to print a badge. This is the door: a badge with no QR
+ * still gets a paying attendee into the room, and an exception here would take
+ * check-in down over a decoration.
+ */
+function qrBlock(slug: string): string {
+  try {
+    return (
+      `^FO${QR_X},${QR_Y}^BQN,2,${QR_MAGNIFICATION},Q,7` +
+      `^FDQA,${badgeProfileUrl(slug)}^FS`
+    );
+  } catch (err) {
+    console.error("[badge] QR omitted:", (err as Error).message);
+    return "";
+  }
 }
 
 export function buildBadgeZpl(badge: BadgeData): string {
@@ -84,12 +148,17 @@ export function buildBadgeZpl(badge: BadgeData): string {
 
   // Tag band: a filled black box with reversed (white) centered text. The tag
   // is the most prominent element, so it gets a tall band and large font.
-  const bandY = 10;
-  const bandHeight = 76;
+  const bandY = BAND_Y;
+  const bandHeight = BAND_HEIGHT;
   const tagFont = 50;
   const band =
     `^FO0,${bandY}^GB${LABEL_WIDTH},${bandHeight},${bandHeight},B,0^FS` +
     `^FO${MARGIN},${bandY + Math.round((bandHeight - tagFont) / 2)}^A0N,${tagFont},${tagFont}^FR^FB${LABEL_WIDTH - MARGIN * 2},1,0,C,0^FD${tag}^FS`;
+
+  // No slug, no QR. Reprints of orders that predate the column, and the
+  // TEST_BADGE the staff page prints to prove the printer is alive, must still
+  // produce a valid label rather than throwing at the door.
+  const qr = badge.badgeSlug ? qrBlock(badge.badgeSlug) : "";
 
   return [
     "^XA",
@@ -97,8 +166,9 @@ export function buildBadgeZpl(badge: BadgeData): string {
     `^LL${LABEL_HEIGHT}`,
     "^LH0,0",
     band,
-    centeredBlock(140, 44, badge.fullName, 2),
-    company ? centeredBlock(248, 28, company, 1) : "",
+    textBlock(104, 40, badge.fullName, 2),
+    company ? textBlock(196, 26, company, 1) : "",
+    qr,
     "^XZ",
   ]
     .filter(Boolean)

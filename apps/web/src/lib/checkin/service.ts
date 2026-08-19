@@ -7,6 +7,7 @@ import type { SessionContext } from "@/lib/auth/types";
 import { resolvePretixContext } from "@/lib/pretix/context";
 import * as pretixCheckin from "@/lib/pretix/checkin";
 import { emit } from "@/lib/webhooks/service";
+import { generateBadgeSlug, resolveBadgeSlug } from "./badge-slug";
 import { checkinEligibility } from "./eligibility";
 
 export interface CheckInResult {
@@ -18,6 +19,8 @@ export interface CheckInResult {
     secret: string | null;
     fullName: string;
     company: string | null;
+    /** Drives the printed contact-profile QR. Null only for legacy rows. */
+    badgeSlug: string | null;
   };
 }
 
@@ -120,7 +123,75 @@ function badgeOf(order: AttendeeOrder): NonNullable<CheckInResult["badge"]> {
     secret: order.pretixSecret,
     fullName: order.attendeeName ?? order.email,
     company: order.company,
+    badgeSlug: order.badgeSlug,
   };
+}
+
+/**
+ * Return the order's badge slug, minting one on first print if the backfill
+ * never reached this row (an order created after the migration ran, say).
+ *
+ * Assigned lazily at PRINT time, not at registration, because that is the
+ * moment the code becomes physical. Once written it is never rotated: the slug
+ * is on a badge someone is wearing, and changing it would 404 a page they may
+ * already have shared.
+ *
+ * A collision is a lost race against the unique index, not a failure — re-read
+ * and use whatever won, or try once more. 40 bits over 812 rows makes this
+ * effectively unreachable; it is here so that if it ever does happen the door
+ * keeps working.
+ */
+async function ensureBadgeSlug(order: AttendeeOrder): Promise<string | null> {
+  if (order.badgeSlug) return order.badgeSlug;
+
+  // EVERYTHING here is inside one try. This function runs AFTER pretix has
+  // already redeemed the ticket and after the badge-print and audit rows are
+  // committed — so an exception escaping this point would report a failure for
+  // someone who is, in pretix, checked in. Staff would re-scan, pretix would
+  // correctly answer "already redeemed", and a paying attendee would be stuck
+  // at the door while no badge ever printed.
+  //
+  // The earlier version guarded only the write and left the re-read bare, which
+  // is exactly that bug. A slug is a decoration; entry is not.
+  try {
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const candidate = generateBadgeSlug();
+      try {
+        // updateMany, not update: this is a compare-and-set. `badgeSlug: null`
+        // is a filter rather than a unique lookup, so only the first concurrent
+        // print wins and the rest see count 0 and re-read. `update` cannot
+        // express that — its where clause takes unique fields only.
+        const { count } = await prisma.attendeeOrder.updateMany({
+          where: { id: order.id, badgeSlug: null },
+          data: { badgeSlug: candidate },
+        });
+        if (count === 1) return candidate;
+      } catch (err) {
+        // P2002 is the unique violation this retry loop exists for: the
+        // candidate belongs to another order, so pick a different one.
+        // Anything else — a missing column mid-migration, a dead connection —
+        // is NOT a lost race, and silently treating it as one hides a real
+        // outage behind a missing QR.
+        if ((err as { code?: string }).code !== "P2002") throw err;
+      }
+
+      const fresh = await prisma.attendeeOrder.findUnique({
+        where: { id: order.id },
+        select: { badgeSlug: true },
+      });
+      if (fresh?.badgeSlug) return fresh.badgeSlug;
+    }
+  } catch (err) {
+    // Loud, because a silent failure here means badges quietly stop carrying
+    // QR codes mid-event and nobody finds out until attendees complain.
+    console.error(
+      `[checkin] could not assign a badge slug to order ${order.orderCode}:`,
+      (err as Error).message,
+    );
+  }
+
+  // Printing a badge without a QR beats refusing entry over a decoration.
+  return null;
 }
 
 /**
@@ -175,7 +246,10 @@ async function checkInResolvedOrder(
   void emit(mapping.organizationId, "checkin.created", { orderCode: order.orderCode }, mapping.id);
   void emit(mapping.organizationId, "badge.printed", { orderCode: order.orderCode }, mapping.id);
 
-  return { ok: true, badge: badgeOf(order) };
+  // Mint the slug only once the check-in has actually succeeded, so a refused
+  // scan does not burn a code onto a row whose badge was never printed.
+  const badgeSlug = await ensureBadgeSlug(order);
+  return { ok: true, badge: { ...badgeOf(order), badgeSlug } };
 }
 
 /**
@@ -199,9 +273,12 @@ export async function checkInOrder(
 }
 
 /**
- * Check in an attendee by their QR/pretix secret (camera scan path). The QR on
- * the badge encodes `pretixSecret`; this resolves the order by that secret,
- * scoped to the event, then runs the shared check-in core.
+ * Check in an attendee by a scanned code (camera scan path).
+ *
+ * Two payloads reach here. The e-ticket QR, which pretix issues and which
+ * encodes `pretixSecret`, and the printed BADGE QR, which encodes a
+ * contact-profile URL carrying a `badgeSlug`. Both resolve to an order; the
+ * secret is tried first so a slug can never shadow the real credential.
  */
 export async function checkInBySecret(
   session: SessionContext,
@@ -215,9 +292,29 @@ export async function checkInBySecret(
   const trimmed = secret.trim();
   if (!trimmed) return { ok: false, reason: "Empty QR code" };
 
-  const order = await prisma.attendeeOrder.findFirst({
+  let order = await prisma.attendeeOrder.findFirst({
     where: { eventMappingId: mapping.id, pretixSecret: trimmed },
   });
+
+  // The badge QR carries a contact-profile URL, not the pretix secret. Door
+  // staff scan the badge — especially on days two and three, when everyone is
+  // already wearing one — so a scan that is not a secret gets a second look as
+  // a badge slug before we refuse it. Without this the whole event fails closed
+  // the second morning.
+  //
+  // Secret first, deliberately: it is the pretix-issued credential, and a slug
+  // shaped like one must never shadow it. `badgeProfileRevokedAt` is NOT
+  // consulted here — taking a profile offline is a privacy action and must
+  // never cost someone entry to an event they paid for.
+  if (!order) {
+    const slug = resolveBadgeSlug(trimmed);
+    if (slug) {
+      order = await prisma.attendeeOrder.findFirst({
+        where: { eventMappingId: mapping.id, badgeSlug: slug },
+      });
+    }
+  }
+
   if (!order) {
     return { ok: false, reason: "QR not recognized for this event" };
   }
@@ -266,7 +363,10 @@ export async function reprintBadge(
 
   void emit(mapping.organizationId, "badge.printed", { orderCode: order.orderCode }, mapping.id);
 
-  return { ok: true, badge: badgeOf(order) };
+  // Mint the slug only once the check-in has actually succeeded, so a refused
+  // scan does not burn a code onto a row whose badge was never printed.
+  const badgeSlug = await ensureBadgeSlug(order);
+  return { ok: true, badge: { ...badgeOf(order), badgeSlug } };
 }
 
 /** Live counters for a check-in list (pretix source of truth). */

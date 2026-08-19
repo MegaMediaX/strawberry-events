@@ -89,3 +89,91 @@ describe("names the printer cannot render", () => {
     expect(sanitizeZplText("محمد Ali")).toBe("Ali");
   });
 });
+
+describe("the contact-profile QR", () => {
+  it("encodes the profile URL, never the pretix secret", () => {
+    // The whole reason the previous QR was removed: it carried the live
+    // check-in credential on an attendee's chest, photographable all day.
+    const zpl = buildBadgeZpl(badge({ badgeSlug: "ABC12345" }));
+    expect(zpl).toContain("HTTPS://REGISTER.STRAWBERRYAGENCY.COM/C/ABC12345");
+    expect(zpl).not.toMatch(/secret/i);
+  });
+
+  it("prints nothing where there is no slug", () => {
+    // TEST_BADGE and any row predating the column must still yield a valid
+    // label. Throwing here would take the door down to protect a decoration.
+    const zpl = buildBadgeZpl(badge({ badgeSlug: null }));
+    expect(zpl).not.toContain("^BQ");
+    expect(zpl.startsWith("^XA")).toBe(true);
+    expect(zpl.trimEnd().endsWith("^XZ")).toBe(true);
+
+    expect(buildBadgeZpl(badge({ badgeSlug: undefined }))).not.toContain("^BQ");
+  });
+
+  it("gives the symbol a spec-compliant quiet zone on all four sides", () => {
+    // THE bug from the first printed badge. The QR sat 16 dots from the label
+    // edge — 3.2 modules — and would not scan on any phone. A decoder needs at
+    // least 4 blank modules to find the symbol's edge; below that it does not
+    // read a damaged code, it declines to see a code at all.
+    //
+    // "Inside the label" was the assertion this replaces, and it passed the
+    // whole time. Fitting is not the requirement; clearance is.
+    const MAG = 5;
+    const SIZE = 29 * MAG; // version 3
+    const MIN_QUIET = 4 * MAG; // QR spec floor, in dots
+
+    const zpl = buildBadgeZpl(badge({ badgeSlug: "ABC12345" }));
+    const origin = /\^FO(\d+),(\d+)\^BQ/.exec(zpl);
+    expect(origin).not.toBeNull();
+
+    const [x, y] = [Number(origin![1]), Number(origin![2])];
+    expect(x).toBeGreaterThanOrEqual(MIN_QUIET);
+    expect(y).toBeGreaterThanOrEqual(MIN_QUIET);
+    expect(LABEL_WIDTH - (x + SIZE)).toBeGreaterThanOrEqual(MIN_QUIET);
+    expect(LABEL_HEIGHT - (y + SIZE)).toBeGreaterThanOrEqual(MIN_QUIET);
+  });
+
+  it("keeps the quiet zone clear of the role band", () => {
+    // The band is solid black. Printed inside the quiet zone it is
+    // indistinguishable from symbol data, so the decoder sees a malformed code.
+    const zpl = buildBadgeZpl(badge({ badgeSlug: "ABC12345" }));
+    const y = Number(/\^FO\d+,(\d+)\^BQ/.exec(zpl)![1]);
+    const bandBottom = 10 + 76;
+    expect(y - bandBottom).toBeGreaterThanOrEqual(4 * 5);
+  });
+
+  it("asks for error-correction level Q", () => {
+    // Q survives a creased, worn badge. H would push the payload to version 4
+    // and shrink the modules below the size a phone camera handles reliably.
+    const zpl = buildBadgeZpl(badge({ badgeSlug: "ABC12345" }));
+    expect(zpl).toContain("^BQN,2,5,Q,7");
+    expect(zpl).toContain("^FDQA,");
+  });
+
+  it("does not let the text column run under the QR", () => {
+    // A long name wrapping into the QR's corner would overprint the symbol and
+    // leave a label that looks fine but will not scan.
+    const zpl = buildBadgeZpl(
+      badge({ fullName: "Abdulrahman Constantinopoulos-Fitzgerald", badgeSlug: "ABC12345" }),
+    );
+
+    // Only blocks BELOW the role band can collide — the band is full-width by
+    // design and sits above the QR, so including it would fail this correctly
+    // laid out label.
+    const blocks = [...zpl.matchAll(/\^FO(\d+),(\d+)[^\n]*?\^FB(\d+),/g)].map((m) => ({
+      x: Number(m[1]),
+      y: Number(m[2]),
+      width: Number(m[3]),
+    }));
+    const beside = blocks.filter((b) => b.y >= 90);
+
+    // Text must stop a full quiet zone short of the symbol, not merely short of
+    // it — glyphs inside the quiet zone break the scan exactly like a clipped
+    // edge does.
+    const qrX = Number(/\^FO(\d+),\d+\^BQ/.exec(zpl)![1]);
+    expect(beside.length).toBeGreaterThan(0);
+    for (const b of beside) {
+      expect(qrX - (b.x + b.width)).toBeGreaterThanOrEqual(4 * 5);
+    }
+  });
+});

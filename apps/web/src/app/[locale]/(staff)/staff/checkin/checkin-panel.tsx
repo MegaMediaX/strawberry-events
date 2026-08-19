@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useRef, useState, useTransition } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { BadgePrintDialog } from "@/components/badges/badge-print-dialog";
@@ -25,6 +25,7 @@ function toBadge(b: NonNullable<CheckInResult["badge"]>): BadgeData {
     tag: b.tag,
     fullName: b.fullName,
     company: b.company,
+    badgeSlug: b.badgeSlug,
   };
 }
 
@@ -43,16 +44,40 @@ export function CheckinPanel({
   const [badge, setBadge] = useState<BadgeData | null>(null);
   // When thermal printing fails, fall back to the on-screen browser print.
   const [browserFallback, setBrowserFallback] = useState(false);
+  // Once QZ Tray has proved unreachable, stop dialling it.
+  //
+  // A ref, not state: this must not trigger a re-render, and it must be read
+  // synchronously by the very next check-in. qz-tray probes several ports and
+  // protocols before giving up, several seconds each. Retrying that per
+  // attendee adds it to EVERY check-in in the queue — with badges printed on
+  // site there is no pre-printed stack to fall back on, so that delay lands on
+  // all 812 people rather than being absorbed once.
+  const qzUnreachable = useRef(false);
 
   /** Build ZPL and print to the PC42d via QZ Tray; on failure, flag browser fallback. */
   async function thermalPrint(b: BadgeData): Promise<void> {
+    if (qzUnreachable.current) {
+      setBrowserFallback(true);
+      setStatus({ kind: "warn", text: "Printer service unavailable — use the on-screen print." });
+      return;
+    }
     try {
       await printZpl(buildBadgeZpl(b));
     } catch (err) {
+      // Only a transport failure means "stop trying". A rejected job is
+      // per-badge and the next attendee may well print fine.
+      if (err instanceof PrintError) qzUnreachable.current = true;
       setBrowserFallback(true);
       const msg = err instanceof PrintError ? err.message : "Printing failed.";
       setStatus({ kind: "warn", text: `${msg} Use the on-screen print as a fallback.` });
     }
+  }
+
+  /** Let staff re-arm thermal printing after fixing QZ Tray, without a reload. */
+  function retryThermal(): void {
+    qzUnreachable.current = false;
+    setBrowserFallback(false);
+    setStatus({ kind: "ok", text: "Printer re-armed — next check-in will try the thermal printer." });
   }
 
   function handleResult(res: CheckInResult, doneVerb: string) {
@@ -152,6 +177,13 @@ export function CheckinPanel({
       {badge && browserFallback && (
         <div className="mt-6">
           <BadgePrintDialog badge={badge} auto />
+          <button
+            type="button"
+            onClick={retryThermal}
+            className="mt-3 inline-flex min-h-10 items-center text-[13px] font-semibold tracking-[0.04em] text-primary uppercase underline-offset-4 outline-none hover:underline focus-visible:underline"
+          >
+            Printer fixed — try thermal again
+          </button>
         </div>
       )}
     </div>
