@@ -43,6 +43,37 @@ export function rawZplData(zpl: string) {
  */
 export const RAW_PRINT_OPTIONS = { altPrinting: true } as const;
 
+/**
+ * Reduce a QZ config's options to `altPrinting` ONLY, in place.
+ *
+ * Setting altPrinting is necessary but NOT sufficient, which cost a full round
+ * of "fixed" badges that still printed as source text. QZ only takes the raw
+ * CLI path when altPrinting is the ONLY option present. `qz.configs.create()`
+ * always injects its full ~20-key default set (copies, colorType, density,
+ * encoding, spool...), and the mere PRESENCE of those makes QZ fall back to
+ * `sun.print.UnixPrintJob` — the Java print service, which goes through the
+ * driver and rasterises.
+ *
+ * Confirmed in QZ Tray's own debug log:
+ *   {altPrinting:true} alone  -> "Using qz.printer.action.PrintRaw", no
+ *                                UnixPrintJob, label renders
+ *   + any other option        -> "PrintEvent on sun.print.UnixPrintJob",
+ *                                label prints "^XA ^FO16,23 ^A0N..." as text
+ *
+ * Mutates the object rather than replacing it because qz.print() reads the
+ * config's live options object at send time.
+ */
+export function stripToRawOptions(options: Record<string, unknown>): Record<string, unknown> {
+  for (const key of Object.keys(options)) delete options[key];
+  return Object.assign(options, RAW_PRINT_OPTIONS);
+}
+
+/** True when the options carry altPrinting and nothing else. */
+export function isRawOnly(options: Record<string, unknown>): boolean {
+  const keys = Object.keys(options);
+  return keys.length === 1 && keys[0] === "altPrinting" && options.altPrinting === true;
+}
+
 /** The configured printer name, or null to use the system default. */
 export function getPrinterName(): string | null {
   if (typeof window === "undefined") return null;
@@ -64,7 +95,12 @@ type Qz = {
     setSignaturePromise: (fn: (toSign: string) => (resolve: (v?: unknown) => void) => void) => void;
   };
   printers: { find: (name?: string) => Promise<string | string[]> };
-  configs: { create: (printer: string, opts?: Record<string, unknown>) => unknown };
+  configs: {
+    create: (
+      printer: string,
+      opts?: Record<string, unknown>,
+    ) => { getOptions?: () => Record<string, unknown> };
+  };
   print: (config: unknown, data: unknown) => Promise<void>;
 };
 
@@ -122,6 +158,23 @@ export async function printZpl(zpl: string): Promise<void> {
 
   try {
     const config = qz.configs.create(printer, RAW_PRINT_OPTIONS);
+
+    // Verify rather than assume. If a QZ upgrade stops exposing the live
+    // options object, this must fail loudly at the first badge — not print 812
+    // labels covered in ZPL source while every test still passes.
+    const options = config.getOptions?.();
+    if (!options) {
+      throw new PrintError(
+        "Printer options unavailable — QZ Tray may be an unsupported version. Badges would print as raw text.",
+      );
+    }
+    stripToRawOptions(options);
+    if (!isRawOnly(config.getOptions?.() ?? {})) {
+      throw new PrintError(
+        "Could not put the printer in raw mode — badges would print as text. Check the QZ Tray version.",
+      );
+    }
+
     await qz.print(config, rawZplData(zpl));
   } catch {
     throw new PrintError("The printer rejected the job. Check paper/ribbon and try again.");
