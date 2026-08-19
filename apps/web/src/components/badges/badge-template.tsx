@@ -37,19 +37,54 @@ export function BadgeTemplate({ badge }: { badge: BadgeData }) {
       <div className="badge-name">{badge.fullName}</div>
       {badge.company && <div className="badge-company">{badge.company}</div>}
       <style>{`
-        @media print { @page { size: 60mm 40mm; margin: 0; } }
+        /* ---- What actually gets printed ----
+           window.print() prints the WHOLE DOCUMENT. Setting @page alone only
+           changed the paper size, so the entire check-in screen was sliced into
+           60x40mm pages - observed in production as an 8-page print job with
+           the nav, the heading and the counters on it, and no badge.
+
+           Hide everything, then reveal just the badge. visibility rather than
+           display, so the badge's ancestors keep their boxes and it can still be
+           positioned; display:none on an ancestor would take the badge with it. */
+        @media print {
+          @page { size: 60mm 40mm; margin: 0; }
+          html, body {
+            margin: 0 !important; padding: 0 !important;
+            background: #fff !important; height: auto !important;
+          }
+          body * { visibility: hidden !important; }
+          .badge-sheet, .badge-sheet * { visibility: visible !important; }
+          .badge-sheet {
+            position: fixed !important; left: 0 !important; top: 0 !important;
+            margin: 0 !important; border: 0 !important; box-shadow: none !important;
+            page-break-after: avoid; break-after: avoid;
+          }
+        }
+
+        /* ---- The badge itself ----
+           Every length in mm, because the media is 60x40mm. These were inches
+           left over from a 4x6in layout - 0.3in padding plus a 0.4in name
+           margin is ~18mm of whitespace on a 40mm label, before a single glyph,
+           so the content overflowed the label it was supposed to fit. */
         .badge-sheet {
           width: 60mm; height: 40mm; box-sizing: border-box;
           display: flex; flex-direction: column; align-items: center;
-          padding: 0.3in 0.25in; text-align: center; color: #111; background: #fff;
+          padding: 2mm; text-align: center; color: #111; background: #fff;
+          overflow: hidden;
         }
         .badge-tag {
-          width: 100%; color: #fff; font-weight: 800; letter-spacing: 0.1em;
-          font-size: 28px; padding: 14px 0; border-radius: 8px;
+          width: 100%; color: #fff; font-weight: 800; letter-spacing: 0.08em;
+          font-size: 5mm; line-height: 1.2; padding: 1.4mm 0; border-radius: 1mm;
         }
-        .badge-name { margin-top: 0.4in; font-size: 30px; font-weight: 700; line-height: 1.1; }
-        .badge-company { margin-top: 8px; font-size: 18px; color: #555; }
-        .badge-qr { margin-top: auto; }
+        /* Clamped: a long name must not push the company off the label. */
+        .badge-name {
+          margin-top: 2.6mm; font-size: 5mm; font-weight: 700; line-height: 1.15;
+          max-height: 11.5mm; overflow: hidden;
+        }
+        .badge-company {
+          margin-top: 1.4mm; font-size: 3.2mm; line-height: 1.2; color: #555;
+          max-height: 4mm; overflow: hidden;
+        }
       `}</style>
     </div>
   );
