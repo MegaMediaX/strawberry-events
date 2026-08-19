@@ -22,6 +22,16 @@ export interface CheckInResult {
     /** Drives the printed contact-profile QR. Null only for legacy rows. */
     badgeSlug: string | null;
   };
+  /**
+   * Set ONLY when pretix refused because this ticket is already redeemed for
+   * this list. Carries who it was, so the door can name them and offer a
+   * reprint — a lost or torn badge is the common case, and without this the
+   * only signal is "already redeemed" with no way to act on it.
+   *
+   * Deliberately NOT `badge`: this is a refusal, and `handleResult` prints on
+   * `ok && badge`. Reprinting must stay an explicit, confirmed action.
+   */
+  alreadyCheckedIn?: { orderCode: string; fullName: string };
 }
 
 function assertCanCheckin(session: SessionContext) {
@@ -222,7 +232,21 @@ async function checkInResolvedOrder(
     ctx.token,
   );
   if (redeem.status !== "ok") {
-    return { ok: false, reason: redeem.reason ?? "Check-in failed" };
+    // pretix tracks redemption PER LIST, so this means "already in, on this
+    // day" — not "already in the building". Name them and let the door decide.
+    const alreadyRedeemed = /already|redeemed/i.test(redeem.reason ?? "");
+    return {
+      ok: false,
+      reason: redeem.reason ?? "Check-in failed",
+      ...(alreadyRedeemed
+        ? {
+            alreadyCheckedIn: {
+              orderCode: order.orderCode,
+              fullName: order.attendeeName ?? order.email,
+            },
+          }
+        : {}),
+    };
   }
 
   await prisma.badgePrintLog.create({
