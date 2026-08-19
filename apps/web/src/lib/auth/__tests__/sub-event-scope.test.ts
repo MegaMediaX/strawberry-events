@@ -64,7 +64,10 @@ describe("subEventScope", () => {
     expect(subEventScope(s)).toEqual(["se1"]);
   });
 
-  it("lifts only when broad in the SAME org as the workshop membership", () => {
+  // Defensive branch only: the (organizationId, userId) unique constraint means
+  // a user cannot actually hold both roles in one org, so this fixture is not a
+  // state production can reach. It pins the rule, not a real scenario.
+  it("lifts only when broad in the SAME org as the workshop membership (defensive)", () => {
     const s = ctx({
       memberships: [
         member({ assignedSubEventIds: ["se1"] }),

@@ -98,6 +98,12 @@ export function subEventScope(session: SessionContext): string[] | null {
     session.memberships.filter((m) => BROAD_ROLES.includes(m.role)).map((m) => m.organizationId),
   );
   // Broad in every org where they run a workshop: nothing to narrow.
+  //
+  // Unreachable with today's schema — OrganizationMember is unique on
+  // (organizationId, userId), so a user cannot hold both a broad role and
+  // workshop_organiser in the SAME org. Kept as a defensive branch so the rule
+  // stays correct if that constraint is ever relaxed, rather than silently
+  // becoming "any workshop membership narrows you forever".
   if (workshops.every((m) => broadOrgs.has(m.organizationId))) return null;
 
   return [...new Set(workshops.flatMap((m) => m.assignedSubEventIds ?? []))];
