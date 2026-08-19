@@ -24,6 +24,11 @@ export const LABEL_HEIGHT = Math.round(LABEL_H_MM * DOTS_PER_MM); // ≈ 320
 
 const MARGIN = 16;
 
+/** Role band across the top; everything else is laid out below it. */
+const BAND_Y = 10;
+const BAND_HEIGHT = 76;
+const BAND_BOTTOM = BAND_Y + BAND_HEIGHT; // 86
+
 /**
  * Make text safe for a ZPL field: replace the control prefixes ^ and ~ with a
  * space, drop ASCII control chars (code < 0x20) that would corrupt the stream,
@@ -80,11 +85,31 @@ export function hasUnprintableName(value: string): boolean {
 const QR_MAGNIFICATION = 5;
 const QR_MODULES = 29;
 const QR_SIZE = QR_MODULES * QR_MAGNIFICATION; // 145 dots
-const QR_X = LABEL_WIDTH - MARGIN - QR_SIZE;
-const QR_Y = LABEL_HEIGHT - MARGIN - QR_SIZE;
 
-/** Horizontal room left for text once the QR has taken its corner. */
-const TEXT_WIDTH = QR_X - MARGIN - 14;
+/**
+ * Blank margin around the symbol, in MODULES. The QR spec requires at least 4;
+ * anything less and a decoder cannot find the symbol's edge and simply refuses.
+ *
+ * This is what broke the first printed badge. The QR sat 16 dots from the label
+ * edge — 3.2 modules, under spec — and would not scan. 7 modules is the spec
+ * minimum plus real headroom, which matters here because the last few
+ * millimetres of a thermal label curl away from the platen and print unevenly.
+ * The quiet zone must be blank LABEL, not blank space that runs off the edge.
+ */
+const QR_QUIET_MODULES = 7;
+const QR_QUIET = QR_QUIET_MODULES * QR_MAGNIFICATION; // 35 dots
+
+const QR_X = LABEL_WIDTH - QR_QUIET - QR_SIZE;
+
+/** Centered in the band-to-bottom-edge space, so neither margin is the tight one. */
+const QR_Y = BAND_BOTTOM + Math.round((LABEL_HEIGHT - BAND_BOTTOM - QR_SIZE) / 2);
+
+/**
+ * Horizontal room left for text. Stops a full quiet zone short of the symbol —
+ * a name wrapping to within a few dots of the QR eats the left quiet zone and
+ * kills the scan just as effectively as running off the label edge.
+ */
+const TEXT_WIDTH = QR_X - MARGIN - QR_QUIET;
 
 /** A left-aligned field block in the column beside the QR. */
 function textBlock(y: number, fontHeight: number, text: string, maxLines = 1): string {
@@ -102,8 +127,8 @@ export function buildBadgeZpl(badge: BadgeData): string {
 
   // Tag band: a filled black box with reversed (white) centered text. The tag
   // is the most prominent element, so it gets a tall band and large font.
-  const bandY = 10;
-  const bandHeight = 76;
+  const bandY = BAND_Y;
+  const bandHeight = BAND_HEIGHT;
   const tagFont = 50;
   const band =
     `^FO0,${bandY}^GB${LABEL_WIDTH},${bandHeight},${bandHeight},B,0^FS` +

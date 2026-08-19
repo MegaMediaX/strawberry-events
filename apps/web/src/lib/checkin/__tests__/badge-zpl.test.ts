@@ -110,18 +110,36 @@ describe("the contact-profile QR", () => {
     expect(buildBadgeZpl(badge({ badgeSlug: undefined }))).not.toContain("^BQ");
   });
 
-  it("keeps the symbol inside the label", () => {
-    // 145 dots at x=319,y=159 ends at 464/304 against a 480x320 label. A QR
-    // running off the edge is silently clipped by the printer and becomes an
-    // unscannable square that still looks plausible.
+  it("gives the symbol a spec-compliant quiet zone on all four sides", () => {
+    // THE bug from the first printed badge. The QR sat 16 dots from the label
+    // edge — 3.2 modules — and would not scan on any phone. A decoder needs at
+    // least 4 blank modules to find the symbol's edge; below that it does not
+    // read a damaged code, it declines to see a code at all.
+    //
+    // "Inside the label" was the assertion this replaces, and it passed the
+    // whole time. Fitting is not the requirement; clearance is.
+    const MAG = 5;
+    const SIZE = 29 * MAG; // version 3
+    const MIN_QUIET = 4 * MAG; // QR spec floor, in dots
+
     const zpl = buildBadgeZpl(badge({ badgeSlug: "ABC12345" }));
     const origin = /\^FO(\d+),(\d+)\^BQ/.exec(zpl);
     expect(origin).not.toBeNull();
 
     const [x, y] = [Number(origin![1]), Number(origin![2])];
-    const size = 29 * 5; // version 3 at magnification 5
-    expect(x + size).toBeLessThanOrEqual(LABEL_WIDTH);
-    expect(y + size).toBeLessThanOrEqual(LABEL_HEIGHT);
+    expect(x).toBeGreaterThanOrEqual(MIN_QUIET);
+    expect(y).toBeGreaterThanOrEqual(MIN_QUIET);
+    expect(LABEL_WIDTH - (x + SIZE)).toBeGreaterThanOrEqual(MIN_QUIET);
+    expect(LABEL_HEIGHT - (y + SIZE)).toBeGreaterThanOrEqual(MIN_QUIET);
+  });
+
+  it("keeps the quiet zone clear of the role band", () => {
+    // The band is solid black. Printed inside the quiet zone it is
+    // indistinguishable from symbol data, so the decoder sees a malformed code.
+    const zpl = buildBadgeZpl(badge({ badgeSlug: "ABC12345" }));
+    const y = Number(/\^FO\d+,(\d+)\^BQ/.exec(zpl)![1]);
+    const bandBottom = 10 + 76;
+    expect(y - bandBottom).toBeGreaterThanOrEqual(4 * 5);
   });
 
   it("asks for error-correction level Q", () => {
@@ -149,9 +167,13 @@ describe("the contact-profile QR", () => {
     }));
     const beside = blocks.filter((b) => b.y >= 90);
 
+    // Text must stop a full quiet zone short of the symbol, not merely short of
+    // it — glyphs inside the quiet zone break the scan exactly like a clipped
+    // edge does.
+    const qrX = Number(/\^FO(\d+),\d+\^BQ/.exec(zpl)![1]);
     expect(beside.length).toBeGreaterThan(0);
     for (const b of beside) {
-      expect(b.x + b.width).toBeLessThanOrEqual(LABEL_WIDTH - 16 - 29 * 5);
+      expect(qrX - (b.x + b.width)).toBeGreaterThanOrEqual(4 * 5);
     }
   });
 });
