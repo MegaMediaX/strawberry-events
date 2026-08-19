@@ -3,6 +3,7 @@ import { setRequestLocale } from "next-intl/server";
 import { requireRole } from "@/lib/auth/session";
 import { getActiveOrg } from "@/lib/auth/active-org.server";
 import { getSessionContext } from "@/lib/auth/session";
+import { subEventScope } from "@/lib/auth/org-scope";
 import { prisma } from "@/lib/db/client";
 import { OrganizerSwitcher } from "./_components/organizer-switcher";
 import { NavItem } from "@/components/admin/nav-item";
