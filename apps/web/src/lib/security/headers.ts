@@ -17,7 +17,18 @@ function buildCsp(isProd: boolean): string {
     // Tailwind v4 + component inline styles require 'unsafe-inline' for styles.
     "style-src 'self' 'unsafe-inline'",
     scriptSrc,
-    "connect-src 'self'",
+    // QZ Tray is a local app the staff machine runs to reach the USB thermal
+    // printer; the browser talks to it over a LOCALHOST WebSocket. Those
+    // origins are not 'self', so a bare "connect-src 'self'" makes the browser
+    // refuse the connection before QZ ever sees it — and print-client.ts then
+    // reports "Is QZ Tray running?", which sends you off reinstalling QZ Tray
+    // while the real cause is this header. Ports 8181/8182 are QZ's secure
+    // pair, 8183 its plaintext fallback; localhost.qz.io resolves to 127.0.0.1
+    // and exists so QZ can present a valid certificate for wss.
+    //
+    // This grants nothing to a remote attacker: these origins are the user's
+    // own machine, reachable only from that machine.
+    "connect-src 'self' wss://localhost:* ws://localhost:* wss://127.0.0.1:* ws://127.0.0.1:* wss://localhost.qz.io:*",
     "font-src 'self' data:",
     // Allow embedding Google Maps (event location iframe); we still frame nothing else.
     "frame-src 'self' https://www.google.com https://maps.google.com",
@@ -43,7 +54,13 @@ export function buildSecurityHeaders(isProd: boolean): HeaderEntry[] {
     { key: "X-Content-Type-Options", value: "nosniff" },
     { key: "X-Frame-Options", value: "DENY" },
     { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
-    { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=()" },
+    // camera=(self), NOT camera=(). An EMPTY allowlist denies every origin
+    // INCLUDING our own, which silently kills getUserMedia — and with it the
+    // check-in QR scanner, whose only feedback is "Camera unavailable — check
+    // browser permissions", pointing staff at macOS settings rather than at
+    // this line. Microphone and geolocation stay fully denied; nothing here
+    // uses them.
+    { key: "Permissions-Policy", value: "camera=(self), microphone=(), geolocation=()" },
     { key: "X-DNS-Prefetch-Control", value: "off" },
   ];
   if (isProd) {

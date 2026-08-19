@@ -34,3 +34,45 @@ describe("buildSecurityHeaders", () => {
     expect(prod?.value).toContain("includeSubDomains");
   });
 });
+
+describe("headers the door depends on", () => {
+  // Both of these shipped wrong and would have surfaced on event morning as
+  // "the camera is broken" and "QZ Tray isn't running" — error messages that
+  // point at the operator's machine rather than at these two lines.
+  const csp = (prod: boolean) =>
+    buildSecurityHeaders(prod).find((h) => h.key === "Content-Security-Policy")?.value ?? "";
+  const permissions = (prod: boolean) =>
+    buildSecurityHeaders(prod).find((h) => h.key === "Permissions-Policy")?.value ?? "";
+
+  it.each([true, false])("permits our own origin to open the camera (prod=%s)", (prod) => {
+    // `camera=()` is an EMPTY allowlist: it denies every origin including self,
+    // so getUserMedia rejects and the check-in QR scanner cannot start.
+    expect(permissions(prod)).toContain("camera=(self)");
+    expect(permissions(prod)).not.toMatch(/camera=\(\)/);
+  });
+
+  it.each([true, false])("still denies microphone and geolocation (prod=%s)", (prod) => {
+    // Widening camera must not widen anything else.
+    expect(permissions(prod)).toContain("microphone=()");
+    expect(permissions(prod)).toContain("geolocation=()");
+  });
+
+  it.each([true, false])("lets the browser reach QZ Tray on localhost (prod=%s)", (prod) => {
+    // QZ Tray is a localhost WebSocket, which is not 'self'. Without these the
+    // browser refuses the connection and no badge can ever print.
+    const value = csp(prod);
+    expect(value).toMatch(/connect-src[^;]*wss:\/\/localhost:\*/);
+    expect(value).toMatch(/connect-src[^;]*ws:\/\/localhost:\*/);
+    expect(value).toMatch(/connect-src[^;]*wss:\/\/localhost\.qz\.io:\*/);
+  });
+
+  it("does not open connect-src to arbitrary remote hosts", () => {
+    // The widening above must stay confined to the operator's own machine.
+    const connectSrc = /connect-src ([^;]*)/.exec(csp(true))![1];
+    const remote = connectSrc
+      .split(/\s+/)
+      .filter((t) => t && t !== "'self'")
+      .filter((t) => !/(localhost|127\.0\.0\.1)/.test(t));
+    expect(remote).toEqual([]);
+  });
+});
