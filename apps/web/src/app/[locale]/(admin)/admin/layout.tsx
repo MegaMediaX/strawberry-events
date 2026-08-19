@@ -60,15 +60,11 @@ export default async function AdminLayout({
             {!sessionScoped && (
               <NavItem href={base} label="Dashboard" icon="LayoutDashboard" />
             )}
-            {isAdmin && (
-              {!sessionScoped && (
+            {isAdmin && !sessionScoped && (
               <NavItem href={`${base}/events`} label="Events" icon="CalendarDays" />
             )}
-            )}
-            {isAdmin && (
-              {!sessionScoped && (
+            {isAdmin && !sessionScoped && (
               <NavItem href={`${base}/approvals`} label="Approvals" icon="CheckSquare" />
-            )}
             )}
             <NavItem href={`${base}/registrations`} label="Registrations" icon="Users" />
             {isAdmin && (
