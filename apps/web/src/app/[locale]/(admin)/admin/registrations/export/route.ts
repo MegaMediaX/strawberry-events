@@ -20,6 +20,7 @@ export async function GET(request: Request) {
   const sp = new URL(request.url).searchParams;
   const filters: RegistrationFilters = {
     eventId: sp.get("event") || undefined,
+    subEventId: sp.get("session") || undefined,
     roleTag: sp.get("roleTag") || undefined,
     approvalStatus: sp.get("approval") || undefined,
     paymentStatus: sp.get("payment") || undefined,

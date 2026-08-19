@@ -21,6 +21,7 @@ type SP = Record<string, string | undefined>;
 function toFilters(sp: SP): RegistrationFilters {
   return {
     eventId: sp.event || undefined,
+    subEventId: sp.session || undefined,
     roleTag: sp.roleTag || undefined,
     approvalStatus: sp.approval || undefined,
     paymentStatus: sp.payment || undefined,
@@ -58,6 +59,24 @@ export default async function RegistrationsPage({
     take: 100,
   });
 
+  // Sessions for the filter. Scoped to the chosen event when there is one,
+  // otherwise every session the source events allow — the label carries the
+  // event name so the options stay unambiguous.
+  const subEvents = await prisma.subEvent.findMany({
+    where: sp.event
+      ? { eventMappingId: sp.event }
+      : { eventMapping: ev ?? {} },
+    select: {
+      id: true,
+      titleEn: true,
+      category: true,
+      pretixItemId: true,
+      eventMapping: { select: { titleEn: true } },
+    },
+    orderBy: { dateFrom: "asc" },
+    take: 200,
+  });
+
   const exportHref = `/${locale}/admin/registrations/export?${new URLSearchParams(
     Object.entries(sp).filter(([, v]) => v) as [string, string][],
   ).toString()}`;
@@ -83,6 +102,17 @@ export default async function RegistrationsPage({
         <select className={sel} name="event" defaultValue={sp.event ?? ""}>
           <option value="">All events</option>
           {events.map((e) => <option key={e.id} value={e.id}>{e.titleEn}</option>)}
+        </select>
+        <select className={sel} name="session" defaultValue={sp.session ?? ""}>
+          <option value="">All sessions</option>
+          {subEvents.map((se) => (
+            <option key={se.id} value={se.id} disabled={se.pretixItemId == null}>
+              {se.titleEn}
+              {se.category ? ` (${se.category})` : ""}
+              {se.pretixItemId == null ? " — not bookable" : ""}
+              {!sp.event ? ` · ${se.eventMapping.titleEn}` : ""}
+            </option>
+          ))}
         </select>
         <select className={sel} name="roleTag" defaultValue={sp.roleTag ?? ""}>
           {ROLE_TAGS.map((t) => <option key={t} value={t}>{t || "All roles"}</option>)}
@@ -115,7 +145,20 @@ export default async function RegistrationsPage({
         <button className="rounded-md bg-primary px-3 py-1.5 text-sm text-primary-foreground" type="submit">Filter</button>
       </form>
 
-      <p className="mt-3 text-sm text-muted-foreground">{rows.length} registrations</p>
+      <p className="mt-3 text-sm text-muted-foreground">
+        {rows.length} registrations
+        {sp.session && (() => {
+          const se = subEvents.find((x) => x.id === sp.session);
+          return se ? ` booked into ${se.titleEn}` : "";
+        })()}
+      </p>
+      {sp.session && (
+        <p className="mt-1 max-w-[70ch] text-xs text-muted-foreground">
+          Session bookings live in pretix, not in this database, so filtering by
+          one reads every order from pretix. It is a few seconds now and worth
+          avoiding on event days, when pretix is answering the door scanner.
+        </p>
+      )}
 
       {rows.length === 0 ? (
         <p className="mt-4 text-muted-foreground">No registrations match.</p>
