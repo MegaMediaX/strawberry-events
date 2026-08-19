@@ -12,6 +12,9 @@
  * prompt. Here we run UNSIGNED (dev mode): the first print shows a one-time
  * "Allow" dialog in QZ Tray. Drop a real cert into the security promises below
  * when you have one — see the QZ Tray "Signing Messages" docs.
+ *
+ * Raw printing: see RAW_PRINT_OPTIONS. Sending ZPL without it prints the ZPL
+ * source as text rather than a badge.
  */
 
 const PRINTER_KEY = "strawberry.checkin.printerName";
@@ -20,6 +23,25 @@ const PRINTER_KEY = "strawberry.checkin.printerName";
 export function rawZplData(zpl: string) {
   return [{ type: "raw" as const, format: "plain" as const, data: zpl }];
 }
+
+/**
+ * Printer options for raw ZPL. `altPrinting` is not optional here.
+ *
+ * macOS stopped supporting raw CUPS queues (`lpadmin -m raw` is rejected), so
+ * the PC42d queue has to carry a real driver — `drv:///sample.drv/zebra.ppd`.
+ * That driver has a filter chain (text -> PDF -> raster), and without
+ * `altPrinting` QZ hands the job to it. CUPS then faithfully RENDERS THE ZPL AS
+ * TEXT: the label comes out covered in `^XA ^FO20,60 ^A0N...` instead of a
+ * badge. It looks exactly like a printer that does not understand ZPL, which is
+ * what makes it so expensive to diagnose — it cost five labels and two wrong
+ * conclusions the first time, via `lp`.
+ *
+ * `altPrinting` makes QZ shell out to the CUPS `lp`/`lpr` CLI in raw mode,
+ * which is the same escape hatch as `lpr -l` from a terminal.
+ *
+ * Verified on the real PC42d: without it, gibberish; with it, the label renders.
+ */
+export const RAW_PRINT_OPTIONS = { altPrinting: true } as const;
 
 /** The configured printer name, or null to use the system default. */
 export function getPrinterName(): string | null {
@@ -42,7 +64,7 @@ type Qz = {
     setSignaturePromise: (fn: (toSign: string) => (resolve: (v?: unknown) => void) => void) => void;
   };
   printers: { find: (name?: string) => Promise<string | string[]> };
-  configs: { create: (printer: string) => unknown };
+  configs: { create: (printer: string, opts?: Record<string, unknown>) => unknown };
   print: (config: unknown, data: unknown) => Promise<void>;
 };
 
@@ -99,7 +121,7 @@ export async function printZpl(zpl: string): Promise<void> {
   }
 
   try {
-    const config = qz.configs.create(printer);
+    const config = qz.configs.create(printer, RAW_PRINT_OPTIONS);
     await qz.print(config, rawZplData(zpl));
   } catch {
     throw new PrintError("The printer rejected the job. Check paper/ribbon and try again.");
