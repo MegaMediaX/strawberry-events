@@ -54,6 +54,13 @@ export function CheckinPanel({
   // all 812 people rather than being absorbed once.
   const qzUnreachable = useRef(false);
 
+  // Who pretix refused as already redeemed, pending the operator's decision.
+  // Held separately from `status` so the confirm cannot be dismissed by the
+  // next status message landing on top of it.
+  const [confirmReprint, setConfirmReprint] = useState<
+    { orderCode: string; fullName: string } | null
+  >(null);
+
   /** Build ZPL and print to the PC42d via QZ Tray; on failure, flag browser fallback. */
   async function thermalPrint(b: BadgeData): Promise<void> {
     if (qzUnreachable.current) {
@@ -85,12 +92,28 @@ export function CheckinPanel({
       const b = toBadge(res.badge);
       setBadge(b);
       setBrowserFallback(false);
+      setConfirmReprint(null);
       setStatus({ kind: "ok", text: `${doneVerb} ${res.badge.fullName}.` });
       void thermalPrint(b);
-    } else {
-      setBadge(null);
-      setStatus({ kind: res.reason?.match(/already/i) ? "warn" : "err", text: res.reason ?? "Failed" });
+      return;
     }
+
+    setBadge(null);
+
+    // Already checked in for this day. Usually a lost, torn or misplaced badge,
+    // so offer a reprint — but never print automatically: a second badge for
+    // someone already inside is exactly how a ticket gets passed to a friend.
+    if (res.alreadyCheckedIn) {
+      setConfirmReprint(res.alreadyCheckedIn);
+      setStatus({
+        kind: "warn",
+        text: `${res.alreadyCheckedIn.fullName} is already checked in for this day.`,
+      });
+      return;
+    }
+
+    setConfirmReprint(null);
+    setStatus({ kind: res.reason?.match(/already/i) ? "warn" : "err", text: res.reason ?? "Failed" });
   }
 
   function doSearch() {
@@ -146,6 +169,43 @@ export function CheckinPanel({
       )}
 
       {status && <p className={`mt-3 text-sm ${statusColor}`}>{status.text}</p>}
+
+      {confirmReprint && (
+        <div
+          role="alertdialog"
+          aria-labelledby="reprint-title"
+          className="mt-3 rounded-lg border border-amber-500/40 bg-amber-500/10 p-4"
+        >
+          <p id="reprint-title" className="text-sm font-semibold text-foreground">
+            {confirmReprint.fullName} is already checked in.
+          </p>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Print their badge again? This does not check them in a second time — it
+            records a reprint.
+          </p>
+          <div className="mt-3 flex gap-2">
+            <Button
+              size="sm"
+              disabled={pending}
+              onClick={() => {
+                const { orderCode } = confirmReprint;
+                setConfirmReprint(null);
+                doReprint(orderCode);
+              }}
+            >
+              Print anyway
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={pending}
+              onClick={() => setConfirmReprint(null)}
+            >
+              Cancel
+            </Button>
+          </div>
+        </div>
+      )}
 
       {mode === "search" && (
         <ul className="mt-4 flex flex-col gap-2">

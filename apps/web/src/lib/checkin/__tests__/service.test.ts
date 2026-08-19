@@ -397,3 +397,69 @@ describe("the slug must never cost someone entry", () => {
     expect(prisma.attendeeOrder.updateMany).toHaveBeenCalledTimes(2);
   });
 });
+
+describe("already checked in", () => {
+  it("names the attendee so the door can offer a reprint", async () => {
+    // Without this the door sees only "already redeemed" and cannot act: the
+    // common cause is a lost or torn badge, and staff need to know WHO.
+    mock(pretixCheckin.redeemCheckin).mockResolvedValue({
+      status: "error",
+      reason: "Ticket already redeemed",
+    });
+    mock(prisma.attendeeOrder.findFirst).mockResolvedValue(
+      order({ attendeeName: "Salwa Eid" }),
+    );
+
+    const res = await checkInOrder(staff, "e1", "ABC12", 5);
+
+    expect(res.ok).toBe(false);
+    expect(res.alreadyCheckedIn).toEqual({ orderCode: "ABC12", fullName: "Salwa Eid" });
+  });
+
+  it("falls back to the email when there is no name", async () => {
+    mock(pretixCheckin.redeemCheckin).mockResolvedValue({
+      status: "error",
+      reason: "already redeemed",
+    });
+    mock(prisma.attendeeOrder.findFirst).mockResolvedValue(order({ attendeeName: null }));
+
+    const res = await checkInOrder(staff, "e1", "ABC12", 5);
+    expect(res.alreadyCheckedIn?.fullName).toBe("a@b.com");
+  });
+
+  it("does NOT offer a reprint for other refusals", async () => {
+    // A genuinely failed check-in must not turn into a badge. Only the
+    // already-redeemed case is a lost-badge situation.
+    mock(pretixCheckin.redeemCheckin).mockResolvedValue({
+      status: "error",
+      reason: "Ticket is not valid for this list",
+    });
+
+    const res = await checkInOrder(staff, "e1", "ABC12", 5);
+    expect(res.ok).toBe(false);
+    expect(res.alreadyCheckedIn).toBeUndefined();
+  });
+
+  it("never returns a badge on refusal, so nothing prints automatically", async () => {
+    // handleResult prints on `ok && badge`. Attaching a badge here would print
+    // a second badge for someone already inside without anyone confirming.
+    mock(pretixCheckin.redeemCheckin).mockResolvedValue({
+      status: "error",
+      reason: "Ticket already redeemed",
+    });
+
+    const res = await checkInOrder(staff, "e1", "ABC12", 5);
+    expect(res.badge).toBeUndefined();
+  });
+
+  it("reprinting does not redeem in pretix a second time", async () => {
+    // The whole point: a reprint is a new label, not a new check-in.
+    mock(prisma.attendeeOrder.findFirst).mockResolvedValue(order());
+    const res = await reprintBadge(staff, "e1", "ABC12");
+
+    expect(res.ok).toBe(true);
+    expect(pretixCheckin.redeemCheckin).not.toHaveBeenCalled();
+    const log = mock(prisma.badgePrintLog.create).mock.calls[0][0];
+    expect(log.data).toMatchObject({ reprint: true });
+  });
+});
