@@ -4,6 +4,7 @@ import { setRequestLocale } from "next-intl/server";
 import { getSessionContext, requireRole } from "@/lib/auth/session";
 import { getRegistrationDetail } from "@/lib/admin/registrations";
 import { hasAnyRole } from "@/lib/auth/guards";
+import { subEventScope } from "@/lib/auth/org-scope";
 import { centsToPrice } from "@/lib/pretix/mappers";
 import { QrCodeDisplay } from "@/components/public/qr-code-display";
 import { CancelRegistrationButton } from "./cancel-registration-button";
@@ -34,7 +35,7 @@ export default async function RegistrationDetailPage({
 }) {
   const { locale, id } = await params;
   setRequestLocale(locale);
-  await requireRole(["super_admin", "organizer_admin", "finance"], `/${locale}/admin`);
+  await requireRole(["super_admin", "organizer_admin", "finance", "workshop_organiser"], `/${locale}/admin`);
   const session = await getSessionContext();
   if (!session) return null;
 
@@ -61,9 +62,11 @@ export default async function RegistrationDetailPage({
         {(o.method === "COD" && o.state === "pending_payment") && (
           <Link className="rounded-md border border-border px-3 py-1.5 hover:bg-muted" href={`/${locale}/admin/finance/${id}`}>Mark COD paid</Link>
         )}
-        <Link className="rounded-md border border-border px-3 py-1.5 hover:bg-muted" href={`/${locale}/admin/emails?q=${encodeURIComponent(o.orderCode)}`}>
-          Emails
-        </Link>
+        {subEventScope(session) === null && (
+          <Link className="rounded-md border border-border px-3 py-1.5 hover:bg-muted" href={`/${locale}/admin/emails?q=${encodeURIComponent(o.orderCode)}`}>
+            Emails
+          </Link>
+        )}
         {(session.isSuperAdmin || hasAnyRole(session, ["organizer_admin"])) && o.state !== "canceled" && (
           <CancelRegistrationButton locale={locale} orderId={id} />
         )}

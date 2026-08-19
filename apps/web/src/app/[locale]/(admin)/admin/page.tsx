@@ -10,7 +10,9 @@ import {
   List,
   TrendingUp,
 } from "lucide-react";
+import { redirect } from "next/navigation";
 import { requireRole, getSessionContext } from "@/lib/auth/session";
+import { subEventScope } from "@/lib/auth/org-scope";
 import { getDashboard } from "@/lib/admin/dashboard";
 import { centsToPrice } from "@/lib/pretix/mappers";
 import { StatCard } from "@/components/admin/stat-card";
@@ -24,6 +26,14 @@ export default async function AdminDashboardPage({
 }) {
   const { locale } = await params;
   setRequestLocale(locale);
+  // Checked before requireRole: a workshop organiser is legitimately signed in
+  // and simply has no dashboard, so send them where they belong instead of
+  // failing the role assertion.
+  const pre = await getSessionContext();
+  if (pre && subEventScope(pre) !== null) {
+    redirect(`/${locale}/admin/registrations`);
+  }
+
   await requireRole(
     ["super_admin", "organizer_admin", "finance"],
     `/${locale}/login`,

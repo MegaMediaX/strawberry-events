@@ -40,7 +40,7 @@ export async function getSessionContext(): Promise<SessionContext | null> {
 
   const memberships = await prisma.organizationMember.findMany({
     where: { userId },
-    select: { organizationId: true, role: true, assignedEventIds: true },
+    select: { organizationId: true, role: true, assignedEventIds: true, assignedSubEventIds: true },
   });
 
   return {

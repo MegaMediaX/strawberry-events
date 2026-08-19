@@ -3,6 +3,7 @@ import { setRequestLocale } from "next-intl/server";
 import { requireRole } from "@/lib/auth/session";
 import { getActiveOrg } from "@/lib/auth/active-org.server";
 import { getSessionContext } from "@/lib/auth/session";
+import { subEventScope } from "@/lib/auth/org-scope";
 import { prisma } from "@/lib/db/client";
 import { OrganizerSwitcher } from "./_components/organizer-switcher";
 import { NavItem } from "@/components/admin/nav-item";
@@ -18,7 +19,7 @@ export default async function AdminLayout({
   const { locale } = await params;
   setRequestLocale(locale);
   await requireRole(
-    ["super_admin", "organizer_admin", "finance"],
+    ["super_admin", "organizer_admin", "finance", "workshop_organiser"],
     `/${locale}/login`,
   );
 
@@ -27,6 +28,11 @@ export default async function AdminLayout({
     !!session &&
     (session.isSuperAdmin ||
       session.memberships.some((m) => m.role === "organizer_admin"));
+  // A workshop organiser sees one thing: the registrations for their own
+  // sessions. Everything else in this nav is either another organiser's data or
+  // an admin surface, so it is hidden rather than merely guarded — a link that
+  // bounces you to a redirect reads as a broken app.
+  const sessionScoped = !!session && subEventScope(session) !== null;
   const activeOrg = session ? await getActiveOrg(session) : null;
   const orgs =
     session?.isSuperAdmin
@@ -52,30 +58,38 @@ export default async function AdminLayout({
 
         <nav className="flex-1 overflow-y-auto px-3 pb-4">
           <div className="mb-1">
-            <NavItem href={base} label="Dashboard" icon="LayoutDashboard" />
-            {isAdmin && (
+            {!sessionScoped && (
+              <NavItem href={base} label="Dashboard" icon="LayoutDashboard" />
+            )}
+            {isAdmin && !sessionScoped && (
               <NavItem href={`${base}/events`} label="Events" icon="CalendarDays" />
             )}
-            {isAdmin && (
+            {isAdmin && !sessionScoped && (
               <NavItem href={`${base}/approvals`} label="Approvals" icon="CheckSquare" />
             )}
             <NavItem href={`${base}/registrations`} label="Registrations" icon="Users" />
             {isAdmin && (
               <NavItem href={`${base}/users`} label="Users" icon="UserCog" />
             )}
-            <NavItem href={`${base}/finance`} label="Finance" icon="DollarSign" />
+            {!sessionScoped && (
+              <NavItem href={`${base}/finance`} label="Finance" icon="DollarSign" />
+            )}
           </div>
 
           <div className="mt-4">
             <p className="mb-1 px-3 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60">
               Operations
             </p>
-            <NavItem
-              href={`/${locale}/staff/events`}
-              label="Staff check-in"
-              icon="CheckSquare"
-            />
-            <NavItem href={`${base}/emails`} label="Emails" icon="Mail" />
+            {!sessionScoped && (
+              <NavItem
+                href={`/${locale}/staff/events`}
+                label="Staff check-in"
+                icon="CheckSquare"
+              />
+            )}
+            {!sessionScoped && (
+              <NavItem href={`${base}/emails`} label="Emails" icon="Mail" />
+            )}
             {isAdmin && (
               <NavItem href={`${base}/data`} label="Data" icon="Database" />
             )}

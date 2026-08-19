@@ -44,7 +44,10 @@ export function canAccessEvent(
   if (memberships.length === 0) return false;
 
   return memberships.some((m) => {
-    if (m.role === "checkin_staff") {
+    if (m.role === "checkin_staff" || m.role === "workshop_organiser") {
+      // Both are narrowed to named events. For a workshop organiser this is
+      // only the outer gate — which sessions they may see is enforced
+      // separately by `subEventScope`.
       return m.assignedEventIds.includes(eventId);
     }
     // organizer_admin and finance have org-wide event access.
@@ -53,3 +56,61 @@ export function canAccessEvent(
 }
 
 export { rolesInOrg };
+
+/**
+ * Roles that genuinely see a whole organization.
+ *
+ * `checkin_staff` is deliberately NOT here: it is itself narrowed per membership
+ * by assignedEventIds, so treating it as broad let someone holding it in one
+ * organization see everything in another where they were only a workshop
+ * organiser.
+ */
+const BROAD_ROLES: MemberRole[] = ["super_admin", "organizer_admin", "finance"];
+
+/**
+ * Which sub-events this session is limited to, or `null` for no limit.
+ *
+ * `null` means "not sub-event restricted". An ARRAY means the session may only
+ * see registrations booked into those sessions; an EMPTY array means it may see
+ * nothing. Callers must branch on `=== null` — treating `[]` as falsy inverts
+ * "may see nothing" into "may see everything".
+ *
+ * The restriction is lifted only when a broad role is held in EVERY organization
+ * where this user is also a workshop organiser. Checking "holds a broad role
+ * anywhere" was wrong and exploitable: finance in one organization silently
+ * unlocked the full attendee roster of an unrelated organization where the user
+ * was only a workshop organiser. Roles are per-organization everywhere else in
+ * this file, and this is no exception.
+ *
+ * When a user is broad in one org and narrow in another, this collapses to the
+ * NARROW answer, because the return type is one flat list and cannot say
+ * "unrestricted here, restricted there". That is deliberately the conservative
+ * direction: it under-shows to an admin rather than over-showing to an
+ * organiser. Give such a user separate accounts if the admin view is needed.
+ */
+export function subEventScope(session: SessionContext): string[] | null {
+  if (session.isSuperAdmin) return null;
+
+  const workshops = session.memberships.filter((m) => m.role === "workshop_organiser");
+  if (workshops.length === 0) return null;
+
+  const broadOrgs = new Set(
+    session.memberships.filter((m) => BROAD_ROLES.includes(m.role)).map((m) => m.organizationId),
+  );
+  // Broad in every org where they run a workshop: nothing to narrow.
+  //
+  // Unreachable with today's schema — OrganizationMember is unique on
+  // (organizationId, userId), so a user cannot hold both a broad role and
+  // workshop_organiser in the SAME org. Kept as a defensive branch so the rule
+  // stays correct if that constraint is ever relaxed, rather than silently
+  // becoming "any workshop membership narrows you forever".
+  if (workshops.every((m) => broadOrgs.has(m.organizationId))) return null;
+
+  return [...new Set(workshops.flatMap((m) => m.assignedSubEventIds ?? []))];
+}
+
+/** Whether this session may see registrations for one specific sub-event. */
+export function canAccessSubEvent(session: SessionContext, subEventId: string): boolean {
+  const scope = subEventScope(session);
+  return scope === null || scope.includes(subEventId);
+}

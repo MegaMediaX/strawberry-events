@@ -6,6 +6,16 @@ export interface Membership {
   organizationId: string;
   role: MemberRole;
   assignedEventIds: string[];
+  /**
+   * Sub-events a `workshop_organiser` may see. Empty for every other role.
+   * Narrows WITHIN `assignedEventIds` — never widens it.
+   *
+   * Optional on the type, always present at runtime: the session loader selects
+   * it, and every other role leaves it empty. Requiring it here would only churn
+   * the fixtures of thirty unrelated suites without making anything safer, so
+   * readers coalesce to [] instead.
+   */
+  assignedSubEventIds?: string[];
 }
 
 /**
