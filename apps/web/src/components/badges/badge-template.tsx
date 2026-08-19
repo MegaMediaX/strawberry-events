@@ -13,6 +13,14 @@ export interface BadgeData {
   tag: BadgeTag;
   fullName: string;
   company: string | null;
+  /**
+   * Opaque code behind the printed contact-profile QR. Optional: test badges
+   * and orders predating the column have none, and must still print.
+   *
+   * This is NOT the pretix secret. It resolves to a public page showing only
+   * what is already printed on the badge — see `lib/checkin/badge-slug.ts`.
+   */
+  badgeSlug?: string | null;
 }
 
 /**

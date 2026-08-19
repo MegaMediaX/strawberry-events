@@ -808,6 +808,12 @@ model AttendeeOrder {
   // version invalidates every link issued so far, and magicLinkRevokedAt is the
   // hard kill switch. Neither one cancels the registration.
   magicLinkVersion   Int              @default(0)
+  /// Opaque code carried in the badge QR. Stored, never derived, so a reprint
+  /// cannot invalidate a badge someone has already scanned.
+  badgeSlug          String?          @unique
+  /// Takes a profile down without touching the ticket. Deliberately separate
+  /// from magicLinkRevokedAt — revoking a profile must never cost someone entry.
+  badgeProfileRevokedAt DateTime?
   magicLinkRevokedAt DateTime?
   createdAt      DateTime            @default(now())
   updatedAt      DateTime            @updatedAt
