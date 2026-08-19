@@ -16,7 +16,6 @@ const TEST_BADGE = {
   tag: "staff",
   fullName: "Test Badge",
   company: "Strawberry Agency",
-  qrValue: "TEST-PRINT",
 } as const;
 
 /**

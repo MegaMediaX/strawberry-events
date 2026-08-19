@@ -3,6 +3,7 @@ import type { BadgeData } from "@/components/badges/badge-template";
 import {
   buildBadgeZpl,
   sanitizeZplText,
+  hasUnprintableName,
   LABEL_WIDTH,
   LABEL_HEIGHT,
 } from "@/lib/checkin/badge-zpl";
@@ -11,7 +12,6 @@ const badge = (overrides: Partial<BadgeData> = {}): BadgeData => ({
   tag: "speaker",
   fullName: "Mouhamad Al-Hassan",
   company: "Strawberry Agency",
-  qrValue: "SEC123ABC",
   ...overrides,
 });
 
@@ -68,5 +68,24 @@ describe("buildBadgeZpl", () => {
   it("neutralizes a malicious ^ in a name so it can't inject a command", () => {
     const zpl = buildBadgeZpl(badge({ fullName: "Evil^XZName" }));
     expect(zpl).toContain("^FDEvil XZName^FS");
+  });
+});
+
+describe("names the printer cannot render", () => {
+  it("flags an Arabic name rather than letting it print as mojibake", () => {
+    // The printer's resident fonts are Latin-only and its code page is
+    // single-byte, so UTF-8 Arabic arrives as bytes and prints as garbage on a
+    // badge someone wears for three days.
+    expect(hasUnprintableName("محمد الحسن")).toBe(true);
+    expect(hasUnprintableName("Mouhamad Al-Hassan")).toBe(false);
+  });
+
+  it("keeps accented Latin, which the printer CAN render", () => {
+    expect(hasUnprintableName("José Müller")).toBe(false);
+    expect(sanitizeZplText("José Müller")).toBe("José Müller");
+  });
+
+  it("drops non-Latin from the ZPL rather than emitting raw bytes", () => {
+    expect(sanitizeZplText("محمد Ali")).toBe("Ali");
   });
 });
