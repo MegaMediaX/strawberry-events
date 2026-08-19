@@ -50,16 +50,40 @@ describe("subEventScope", () => {
     expect(subEventScope(s)).toEqual(["se1"]);
   });
 
-  it("a genuinely org-wide role held anywhere lifts the restriction", () => {
-    // Someone can legitimately run a workshop for one org and administer
-    // another. The broader grant wins rather than the narrower one clamping it.
+  it("a broad role in ANOTHER org does NOT lift the restriction", () => {
+    // The bug this suite previously asserted as correct: finance (or admin) in
+    // one organization silently unlocked the entire attendee roster of an
+    // unrelated organization where the user was only a workshop organiser.
+    // Roles are per-organization everywhere else; this is no exception.
     const s = ctx({
       memberships: [
         member({ assignedSubEventIds: ["se1"] }),
         member({ organizationId: "orgB", role: "organizer_admin" }),
       ],
     });
+    expect(subEventScope(s)).toEqual(["se1"]);
+  });
+
+  it("lifts only when broad in the SAME org as the workshop membership", () => {
+    const s = ctx({
+      memberships: [
+        member({ assignedSubEventIds: ["se1"] }),
+        member({ role: "organizer_admin" }),
+      ],
+    });
     expect(subEventScope(s)).toBeNull();
+  });
+
+  it("collapses to the narrow answer when broad in one org and narrow in another", () => {
+    // One flat list cannot say "unrestricted here, restricted there", so it
+    // under-shows to the admin rather than over-showing to the organiser.
+    const s = ctx({
+      memberships: [
+        member({ role: "organizer_admin" }),
+        member({ organizationId: "orgB", assignedSubEventIds: ["se2"] }),
+      ],
+    });
+    expect(subEventScope(s)).toEqual(["se2"]);
   });
 
   it("merges sessions across several workshop memberships", () => {

@@ -36,6 +36,27 @@ export default async function UserDetailPage({
     orderBy: { name: "asc" },
   });
 
+  // Sessions selectable when granting workshop_organiser. Scoped to the orgs the
+  // caller administers, so this picker can never offer another org's programme.
+  const subEventRows = await prisma.subEvent.findMany({
+    where: adminOrgIds
+      ? { eventMapping: { organizationId: { in: adminOrgIds } } }
+      : {},
+    select: {
+      id: true,
+      titleEn: true,
+      category: true,
+      eventMapping: { select: { organizationId: true, titleEn: true } },
+    },
+    orderBy: { dateFrom: "asc" },
+    take: 200,
+  });
+  const subEvents = subEventRows.map((se) => ({
+    id: se.id,
+    organizationId: se.eventMapping.organizationId,
+    label: `${se.titleEn}${se.category ? ` (${se.category})` : ""} · ${se.eventMapping.titleEn}`,
+  }));
+
   return (
     <div className="mx-auto max-w-2xl">
       <Link className="text-sm text-primary underline" href={`/${locale}/admin/users`}>← Users</Link>
@@ -70,6 +91,7 @@ export default async function UserDetailPage({
           suspended={user.status === "suspended"}
           isSuper={session.isSuperAdmin}
           orgs={orgs}
+          subEvents={subEvents}
         />
       </section>
     </div>

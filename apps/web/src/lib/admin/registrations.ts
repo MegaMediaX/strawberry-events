@@ -412,10 +412,21 @@ export async function getRegistrationDetail(
   // every detail-page load — exactly what `listOrders` documents as competing
   // with the door scanner — to answer a question about one order.
   const allowed = subEventScope(session);
+  // null for an unrestricted viewer; otherwise the pretix items behind the
+  // sessions this viewer runs, used to narrow what the page may show about an
+  // attendee they legitimately share.
+  let permittedItemIds: number[] | null = null;
   if (allowed !== null) {
     if (!(await orderHoldsAnySubEvent(session, order.eventMappingId, order.orderCode, allowed))) {
       throw new ForbiddenError("Registration not found or access denied");
     }
+    const mine = await prisma.subEvent.findMany({
+      where: { id: { in: allowed }, eventMappingId: order.eventMappingId },
+      select: { pretixItemId: true },
+    });
+    permittedItemIds = mine
+      .map((se) => se.pretixItemId)
+      .filter((id): id is number => id != null);
   }
 
   const state = registrationState(order);
@@ -428,7 +439,14 @@ export async function getRegistrationDetail(
     }),
     prisma.seatAssignment.findFirst({ where: { attendeeRef: order.orderCode } }),
     prisma.waitlistEntry.findMany({
-      where: { eventMappingId: order.eventMappingId, email: order.email },
+      // Restricted sessions see only their own sessions' waitlist rows. Without
+      // the itemId filter, opening an attendee they legitimately share exposed
+      // that person's waitlist position for every OTHER session in the event.
+      where: {
+        eventMappingId: order.eventMappingId,
+        email: order.email,
+        ...(permittedItemIds ? { itemId: { in: permittedItemIds } } : {}),
+      },
       orderBy: { createdAt: "desc" },
     }),
     prisma.badgePrintLog.findMany({

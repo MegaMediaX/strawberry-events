@@ -60,35 +60,47 @@ export { rolesInOrg };
 /**
  * Roles that genuinely see a whole organization.
  *
- * `checkin_staff` is deliberately NOT here despite also being a non-admin role:
- * it is itself narrowed per membership by assignedEventIds, so treating it as
- * broad meant someone holding checkin_staff in one organization got UNRESTRICTED
- * session visibility in another where they were only a workshop organiser — and
- * picked up the admin nav that role has never had.
+ * `checkin_staff` is deliberately NOT here: it is itself narrowed per membership
+ * by assignedEventIds, so treating it as broad let someone holding it in one
+ * organization see everything in another where they were only a workshop
+ * organiser.
  */
 const BROAD_ROLES: MemberRole[] = ["super_admin", "organizer_admin", "finance"];
 
 /**
  * Which sub-events this session is limited to, or `null` for no limit.
  *
- * `null` means "not sub-event restricted" — a super admin, or anyone holding a
- * role that already sees the whole organization. An ARRAY means the session may
- * only ever see registrations booked into those sessions, and an EMPTY array
- * means it may see nothing at all.
+ * `null` means "not sub-event restricted". An ARRAY means the session may only
+ * see registrations booked into those sessions; an EMPTY array means it may see
+ * nothing. Callers must branch on `=== null` — treating `[]` as falsy inverts
+ * "may see nothing" into "may see everything".
  *
- * The distinction matters: a caller that treats `null` and `[]` alike either
- * locks out an admin or hands a workshop organiser the full list. Callers must
- * branch on `=== null` explicitly.
+ * The restriction is lifted only when a broad role is held in EVERY organization
+ * where this user is also a workshop organiser. Checking "holds a broad role
+ * anywhere" was wrong and exploitable: finance in one organization silently
+ * unlocked the full attendee roster of an unrelated organization where the user
+ * was only a workshop organiser. Roles are per-organization everywhere else in
+ * this file, and this is no exception.
+ *
+ * When a user is broad in one org and narrow in another, this collapses to the
+ * NARROW answer, because the return type is one flat list and cannot say
+ * "unrestricted here, restricted there". That is deliberately the conservative
+ * direction: it under-shows to an admin rather than over-showing to an
+ * organiser. Give such a user separate accounts if the admin view is needed.
  */
 export function subEventScope(session: SessionContext): string[] | null {
   if (session.isSuperAdmin) return null;
-  // Any broad role anywhere lifts the restriction — a person can legitimately be
-  // an org admin here and a workshop organiser there, and the broader grant wins.
-  if (session.memberships.some((m) => BROAD_ROLES.includes(m.role))) return null;
 
-  const scoped = session.memberships.filter((m) => m.role === "workshop_organiser");
-  if (scoped.length === 0) return null;
-  return [...new Set(scoped.flatMap((m) => m.assignedSubEventIds ?? []))];
+  const workshops = session.memberships.filter((m) => m.role === "workshop_organiser");
+  if (workshops.length === 0) return null;
+
+  const broadOrgs = new Set(
+    session.memberships.filter((m) => BROAD_ROLES.includes(m.role)).map((m) => m.organizationId),
+  );
+  // Broad in every org where they run a workshop: nothing to narrow.
+  if (workshops.every((m) => broadOrgs.has(m.organizationId))) return null;
+
+  return [...new Set(workshops.flatMap((m) => m.assignedSubEventIds ?? []))];
 }
 
 /** Whether this session may see registrations for one specific sub-event. */
