@@ -21,8 +21,12 @@ import { changeRoleAction } from "@/app/[locale]/(admin)/admin/users/actions";
 
 const mock = <T,>(fn: T) => fn as unknown as ReturnType<typeof vi.fn>;
 
-/** Two sessions of the same event, both in orgA. */
-const sessionsInOrgA = [
+/** One session in orgA. The action rejects when the count of rows found does
+ *  not match the count of ids asked for, so each test must mock exactly as many
+ *  rows as ids it passes — otherwise it fails on the length check and appears to
+ *  prove whatever it was actually testing. */
+const oneInOrgA = [{ eventMapping: { organizationId: "orgA", localEventId: "loc1" } }];
+const twoInOrgA = [
   { eventMapping: { organizationId: "orgA", localEventId: "loc1" } },
   { eventMapping: { organizationId: "orgA", localEventId: "loc1" } },
 ];
@@ -34,7 +38,7 @@ beforeEach(() => {
     isSuperAdmin: true,
     memberships: [],
   });
-  mock(prisma.subEvent.findMany).mockResolvedValue(sessionsInOrgA);
+  mock(prisma.subEvent.findMany).mockResolvedValue(oneInOrgA);
   mock(prisma.organizationMember.findMany).mockResolvedValue([]);
   mock(changeRole).mockResolvedValue({});
 });
@@ -44,6 +48,7 @@ describe("changeRoleAction — granting workshop_organiser", () => {
     // localEventId, not eventMapping.id — that is what eventScope and
     // canAccessEvent compare against. Deriving the wrong one makes every
     // workshop organiser see nothing, silently.
+    mock(prisma.subEvent.findMany).mockResolvedValue(twoInOrgA);
     return changeRoleAction("u1", "orgA", "workshop_organiser", [], ["se1", "se2"]).then(() => {
       const args = mock(changeRole).mock.calls[0];
       expect(args[4]).toEqual(["loc1"]);
@@ -67,7 +72,8 @@ describe("changeRoleAction — granting workshop_organiser", () => {
   });
 
   it("refuses when a chosen session no longer exists", async () => {
-    mock(prisma.subEvent.findMany).mockResolvedValue([sessionsInOrgA[0]]);
+    // One row back for two ids asked.
+    mock(prisma.subEvent.findMany).mockResolvedValue(oneInOrgA);
     const res = await changeRoleAction("u1", "orgA", "workshop_organiser", [], ["se1", "gone"]);
     expect(res.ok).toBe(false);
     expect(changeRole).not.toHaveBeenCalled();
