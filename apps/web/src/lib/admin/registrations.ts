@@ -97,9 +97,6 @@ export interface SubEventCodes {
 }
 
 /**
- * Order codes holding a booking for one sub-event, read from pretix.
- */
-/**
  * Order codes holding a booking for ANY of these sub-events, read from pretix.
  *
  * Takes a list rather than one id on purpose: `listOrders` returns positions for
@@ -360,11 +357,6 @@ export interface RegistrationDetail {
 }
 
 /**
- * Load the full registration detail for an order the session may access.
- * Throws ForbiddenError on cross-org/unauthorized access. QR is exposed only
- * when the registration state is `issued`.
- */
-/**
  * Does one order hold a position for any of these sub-events?
  *
  * One pretix request. Fails CLOSED on any error — an unreadable pretix must not
@@ -407,6 +399,11 @@ async function orderHoldsAnySubEvent(
   }
 }
 
+/**
+ * Load the full registration detail for an order the session may access.
+ * Throws ForbiddenError on cross-org/unauthorized access. QR is exposed only
+ * when the registration state is `issued`.
+ */
 export async function getRegistrationDetail(
   session: SessionContext,
   id: string,

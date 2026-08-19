@@ -83,6 +83,13 @@ export async function changeRoleAction(
       const broad = await prisma.organizationMember.findMany({
         where: {
           userId,
+          // Exclude the org being edited. changeRole upserts on
+          // (organizationId, userId), so that row is about to BE this grant —
+          // counting it rejected the ordinary case of demoting an existing
+          // finance or admin member to workshop organiser inside their own
+          // organization, with a message about "another organization" that was
+          // not true.
+          organizationId: { not: organizationId },
           role: { in: ["super_admin", "organizer_admin", "finance"] },
         },
         select: { organizationId: true },
