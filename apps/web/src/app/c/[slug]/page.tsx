@@ -59,7 +59,7 @@ export default async function BadgeProfilePage({
   // responses would let someone probing slugs tell "no such badge" from "that
   // badge exists but was taken down", which is itself information about a
   // person.
-  if (!order || order.badgeProfileRevokedAt || order.status === "cancelled") notFound();
+  if (!order || order.badgeProfileRevokedAt || order.status === "canceled") notFound();
 
   const name = order.attendeeName?.trim() || "LEBTECH Attendee";
   const company = order.company?.trim() || null;
