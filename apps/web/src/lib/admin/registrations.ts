@@ -188,7 +188,9 @@ export async function listRegistrationsPage(
 
   const total = await prisma.attendeeOrder.count({ where });
 
-  const rows = orders.map((o) => ({
+  // Annotated: without the contextual type, `method` widens to string and no
+  // longer satisfies the "Free" | "COD" union.
+  const rows: RegistrationRow[] = orders.map((o) => ({
     id: o.id,
     orderCode: o.orderCode,
     event: o.eventMapping.titleEn,
