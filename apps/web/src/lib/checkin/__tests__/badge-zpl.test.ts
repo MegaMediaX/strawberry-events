@@ -89,3 +89,69 @@ describe("names the printer cannot render", () => {
     expect(sanitizeZplText("محمد Ali")).toBe("Ali");
   });
 });
+
+describe("the contact-profile QR", () => {
+  it("encodes the profile URL, never the pretix secret", () => {
+    // The whole reason the previous QR was removed: it carried the live
+    // check-in credential on an attendee's chest, photographable all day.
+    const zpl = buildBadgeZpl(badge({ badgeSlug: "ABC12345" }));
+    expect(zpl).toContain("HTTPS://REGISTER.STRAWBERRYAGENCY.COM/C/ABC12345");
+    expect(zpl).not.toMatch(/secret/i);
+  });
+
+  it("prints nothing where there is no slug", () => {
+    // TEST_BADGE and any row predating the column must still yield a valid
+    // label. Throwing here would take the door down to protect a decoration.
+    const zpl = buildBadgeZpl(badge({ badgeSlug: null }));
+    expect(zpl).not.toContain("^BQ");
+    expect(zpl.startsWith("^XA")).toBe(true);
+    expect(zpl.trimEnd().endsWith("^XZ")).toBe(true);
+
+    expect(buildBadgeZpl(badge({ badgeSlug: undefined }))).not.toContain("^BQ");
+  });
+
+  it("keeps the symbol inside the label", () => {
+    // 145 dots at x=319,y=159 ends at 464/304 against a 480x320 label. A QR
+    // running off the edge is silently clipped by the printer and becomes an
+    // unscannable square that still looks plausible.
+    const zpl = buildBadgeZpl(badge({ badgeSlug: "ABC12345" }));
+    const origin = /\^FO(\d+),(\d+)\^BQ/.exec(zpl);
+    expect(origin).not.toBeNull();
+
+    const [x, y] = [Number(origin![1]), Number(origin![2])];
+    const size = 29 * 5; // version 3 at magnification 5
+    expect(x + size).toBeLessThanOrEqual(LABEL_WIDTH);
+    expect(y + size).toBeLessThanOrEqual(LABEL_HEIGHT);
+  });
+
+  it("asks for error-correction level Q", () => {
+    // Q survives a creased, worn badge. H would push the payload to version 4
+    // and shrink the modules below the size a phone camera handles reliably.
+    const zpl = buildBadgeZpl(badge({ badgeSlug: "ABC12345" }));
+    expect(zpl).toContain("^BQN,2,5,Q,7");
+    expect(zpl).toContain("^FDQA,");
+  });
+
+  it("does not let the text column run under the QR", () => {
+    // A long name wrapping into the QR's corner would overprint the symbol and
+    // leave a label that looks fine but will not scan.
+    const zpl = buildBadgeZpl(
+      badge({ fullName: "Abdulrahman Constantinopoulos-Fitzgerald", badgeSlug: "ABC12345" }),
+    );
+
+    // Only blocks BELOW the role band can collide — the band is full-width by
+    // design and sits above the QR, so including it would fail this correctly
+    // laid out label.
+    const blocks = [...zpl.matchAll(/\^FO(\d+),(\d+)[^\n]*?\^FB(\d+),/g)].map((m) => ({
+      x: Number(m[1]),
+      y: Number(m[2]),
+      width: Number(m[3]),
+    }));
+    const beside = blocks.filter((b) => b.y >= 90);
+
+    expect(beside.length).toBeGreaterThan(0);
+    for (const b of beside) {
+      expect(b.x + b.width).toBeLessThanOrEqual(LABEL_WIDTH - 16 - 29 * 5);
+    }
+  });
+});

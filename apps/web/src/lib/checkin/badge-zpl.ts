@@ -1,4 +1,5 @@
 import type { BadgeData } from "@/components/badges/badge-template";
+import { badgeProfileUrl } from "./badge-slug";
 
 /**
  * Generate ZPL II for a 60×40 mm (landscape) attendee badge, targeting the
@@ -9,6 +10,7 @@ import type { BadgeData } from "@/components/badges/badge-template";
  *     thermal is monochrome, so the on-screen tag color becomes black)
  *   - full name (large)
  *   - company (smaller, optional)
+ *   - contact-profile QR, bottom right (optional — omitted if no slug)
  *
  * 203 dpi ≈ 8 dots/mm, so 60 × 40 mm ≈ 480 × 320 dots.
  */
@@ -62,18 +64,34 @@ export function hasUnprintableName(value: string): boolean {
   return Array.from(value).some((ch) => ch.charCodeAt(0) > 0xff);
 }
 
-/** A centered field block spanning the full label width (minus margins). */
-function centeredBlock(
-  y: number,
-  fontHeight: number,
-  text: string,
-  maxLines = 1,
-): string {
-  const blockWidth = LABEL_WIDTH - MARGIN * 2;
+/**
+ * QR geometry, derived rather than guessed.
+ *
+ * The payload is 48 alphanumeric characters, which at error-correction level Q
+ * (25% recovery) is a version-3 symbol: 29 modules. At magnification 5 that is
+ * 145 dots — 18.1 mm, with 0.626 mm modules.
+ *
+ * Module size is the number that matters. Below roughly 0.5 mm a phone camera
+ * starts failing on a badge that has been creased, worn for three days and
+ * scanned in venue lighting. 0.626 mm leaves real margin. Level Q rather than H
+ * is a deliberate trade: H would force version 4 and cost that margin, and 25%
+ * recovery is already generous for a symbol this size.
+ */
+const QR_MAGNIFICATION = 5;
+const QR_MODULES = 29;
+const QR_SIZE = QR_MODULES * QR_MAGNIFICATION; // 145 dots
+const QR_X = LABEL_WIDTH - MARGIN - QR_SIZE;
+const QR_Y = LABEL_HEIGHT - MARGIN - QR_SIZE;
+
+/** Horizontal room left for text once the QR has taken its corner. */
+const TEXT_WIDTH = QR_X - MARGIN - 14;
+
+/** A left-aligned field block in the column beside the QR. */
+function textBlock(y: number, fontHeight: number, text: string, maxLines = 1): string {
   return (
     `^FO${MARGIN},${y}` +
     `^A0N,${fontHeight},${fontHeight}` +
-    `^FB${blockWidth},${maxLines},0,C,0` +
+    `^FB${TEXT_WIDTH},${maxLines},0,L,0` +
     `^FD${sanitizeZplText(text)}^FS`
   );
 }
@@ -91,14 +109,23 @@ export function buildBadgeZpl(badge: BadgeData): string {
     `^FO0,${bandY}^GB${LABEL_WIDTH},${bandHeight},${bandHeight},B,0^FS` +
     `^FO${MARGIN},${bandY + Math.round((bandHeight - tagFont) / 2)}^A0N,${tagFont},${tagFont}^FR^FB${LABEL_WIDTH - MARGIN * 2},1,0,C,0^FD${tag}^FS`;
 
+  // No slug, no QR. Reprints of orders that predate the column, and the
+  // TEST_BADGE the staff page prints to prove the printer is alive, must still
+  // produce a valid label rather than throwing at the door.
+  const qr = badge.badgeSlug
+    ? `^FO${QR_X},${QR_Y}^BQN,2,${QR_MAGNIFICATION},Q,7` +
+      `^FDQA,${badgeProfileUrl(badge.badgeSlug)}^FS`
+    : "";
+
   return [
     "^XA",
     `^PW${LABEL_WIDTH}`,
     `^LL${LABEL_HEIGHT}`,
     "^LH0,0",
     band,
-    centeredBlock(140, 44, badge.fullName, 2),
-    company ? centeredBlock(248, 28, company, 1) : "",
+    textBlock(104, 40, badge.fullName, 2),
+    company ? textBlock(196, 26, company, 1) : "",
+    qr,
     "^XZ",
   ]
     .filter(Boolean)
