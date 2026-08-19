@@ -14,6 +14,10 @@ export const dynamic = "force-dynamic";
  */
 export const metadata: Metadata = {
   title: "LEBTECH 2026",
+  // noindex lived on the old dedicated /c root layout. That layout had to go —
+  // the route was unreachable outside [locale] — so the directive moves here.
+  // These pages carry attendee names and must never be indexed.
+  robots: { index: false, follow: false, nocache: true },
 };
 
 /**
@@ -29,7 +33,7 @@ export const metadata: Metadata = {
 export default async function BadgeProfilePage({
   params,
 }: {
-  params: Promise<{ slug: string }>;
+  params: Promise<{ locale: string; slug: string }>;
 }) {
   // A single env var takes every profile offline without a deploy. The badges
   // stay valid — check-in resolves slugs independently of this flag — so
