@@ -213,7 +213,7 @@ export async function listRegistrationsPage(
   // lives in pretix — so it is enforced here, at the single point every list and
   // export passes through.
   const allowedSubEvents = subEventScope(session);
-  let effectiveSubEventId = filters.subEventId;
+  const effectiveSubEventId = filters.subEventId;
   if (allowedSubEvents !== null) {
     if (allowedSubEvents.length === 0) {
       // Restricted, but assigned nothing. Fail closed rather than fall through
