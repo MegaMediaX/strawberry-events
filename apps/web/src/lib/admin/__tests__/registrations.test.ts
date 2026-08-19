@@ -1,9 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { SessionContext } from "@/lib/auth/types";
 
+vi.mock("@/lib/pretix/context", () => ({ resolvePretixContext: vi.fn() }));
+vi.mock("@/lib/pretix/orders", () => ({ listOrders: vi.fn() }));
 vi.mock("@/lib/db/client", () => ({
   prisma: {
     attendeeOrder: { findMany: vi.fn(), findUnique: vi.fn(), count: vi.fn() },
+    subEvent: { findUnique: vi.fn() },
+    organization: { findUnique: vi.fn() },
     badgePrintLog: { findMany: vi.fn() },
     customFormAnswer: { findMany: vi.fn() },
     seatAssignment: { findFirst: vi.fn() },
@@ -13,6 +17,8 @@ vi.mock("@/lib/db/client", () => ({
 }));
 
 import { prisma } from "@/lib/db/client";
+import { resolvePretixContext } from "@/lib/pretix/context";
+import { listOrders } from "@/lib/pretix/orders";
 import { listRegistrations, listRegistrationsPage, buildCsv, getRegistrationDetail, type RegistrationRow } from "@/lib/admin/registrations";
 
 const mock = <T,>(fn: T) => fn as unknown as ReturnType<typeof vi.fn>;
@@ -35,6 +41,61 @@ beforeEach(() => {
   vi.clearAllMocks();
   mock(prisma.attendeeOrder.findMany).mockResolvedValue([baseOrder]);
   mock(prisma.attendeeOrder.count).mockResolvedValue(1);
+});
+
+describe("session filter — fails closed, and says which failure it is", () => {
+  const subEvent = {
+    id: "se1",
+    pretixItemId: 9,
+    eventMapping: { id: "e1", organizationId: "orgA", localEventId: "loc1", pretixEventSlug: "expo" },
+  };
+
+  it("reports notBookable when the session has no pretix item", async () => {
+    mock(prisma.subEvent.findUnique).mockResolvedValue({ ...subEvent, pretixItemId: null });
+    mock(prisma.attendeeOrder.findMany).mockResolvedValue([]);
+    mock(prisma.attendeeOrder.count).mockResolvedValue(0);
+    const res = await listRegistrationsPage(sa, { subEventId: "se1" });
+    expect(res.sessionFilter).toEqual({ ok: true, notBookable: true });
+  });
+
+  it("reports ok:false when pretix cannot be read, rather than a confident zero", async () => {
+    // Fails CLOSED — no codes, so no rows — but the caller must be able to tell
+    // this apart from "nobody booked", because both render as an empty table.
+    mock(prisma.subEvent.findUnique).mockResolvedValue(subEvent);
+    mock(prisma.organization.findUnique).mockResolvedValue({ id: "orgA" });
+    mock(resolvePretixContext).mockReturnValue({ organizerSlug: "acme", token: "t" });
+    mock(listOrders).mockRejectedValue(new Error("pretix is unreachable"));
+    mock(prisma.attendeeOrder.findMany).mockResolvedValue([]);
+    mock(prisma.attendeeOrder.count).mockResolvedValue(0);
+    const res = await listRegistrationsPage(sa, { subEventId: "se1" });
+    expect(res.sessionFilter).toEqual({ ok: false, notBookable: false });
+    expect(res.rows).toHaveLength(0);
+  });
+
+  it("keeps only orders holding a non-canceled position for that item", async () => {
+    mock(prisma.subEvent.findUnique).mockResolvedValue(subEvent);
+    mock(prisma.organization.findUnique).mockResolvedValue({ id: "orgA" });
+    mock(resolvePretixContext).mockReturnValue({ organizerSlug: "acme", token: "t" });
+    mock(listOrders).mockResolvedValue([
+      { code: "KEEP1", status: "p", positions: [{ item: 9, canceled: false }] },
+      { code: "SKIP_ITEM", status: "p", positions: [{ item: 5, canceled: false }] },
+      { code: "SKIP_CANCELED_POS", status: "p", positions: [{ item: 9, canceled: true }] },
+      { code: "SKIP_CANCELED_ORDER", status: "c", positions: [{ item: 9, canceled: false }] },
+      { code: "KEEP2", status: "n", positions: [{ item: 9, canceled: false }] },
+    ]);
+    mock(prisma.attendeeOrder.findMany).mockResolvedValue([]);
+    mock(prisma.attendeeOrder.count).mockResolvedValue(0);
+
+    await listRegistrationsPage(sa, { subEventId: "se1" });
+
+    // The constraint the filter adds is the last orderCode clause pushed on AND.
+    const where = mock(prisma.attendeeOrder.findMany).mock.calls[0][0].where;
+    const clause = (where.AND as Record<string, unknown>[])
+      .map((c) => (c as { orderCode?: { in?: string[] } }).orderCode?.in)
+      .filter(Boolean)
+      .pop();
+    expect(clause).toEqual(["KEEP1", "KEEP2"]);
+  });
 });
 
 describe("listRegistrationsPage — never presents a truncated list as the total", () => {
