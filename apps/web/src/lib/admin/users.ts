@@ -44,8 +44,17 @@ export async function invitableOrgs(
 }
 
 /** Roles the session may grant (org admins cannot mint super admins). */
+/**
+ * Roles offered when INVITING a new user.
+ *
+ * `workshop_organiser` is deliberately absent: it is only useful with sessions
+ * attached, and the invite form has no way to choose them. Offering it here
+ * would create an account that signs in successfully and sees nothing, which
+ * reads as a broken product rather than an unfinished setup. Grant it from the
+ * user's own page, where the session picker lives.
+ */
 export function grantableRoles(session: SessionContext): MemberRole[] {
-  const base: MemberRole[] = ["organizer_admin", "finance", "checkin_staff", "workshop_organiser"];
+  const base: MemberRole[] = ["organizer_admin", "finance", "checkin_staff"];
   return session.isSuperAdmin ? (["super_admin", ...base] as MemberRole[]) : base;
 }
 
