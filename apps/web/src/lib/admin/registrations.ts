@@ -5,10 +5,23 @@ import { ForbiddenError } from "@/lib/auth/guards";
 import type { SessionContext } from "@/lib/auth/types";
 import { registrationState, type RegistrationState } from "@/lib/approval/state";
 import { orderScope } from "./scope";
+import { resolvePretixContext } from "@/lib/pretix/context";
+import { listOrders } from "@/lib/pretix/orders";
 
 export interface RegistrationFilters {
   organizationId?: string;
   eventId?: string;
+  /**
+   * Show only registrations that booked this sub-event (session / workshop).
+   *
+   * Which sessions an order holds lives ONLY in pretix order positions — the app
+   * stores the item id on `sub_events` but never the bookings against it. So
+   * unlike every other filter here this one cannot be expressed in SQL; it
+   * resolves to a set of order codes by sweeping pretix, in the same shape as
+   * `checkedIn` below. That sweep is ~16 sequential API calls, so it runs only
+   * when this filter is actually set, never on an unfiltered page load.
+   */
+  subEventId?: string;
   roleTag?: string;
   approvalStatus?: string;
   paymentStatus?: string;
@@ -70,6 +83,51 @@ export interface RegistrationRow {
 }
 
 /**
+ * Order codes holding a booking for one sub-event, read from pretix.
+ *
+ * Returns an empty array when the session cannot be resolved, when the
+ * sub-event has no pretix item, or when pretix is unreachable — which shows an
+ * empty result rather than silently widening to every registration. A filter
+ * that fails open would be worse than one that fails visibly.
+ */
+async function orderCodesForSubEvent(
+  session: SessionContext,
+  subEventId: string,
+): Promise<string[]> {
+  const subEvent = await prisma.subEvent.findUnique({
+    where: { id: subEventId },
+    include: { eventMapping: { select: { id: true, organizationId: true, localEventId: true, pretixEventSlug: true } } },
+  });
+  if (!subEvent) return [];
+  const m = subEvent.eventMapping;
+  if (!canAccessEvent(session, m.organizationId, m.localEventId)) {
+    throw new ForbiddenError("Access denied");
+  }
+  if (subEvent.pretixItemId == null) return [];
+
+  const org = await prisma.organization.findUnique({ where: { id: m.organizationId } });
+  if (!org) return [];
+
+  try {
+    const ctx = resolvePretixContext(org);
+    const orders = await listOrders(ctx.organizerSlug, m.pretixEventSlug, ctx.token);
+    const codes: string[] = [];
+    for (const order of orders) {
+      if (order.status === "c" || order.status === "r") continue;
+      const holds = (order.positions ?? []).some(
+        (pos) => !pos.canceled && pos.item === subEvent.pretixItemId,
+      );
+      if (holds) codes.push(order.code);
+    }
+    return codes;
+  } catch (err) {
+    // pretix messages carry the internal base URL; keep them server-side.
+    console.error("[registrations] sub-event filter failed:", (err as Error).message);
+    return [];
+  }
+}
+
+/**
  * List registrations the session may view, scoped by {@link orderScope} and the
  * given filters. The `checkedIn` filter is applied via a scoped BadgePrintLog
  * lookup (there is no direct relation). Never returns QR/secret material.
@@ -80,6 +138,14 @@ export async function listRegistrations(
   opts: { take?: number; skip?: number } = {},
 ): Promise<RegistrationRow[]> {
   const where = buildWhere(session, filters);
+
+  if (filters.subEventId) {
+    const codes = await orderCodesForSubEvent(session, filters.subEventId);
+    where.AND = [
+      ...(where.AND as Prisma.AttendeeOrderWhereInput[]),
+      { orderCode: { in: codes } },
+    ];
+  }
 
   if (filters.checkedIn !== undefined) {
     // Resolve checked-in order codes within the same scope, then constrain.
