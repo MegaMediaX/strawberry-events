@@ -45,19 +45,34 @@ export function BadgeTemplate({ badge }: { badge: BadgeData }) {
       <div className="badge-name">{badge.fullName}</div>
       {badge.company && <div className="badge-company">{badge.company}</div>}
       <style>{`
+        /* Every length is in mm, because the media is 60x40mm and nothing else
+           fits in the head. The previous rules mixed a 60x40mm @page with 0.3in
+           padding and a 0.4in name margin left over from the 4x6in layout —
+           roughly 18mm of whitespace on a 40mm label, before a single glyph.
+           The content overflowed and this fallback could not produce a usable
+           badge. It matters now: with on-site printing there is no pre-printed
+           badge to fall back on, so this IS the fallback when QZ Tray is
+           unreachable. */
         @media print { @page { size: 60mm 40mm; margin: 0; } }
         .badge-sheet {
           width: 60mm; height: 40mm; box-sizing: border-box;
           display: flex; flex-direction: column; align-items: center;
-          padding: 0.3in 0.25in; text-align: center; color: #111; background: #fff;
+          padding: 2mm; text-align: center; color: #111; background: #fff;
+          overflow: hidden;
         }
         .badge-tag {
-          width: 100%; color: #fff; font-weight: 800; letter-spacing: 0.1em;
-          font-size: 28px; padding: 14px 0; border-radius: 8px;
+          width: 100%; color: #fff; font-weight: 800; letter-spacing: 0.08em;
+          font-size: 5mm; line-height: 1.2; padding: 1.4mm 0; border-radius: 1mm;
         }
-        .badge-name { margin-top: 0.4in; font-size: 30px; font-weight: 700; line-height: 1.1; }
-        .badge-company { margin-top: 8px; font-size: 18px; color: #555; }
-        .badge-qr { margin-top: auto; }
+        /* Two lines of name at most; a third would push the company off. */
+        .badge-name {
+          margin-top: 2.6mm; font-size: 5mm; font-weight: 700; line-height: 1.15;
+          max-height: 11.5mm; overflow: hidden;
+        }
+        .badge-company {
+          margin-top: 1.4mm; font-size: 3.2mm; line-height: 1.2; color: #555;
+          max-height: 4mm; overflow: hidden;
+        }
       `}</style>
     </div>
   );
