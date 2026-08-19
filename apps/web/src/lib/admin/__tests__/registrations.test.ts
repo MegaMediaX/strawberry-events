@@ -3,7 +3,7 @@ import type { SessionContext } from "@/lib/auth/types";
 
 vi.mock("@/lib/db/client", () => ({
   prisma: {
-    attendeeOrder: { findMany: vi.fn(), findUnique: vi.fn() },
+    attendeeOrder: { findMany: vi.fn(), findUnique: vi.fn(), count: vi.fn() },
     badgePrintLog: { findMany: vi.fn() },
     customFormAnswer: { findMany: vi.fn() },
     seatAssignment: { findFirst: vi.fn() },
@@ -13,7 +13,7 @@ vi.mock("@/lib/db/client", () => ({
 }));
 
 import { prisma } from "@/lib/db/client";
-import { listRegistrations, buildCsv, getRegistrationDetail, type RegistrationRow } from "@/lib/admin/registrations";
+import { listRegistrations, listRegistrationsPage, buildCsv, getRegistrationDetail, type RegistrationRow } from "@/lib/admin/registrations";
 
 const mock = <T,>(fn: T) => fn as unknown as ReturnType<typeof vi.fn>;
 
@@ -34,6 +34,37 @@ const baseOrder = {
 beforeEach(() => {
   vi.clearAllMocks();
   mock(prisma.attendeeOrder.findMany).mockResolvedValue([baseOrder]);
+  mock(prisma.attendeeOrder.count).mockResolvedValue(1);
+});
+
+describe("listRegistrationsPage — never presents a truncated list as the total", () => {
+  it("reports the real total and flags a capped page", async () => {
+    // The page used to render `rows.length` as the count, so with 812 orders and
+    // a limit of 200 it said "200 registrations" — and a session filter turned
+    // that into a headcount someone might staff a room from.
+    mock(prisma.attendeeOrder.findMany).mockResolvedValue(
+      Array.from({ length: 2 }, (_, i) => ({
+        id: `o${i}`, orderCode: `C${i}`, eventMappingId: "e1",
+        eventMapping: { titleEn: "Expo" }, attendeeName: "A", email: "a@b.com",
+        phone: null, company: null, roleTag: "visitor", provider: "free",
+        status: "paid", approvalStatus: "not_required", createdAt: new Date(),
+      })),
+    );
+    mock(prisma.attendeeOrder.count).mockResolvedValue(812);
+
+    const res = await listRegistrationsPage(sa, {}, { take: 2 });
+    expect(res.rows).toHaveLength(2);
+    expect(res.total).toBe(812);
+    expect(res.capped).toBe(true);
+  });
+
+  it("is not capped when the page holds everything", async () => {
+    mock(prisma.attendeeOrder.findMany).mockResolvedValue([]);
+    mock(prisma.attendeeOrder.count).mockResolvedValue(0);
+    const res = await listRegistrationsPage(sa, {});
+    expect(res.capped).toBe(false);
+    expect(res.total).toBe(0);
+  });
 });
 
 describe("listRegistrations — scope + filters", () => {

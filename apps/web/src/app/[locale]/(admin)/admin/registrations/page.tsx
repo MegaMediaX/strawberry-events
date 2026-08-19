@@ -3,7 +3,7 @@ import { setRequestLocale } from "next-intl/server";
 import { getSessionContext, requireRole } from "@/lib/auth/session";
 import { prisma } from "@/lib/db/client";
 import { eventScope } from "@/lib/admin/scope";
-import { listRegistrations, type RegistrationFilters } from "@/lib/admin/registrations";
+import { listRegistrationsPage, type RegistrationFilters } from "@/lib/admin/registrations";
 
 export const dynamic = "force-dynamic";
 
@@ -48,7 +48,10 @@ export default async function RegistrationsPage({
   if (!session) return null;
 
   const filters = toFilters(sp);
-  const rows = await listRegistrations(session, filters);
+  // 1000 comfortably covers current volume (812 orders, largest session 695), so
+  // nothing is cut in practice — and when it ever is, `capped` says so rather
+  // than letting a truncated list read as the total.
+  const { rows, total, capped } = await listRegistrationsPage(session, filters, { take: 1000 });
 
   // Accessible events for the filter dropdown.
   const ev = eventScope(session);
@@ -146,12 +149,18 @@ export default async function RegistrationsPage({
       </form>
 
       <p className="mt-3 text-sm text-muted-foreground">
-        {rows.length} registrations
+        {capped ? `Showing ${rows.length} of ${total}` : `${total}`} registrations
         {sp.session && (() => {
           const se = subEvents.find((x) => x.id === sp.session);
           return se ? ` booked into ${se.titleEn}` : "";
         })()}
       </p>
+      {capped && (
+        <p className="mt-1 rounded-[var(--radius-md)] border border-amber-500/40 bg-amber-500/5 px-3 py-2 text-xs text-amber-700">
+          This list is truncated — narrow the filters, or use Export CSV, which
+          includes every matching row.
+        </p>
+      )}
       {sp.session && (
         <p className="mt-1 max-w-[70ch] text-xs text-muted-foreground">
           Session bookings live in pretix, not in this database, so filtering by

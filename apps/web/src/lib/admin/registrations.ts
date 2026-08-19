@@ -132,11 +132,28 @@ async function orderCodesForSubEvent(
  * given filters. The `checkedIn` filter is applied via a scoped BadgePrintLog
  * lookup (there is no direct relation). Never returns QR/secret material.
  */
-export async function listRegistrations(
+export interface RegistrationPage {
+  rows: RegistrationRow[];
+  /** Total matching rows, ignoring take/skip. */
+  total: number;
+  /** True when `rows` is a truncated view of `total`. */
+  capped: boolean;
+}
+
+/**
+ * Rows PLUS the true total, so a caller can say "showing 200 of 812" instead of
+ * presenting a truncated page as the whole answer.
+ *
+ * The default limit had been silently cutting the list: with 812 orders the page
+ * rendered 200 and labelled it "200 registrations", and a session filter made
+ * that worse by turning a capped list into a headcount someone might staff a
+ * room from.
+ */
+export async function listRegistrationsPage(
   session: SessionContext,
   filters: RegistrationFilters = {},
   opts: { take?: number; skip?: number } = {},
-): Promise<RegistrationRow[]> {
+): Promise<RegistrationPage> {
   const where = buildWhere(session, filters);
 
   if (filters.subEventId) {
@@ -169,7 +186,9 @@ export async function listRegistrations(
     skip: opts.skip ?? 0,
   });
 
-  return orders.map((o) => ({
+  const total = await prisma.attendeeOrder.count({ where });
+
+  const rows = orders.map((o) => ({
     id: o.id,
     orderCode: o.orderCode,
     event: o.eventMapping.titleEn,
@@ -185,6 +204,20 @@ export async function listRegistrations(
     state: registrationState(o),
     createdAt: o.createdAt,
   }));
+
+  return { rows, total, capped: total > rows.length + (opts.skip ?? 0) };
+}
+
+/**
+ * Rows only. Kept so existing callers and their tests are unaffected; prefer
+ * {@link listRegistrationsPage} anywhere the count is shown to a human.
+ */
+export async function listRegistrations(
+  session: SessionContext,
+  filters: RegistrationFilters = {},
+  opts: { take?: number; skip?: number } = {},
+): Promise<RegistrationRow[]> {
+  return (await listRegistrationsPage(session, filters, opts)).rows;
 }
 
 /**
