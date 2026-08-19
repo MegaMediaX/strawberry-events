@@ -144,28 +144,50 @@ function badgeOf(order: AttendeeOrder): NonNullable<CheckInResult["badge"]> {
 async function ensureBadgeSlug(order: AttendeeOrder): Promise<string | null> {
   if (order.badgeSlug) return order.badgeSlug;
 
-  for (let attempt = 0; attempt < 3; attempt += 1) {
-    const candidate = generateBadgeSlug();
-    try {
-      // updateMany, not update: this is a compare-and-set. `badgeSlug: null`
-      // is a filter rather than a unique lookup, so only the first concurrent
-      // print wins and the rest see count 0 and re-read. `update` cannot
-      // express that — its where clause takes unique fields only.
-      const { count } = await prisma.attendeeOrder.updateMany({
-        where: { id: order.id, badgeSlug: null },
-        data: { badgeSlug: candidate },
-      });
-      if (count === 1) return candidate;
-    } catch {
-      // A unique violation: this candidate belongs to another order. Fall
-      // through and re-read, then try a different one.
-    }
+  // EVERYTHING here is inside one try. This function runs AFTER pretix has
+  // already redeemed the ticket and after the badge-print and audit rows are
+  // committed — so an exception escaping this point would report a failure for
+  // someone who is, in pretix, checked in. Staff would re-scan, pretix would
+  // correctly answer "already redeemed", and a paying attendee would be stuck
+  // at the door while no badge ever printed.
+  //
+  // The earlier version guarded only the write and left the re-read bare, which
+  // is exactly that bug. A slug is a decoration; entry is not.
+  try {
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const candidate = generateBadgeSlug();
+      try {
+        // updateMany, not update: this is a compare-and-set. `badgeSlug: null`
+        // is a filter rather than a unique lookup, so only the first concurrent
+        // print wins and the rest see count 0 and re-read. `update` cannot
+        // express that — its where clause takes unique fields only.
+        const { count } = await prisma.attendeeOrder.updateMany({
+          where: { id: order.id, badgeSlug: null },
+          data: { badgeSlug: candidate },
+        });
+        if (count === 1) return candidate;
+      } catch (err) {
+        // P2002 is the unique violation this retry loop exists for: the
+        // candidate belongs to another order, so pick a different one.
+        // Anything else — a missing column mid-migration, a dead connection —
+        // is NOT a lost race, and silently treating it as one hides a real
+        // outage behind a missing QR.
+        if ((err as { code?: string }).code !== "P2002") throw err;
+      }
 
-    const fresh = await prisma.attendeeOrder.findUnique({
-      where: { id: order.id },
-      select: { badgeSlug: true },
-    });
-    if (fresh?.badgeSlug) return fresh.badgeSlug;
+      const fresh = await prisma.attendeeOrder.findUnique({
+        where: { id: order.id },
+        select: { badgeSlug: true },
+      });
+      if (fresh?.badgeSlug) return fresh.badgeSlug;
+    }
+  } catch (err) {
+    // Loud, because a silent failure here means badges quietly stop carrying
+    // QR codes mid-event and nobody finds out until attendees complain.
+    console.error(
+      `[checkin] could not assign a badge slug to order ${order.orderCode}:`,
+      (err as Error).message,
+    );
   }
 
   // Printing a badge without a QR beats refusing entry over a decoration.

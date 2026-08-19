@@ -1,3 +1,5 @@
+import { randomInt } from "node:crypto";
+
 /**
  * The opaque code carried in the badge QR, and the URL built around it.
  *
@@ -35,11 +37,23 @@ export function isBadgeSlug(value: string): boolean {
  * ~40 bits. Over 812 badges the birthday collision probability is ~3e-7, and
  * the unique index turns even that into a retryable write rather than two
  * attendees sharing a profile.
+ *
+ * Uses the CSPRNG, NOT `Math.random()`. This slug is the only thing gating an
+ * unauthenticated page that discloses an attendee's name, company and role, and
+ * it is also accepted as a check-in code. V8's `Math.random()` is xorshift128+,
+ * whose internal state is recoverable from observed output — after which every
+ * later slug is predictable. That risk grows with process uptime, and this
+ * server mints slugs continuously across a three-day event.
+ *
+ * `randomInt(n)` is uniform over [0, n) with rejection sampling, so there is no
+ * modulo bias. The seam stays injectable for tests.
  */
-export function generateBadgeSlug(random: () => number = Math.random): string {
+export function generateBadgeSlug(
+  randomIndex: (bound: number) => number = randomInt,
+): string {
   let out = "";
   for (let i = 0; i < SLUG_LENGTH; i += 1) {
-    out += ALPHABET[Math.floor(random() * ALPHABET.length)];
+    out += ALPHABET[randomIndex(ALPHABET.length)];
   }
   return out;
 }
@@ -53,9 +67,34 @@ function profileHost(): string {
   return (raw && raw.length > 0 ? raw : "register.strawberryagency.com").toUpperCase();
 }
 
+/**
+ * Longest payload whose QR still fits the box `badge-zpl.ts` reserves for it.
+ *
+ * The printer picks the QR version from the actual data at print time, but the
+ * label geometry is computed for a fixed 29-module (version 3) symbol. Exceed
+ * this and the printer draws a LARGER symbol into the same reserved box, which
+ * eats the quiet zone and stops badges scanning — the exact defect this feature
+ * already shipped once and had to fix on real hardware.
+ *
+ * 48 characters is `HTTPS://REGISTER.STRAWBERRYAGENCY.COM/C/ABC12345`, the
+ * default host. A longer host must be paired with new geometry.
+ */
+export const MAX_BADGE_PAYLOAD_LENGTH = 48;
+
 /** The exact string encoded into the badge QR. */
 export function badgeProfileUrl(slug: string): string {
-  return `HTTPS://${profileHost()}/C/${slug}`;
+  const url = `HTTPS://${profileHost()}/C/${slug}`;
+
+  // Fail loudly at the call site rather than silently printing 812 unscannable
+  // badges. NEXT_PUBLIC_BADGE_PROFILE_HOST is deployment config, so this can
+  // only trip on a misconfiguration, and it trips on the very first badge.
+  if (url.length > MAX_BADGE_PAYLOAD_LENGTH) {
+    throw new Error(
+      `Badge QR payload is ${url.length} chars, over the ${MAX_BADGE_PAYLOAD_LENGTH} the label geometry ` +
+        `reserves. Shorten NEXT_PUBLIC_BADGE_PROFILE_HOST or recompute the QR box in badge-zpl.ts.`,
+    );
+  }
+  return url;
 }
 
 /**

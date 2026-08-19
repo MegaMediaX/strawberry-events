@@ -1,5 +1,7 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
+import { afterEach } from "vitest";
 import {
+  MAX_BADGE_PAYLOAD_LENGTH,
   badgeProfileUrl,
   generateBadgeSlug,
   isBadgeSlug,
@@ -26,8 +28,18 @@ describe("generateBadgeSlug", () => {
     // A generator that always emitted ALPHABET[0] would satisfy every test
     // above. Feed it a known sequence and check it walks the alphabet.
     let i = 0;
-    const cycling = () => (i++ % 32) / 32;
+    const cycling = () => i++ % 32;
     expect(generateBadgeSlug(cycling)).toBe("01234567");
+  });
+
+  it("draws from the CSPRNG by default, not Math.random", () => {
+    // The slug gates an unauthenticated page showing 812 people's details and
+    // is accepted as a check-in code. Math.random is xorshift128+ — its state
+    // is recoverable from observed output, making later slugs predictable.
+    const spy = vi.spyOn(Math, "random");
+    generateBadgeSlug();
+    expect(spy).not.toHaveBeenCalled();
+    spy.mockRestore();
   });
 });
 
@@ -96,5 +108,29 @@ describe("resolveBadgeSlug", () => {
     // pretix secrets are 32 lowercase hex-ish characters. If one of those ever
     // resolved as a slug the door would look up the wrong row.
     expect(resolveBadgeSlug("k4n8x2m9p1q7w3e5r6t8y0u2i4o6a8s0")).toBeNull();
+  });
+});
+
+
+describe("payload length guard", () => {
+  const HOST = "NEXT_PUBLIC_BADGE_PROFILE_HOST";
+  const original = process.env[HOST];
+  afterEach(() => {
+    if (original === undefined) delete process.env[HOST];
+    else process.env[HOST] = original;
+  });
+
+  it("refuses a host that would outgrow the reserved QR box", () => {
+    // The printer picks the QR version from the real data, but the label
+    // geometry reserves a fixed 29-module box. A longer host silently makes the
+    // printer draw a bigger symbol into that box, eating the quiet zone — the
+    // same defect that already reached a printed badge once.
+    process.env[HOST] = "checkin.lebtech-conference-2026.example.com";
+    expect(() => badgeProfileUrl("ABC12345")).toThrow(/payload is \d+ chars/);
+  });
+
+  it("accepts the configured production host", () => {
+    process.env[HOST] = "register.strawberryagency.com";
+    expect(badgeProfileUrl("ABC12345")).toHaveLength(MAX_BADGE_PAYLOAD_LENGTH);
   });
 });
