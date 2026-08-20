@@ -59,6 +59,18 @@ ORDERS=$(docker compose -f "${APP_COMPOSE}" exec -T strawberry-db \
   psql -U strawberry -d strawberry -tAc "SELECT count(*) FROM attendee_orders" || echo 0)
 echo "    live attendee_orders: ${ORDERS}"
 
+# Retention. Unbounded backups eventually fill the disk, and a full disk takes
+# the database down — the exact outcome backups exist to prevent. Prune ONLY
+# after the new backup has been written and verified above, so a failed run
+# never deletes the last good copy.
+KEEP="${BACKUP_KEEP:-30}"
+cd "$(dirname "${OUT}")"
+PRUNED=$(ls -1dt */ 2>/dev/null | tail -n "+$((KEEP + 1))" || true)
+if [ -n "${PRUNED}" ]; then
+  echo "==> Pruning $(echo "${PRUNED}" | wc -l | tr -d ' ') backup(s) older than the newest ${KEEP}"
+  echo "${PRUNED}" | xargs rm -rf
+fi
+
 echo
 echo "Backup complete: ${OUT}"
 du -sh "${OUT}"
