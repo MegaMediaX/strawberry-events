@@ -1,7 +1,7 @@
 "use client";
 
 export type DoorResult =
-  | { kind: "ok"; name: string; detail: string }
+  | { kind: "ok"; name: string; detail: string; label?: string }
   | { kind: "warn"; name: string; detail: string }
   | { kind: "err"; name: string; detail: string }
   | { kind: "working" };
@@ -81,8 +81,11 @@ function BannerBody({ result }: { result: DoorResult | null }) {
         {style.glyph}
       </span>
       <div className="min-w-0">
+        {/* A reprint must not read identically to a fresh admission: the
+            headline band is what gets read at a glance, and "CHECKED IN" over a
+            replacement badge misstates what just happened. */}
         <p className={`text-[13px] font-bold tracking-[0.1em] uppercase ${style.word}`}>
-          {style.label}
+          {("label" in result && result.label) || style.label}
         </p>
         <p className="truncate text-[26px] leading-tight font-semibold text-foreground">
           {result.name}

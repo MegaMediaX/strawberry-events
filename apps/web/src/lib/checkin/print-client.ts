@@ -252,8 +252,17 @@ export async function printZpl(zpl: string): Promise<void> {
     }
 
     await qz.print(config, rawZplData(zpl));
-  } catch {
-    // "job", not "transport": this label failed, the next one may well succeed.
+  } catch (err) {
+    // Preserve a PrintError we raised ourselves. The raw-mode checks above throw
+    // "transport" from INSIDE this try, and blanket-rethrowing as "job" silently
+    // downgraded them: the latch never engaged, so the door re-ran the whole
+    // connect/configure dance and failed it for every badge, each time telling
+    // the operator to check paper and ribbon — the wrong fix for a QZ version
+    // problem, mid-event.
+    if (err instanceof PrintError) throw err;
+
+    // Only a genuine qz.print() rejection is per-label: this one failed, the
+    // next may well succeed.
     throw new PrintError(
       "The printer rejected that label. Check paper and ribbon, then reprint.",
       "job",

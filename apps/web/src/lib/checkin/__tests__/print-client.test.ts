@@ -260,3 +260,33 @@ describe("which print failures should stop the door retrying", () => {
     vi.resetModules();
   });
 });
+
+describe("a raw-mode failure must not be reported as a paper jam", () => {
+  it("keeps kind 'transport' when the options object cannot be reduced", async () => {
+    // These throw from INSIDE the same try that wraps qz.print(), so a blanket
+    // catch reclassified them as "job": the latch never engaged, and the
+    // operator was told to check paper and ribbon for a QZ version problem.
+    vi.doMock("qz-tray", () => ({
+      default: {
+        websocket: { isActive: () => true, connect: async () => {} },
+        security: { setCertificatePromise: () => {}, setSignaturePromise: () => {} },
+        printers: { find: async () => "PC42d" },
+        // getOptions returns a fresh object each call, so stripping it in place
+        // never takes effect — the shape a quirky QZ build would produce.
+        configs: { create: () => ({ getOptions: () => ({ copies: 1, altPrinting: true }) }) },
+        print: async () => {},
+      },
+    }));
+    vi.resetModules();
+    const mod = await import("@/lib/checkin/print-client");
+
+    await expect(mod.printZpl("^XA^XZ")).rejects.toMatchObject({ kind: "transport" });
+    // And it must latch, so the door stops retrying a systemic failure.
+    await mod.printZpl("^XA^XZ").catch((e) => {
+      expect(mod.isPersistentPrintFailure(e)).toBe(true);
+    });
+
+    vi.doUnmock("qz-tray");
+    vi.resetModules();
+  });
+});

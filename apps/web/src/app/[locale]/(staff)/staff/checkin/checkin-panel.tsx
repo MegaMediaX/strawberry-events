@@ -8,6 +8,7 @@ import { BadgePrintDialog } from "@/components/badges/badge-print-dialog";
 import type { BadgeData } from "@/components/badges/badge-template";
 import type { CheckInResult } from "@/lib/checkin/service";
 import { buildBadgeZpl } from "@/lib/checkin/badge-zpl";
+import { createPrintOwnership } from "@/lib/checkin/print-ownership";
 import { printZpl, PrintError, isPersistentPrintFailure } from "@/lib/checkin/print-client";
 import { QrScanner } from "./qr-scanner";
 import { PrinterSettings } from "./printer-settings";
@@ -76,6 +77,8 @@ export function CheckinPanel({
   // per attendee puts the delay in front of every person in the queue.
   const qzUnreachable = useRef(false);
   const recentId = useRef(0);
+  // Which print currently owns the screen — see print-ownership.ts.
+  const printOwner = useRef(createPrintOwnership());
   // Mirrors confirmReprint for the window key handler, which is bound once.
   const confirmReprintRef = useRef<typeof confirmReprint>(null);
   const confirmBoxRef = useRef<HTMLDivElement>(null);
@@ -93,8 +96,11 @@ export function CheckinPanel({
    * done, and nobody notices until they are refused entry to a session.
    */
   const thermalPrint = useCallback(async (b: BadgeData): Promise<string | null> => {
+    // Sets NO screen state. `pending` covers only the check-in call, so prints
+    // for consecutive attendees overlap freely; a print that touched shared
+    // state directly could paint attendee A's failure over attendee B's screen.
+    // It reports, and the caller — which knows whose print this was — decides.
     if (qzUnreachable.current) {
-      setBrowserFallback(true);
       return "Printer unavailable — use the on-screen print below.";
     }
     try {
@@ -105,7 +111,6 @@ export function CheckinPanel({
       // per-badge: latching on it would downgrade every remaining attendee in
       // the queue after a single jam.
       if (isPersistentPrintFailure(err)) qzUnreachable.current = true;
-      setBrowserFallback(true);
       return err instanceof PrintError ? err.message : "Printing failed.";
     }
   }, []);
@@ -140,22 +145,39 @@ export function CheckinPanel({
         setRows([]);
         searchRef.current?.focus();
 
-        // AWAITED. The banner must not go green until a badge has actually
-        // come out — the check-in itself already succeeded either way, so this
-        // never blocks entry, it only tells the truth about the badge.
+        // The banner must not go green until a badge has actually come out. The
+        // check-in itself already succeeded either way, so this never blocks
+        // entry — it only stops the UI claiming a badge exists when it does not.
+        const ticket = printOwner.current.claim();
         void thermalPrint(b).then((printError) => {
-          setResult(
-            printError
-              ? { kind: "warn", name: who, detail: `Checked in, but NOT printed — ${printError}` }
-              : {
-                  kind: "ok",
-                  name: who,
-                  detail:
-                    kind === "reprint"
-                      ? "Replacement badge printed — not checked in again"
-                      : "Badge printed",
-                },
-          );
+          // Superseded: the operator has already moved on to someone else, and
+          // this screen is now theirs. Dropping the update is right — writing it
+          // would show THIS attendee's outcome under the NEXT attendee's name.
+          if (!printOwner.current.owns(ticket)) return;
+
+          if (printError) {
+            setBrowserFallback(true);
+            setResult({
+              kind: "warn",
+              name: who,
+              detail:
+                kind === "reprint"
+                  ? `Badge NOT printed — ${printError}`
+                  : `Checked in, but badge NOT printed — ${printError}`,
+            });
+            return;
+          }
+
+          setBrowserFallback(false);
+          setResult({
+            kind: "ok",
+            name: who,
+            label: kind === "reprint" ? "Reprinted" : undefined,
+            detail:
+              kind === "reprint"
+                ? "Replacement badge printed — not checked in again"
+                : "Badge printed",
+          });
         });
         return;
       }
@@ -326,6 +348,13 @@ export function CheckinPanel({
           onRecovered={() => {
             // The pill going green must actually re-arm thermal printing,
             // otherwise it reports a recovery that has not happened.
+            //
+            // Only when something was actually latched. probePrinter cannot see
+            // a jam or an empty roll — it only checks QZ and the printer name —
+            // so an unconditional clear here would dismiss a per-label failure's
+            // fallback panel on the next 30s poll, before the operator had acted
+            // on it.
+            if (!qzUnreachable.current) return;
             qzUnreachable.current = false;
             setBrowserFallback(false);
           }}
