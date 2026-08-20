@@ -52,6 +52,27 @@ export async function changeRoleAction(
   if (!session) return { ok: false, error: "Not authenticated" };
   try {
     let eventIds = assignedEventIds;
+
+    // checkin_staff is narrowed to named events by canAccessEvent, so an empty
+    // list produces an account that signs in and is refused on every scan. The
+    // form guards this too, but a server action is callable directly and the
+    // failure only shows up at a door.
+    if (role === "checkin_staff") {
+      if (assignedEventIds.length === 0) {
+        return { ok: false, error: "Pick at least one event for check-in staff." };
+      }
+      // Never take the caller's word for which events these are. localEventId
+      // is what canAccessEvent compares against.
+      const owned = await prisma.eventMapping.findMany({
+        where: { organizationId, localEventId: { in: assignedEventIds } },
+        select: { localEventId: true },
+      });
+      if (owned.length !== assignedEventIds.length) {
+        return { ok: false, error: "Those events belong to a different organization." };
+      }
+      eventIds = [...new Set(assignedEventIds)];
+    }
+
     if (role === "workshop_organiser") {
       if (assignedSubEventIds.length === 0) {
         return { ok: false, error: "Pick at least one session for a workshop organiser." };

@@ -5,6 +5,7 @@ vi.mock("@/lib/auth/session", () => ({ getSessionContext: vi.fn() }));
 vi.mock("@/lib/db/client", () => ({
   prisma: {
     subEvent: { findMany: vi.fn() },
+    eventMapping: { findMany: vi.fn() },
     organizationMember: { findMany: vi.fn() },
   },
 }));
@@ -99,5 +100,43 @@ describe("changeRoleAction — granting workshop_organiser", () => {
     // And prove the exclusion is actually in the query, not just in the mock.
     const where = mock(prisma.organizationMember.findMany).mock.calls[0][0].where;
     expect(where.organizationId).toEqual({ not: "orgA" });
+  });
+});
+
+describe("checkin_staff must be given events", () => {
+  // canAccessEvent narrows checkin_staff to assignedEventIds. The admin form
+  // used to pass [] for every role, so a check-in account could be created that
+  // signed in perfectly and was refused on every scan — at a door, with a queue.
+  it("refuses a check-in role with no events", async () => {
+    const res = await changeRoleAction("u1", "orgA", "checkin_staff", []);
+    expect(res.ok).toBe(false);
+    expect(res.error).toMatch(/at least one event/i);
+  });
+
+  it("refuses events belonging to another organization", async () => {
+    mock(prisma.eventMapping.findMany).mockResolvedValue([]);
+    const res = await changeRoleAction("u1", "orgA", "checkin_staff", ["ev-from-org-b"]);
+    expect(res.ok).toBe(false);
+    expect(res.error).toMatch(/different organization/i);
+  });
+
+  it("passes the verified events through to changeRole", async () => {
+    mock(prisma.eventMapping.findMany).mockResolvedValue([{ localEventId: "ev1" }]);
+    const res = await changeRoleAction("u1", "orgA", "checkin_staff", ["ev1"]);
+    expect(res.ok).toBe(true);
+    // Same positions the workshop_organiser case asserts: events then sessions.
+    const args = mock(changeRole).mock.calls[0];
+    expect(args[4]).toEqual(["ev1"]);
+    expect(args[5]).toEqual([]);
+  });
+
+  it("deduplicates repeated event ids", async () => {
+    mock(prisma.eventMapping.findMany).mockResolvedValue([
+      { localEventId: "ev1" },
+      { localEventId: "ev1" },
+    ]);
+    const res = await changeRoleAction("u1", "orgA", "checkin_staff", ["ev1", "ev1"]);
+    expect(res.ok).toBe(true);
+    expect(mock(changeRole).mock.calls[0][4]).toEqual(["ev1"]);
   });
 });

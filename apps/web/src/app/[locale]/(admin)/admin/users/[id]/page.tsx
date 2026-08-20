@@ -57,6 +57,25 @@ export default async function UserDetailPage({
     label: `${se.titleEn}${se.category ? ` (${se.category})` : ""} · ${se.eventMapping.titleEn}`,
   }));
 
+
+  // Events selectable when granting checkin_staff. That role is narrowed to
+  // NAMED events — a membership with an empty list can sign in and then fails
+  // every check-in with "Event not found or access denied", which is a very
+  // expensive thing to discover at a door. Same org scoping as the sessions
+  // above, so this picker can never offer another org's events.
+  const eventRows = await prisma.eventMapping.findMany({
+    where: adminOrgIds ? { organizationId: { in: adminOrgIds } } : {},
+    select: { localEventId: true, organizationId: true, titleEn: true },
+    orderBy: { titleEn: "asc" },
+    take: 200,
+  });
+  const events = eventRows.map((e) => ({
+    // canAccessEvent compares against localEventId, NOT the mapping id.
+    id: e.localEventId,
+    organizationId: e.organizationId,
+    label: e.titleEn,
+  }));
+
   return (
     <div className="mx-auto max-w-2xl">
       <Link className="text-sm text-primary underline" href={`/${locale}/admin/users`}>← Users</Link>
@@ -91,6 +110,7 @@ export default async function UserDetailPage({
           suspended={user.status === "suspended"}
           isSuper={session.isSuperAdmin}
           orgs={orgs}
+          events={events}
           subEvents={subEvents}
         />
       </section>
