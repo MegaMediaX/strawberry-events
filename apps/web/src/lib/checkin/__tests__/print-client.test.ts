@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, afterEach } from "vitest";
 import { rawZplData, stripToRawOptions, isRawOnly } from "@/lib/checkin/print-client";
 
 describe("rawZplData", () => {
@@ -116,5 +116,76 @@ describe("reducing options to raw-only", () => {
 
     vi.doUnmock("qz-tray");
     vi.resetModules();
+  });
+});
+
+describe("probePrinter", () => {
+  // The door needs to learn the printer is down BEFORE the queue forms. Every
+  // failure must name a fix, because the raw errors point at the wrong thing:
+  // a browser blocked by CSP and a QZ Tray that is genuinely not running look
+  // identical from here.
+  const withQz = (impl: Record<string, unknown>) => {
+    vi.doMock("qz-tray", () => ({ default: impl }));
+    vi.resetModules();
+    return import("@/lib/checkin/print-client");
+  };
+
+  afterEach(() => {
+    vi.doUnmock("qz-tray");
+    vi.resetModules();
+  });
+
+  it("reports ready with the printer name", async () => {
+    const { probePrinter } = await withQz({
+      websocket: { isActive: () => true, connect: async () => {} },
+      security: { setCertificatePromise: () => {}, setSignaturePromise: () => {} },
+      printers: { find: async () => "PC42d" },
+      configs: { create: () => ({ getOptions: () => ({}) }) },
+      print: async () => {},
+    });
+    expect(await probePrinter()).toEqual({ ok: true, printer: "PC42d" });
+  });
+
+  it("says QZ Tray is unreachable, and how to fix it", async () => {
+    const { probePrinter } = await withQz({
+      websocket: { isActive: () => false, connect: async () => { throw new Error("refused"); } },
+      security: { setCertificatePromise: () => {}, setSignaturePromise: () => {} },
+      printers: { find: async () => "PC42d" },
+      configs: { create: () => ({ getOptions: () => ({}) }) },
+      print: async () => {},
+    });
+    const h = await probePrinter();
+    expect(h.ok).toBe(false);
+    if (!h.ok) {
+      expect(h.reason).toMatch(/not reachable/i);
+      expect(h.fixHint).toMatch(/QZ Tray/i);
+    }
+  });
+
+  it("says when the printer itself cannot be found", async () => {
+    const { probePrinter } = await withQz({
+      websocket: { isActive: () => true, connect: async () => {} },
+      security: { setCertificatePromise: () => {}, setSignaturePromise: () => {} },
+      printers: { find: async () => { throw new Error("no such printer"); } },
+      configs: { create: () => ({ getOptions: () => ({}) }) },
+      print: async () => {},
+    });
+    const h = await probePrinter();
+    expect(h.ok).toBe(false);
+    if (!h.ok) expect(h.fixHint).toMatch(/connected|settings/i);
+  });
+
+  it("never prints while probing", async () => {
+    // A health check that emits a label would waste stock every 30 seconds.
+    let printed = 0;
+    const { probePrinter } = await withQz({
+      websocket: { isActive: () => true, connect: async () => {} },
+      security: { setCertificatePromise: () => {}, setSignaturePromise: () => {} },
+      printers: { find: async () => "PC42d" },
+      configs: { create: () => ({ getOptions: () => ({}) }) },
+      print: async () => { printed += 1; },
+    });
+    await probePrinter();
+    expect(printed).toBe(0);
   });
 });

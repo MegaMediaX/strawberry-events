@@ -128,6 +128,53 @@ async function ensureConnected(qz: Qz): Promise<void> {
 
 export class PrintError extends Error {}
 
+export type PrinterHealth =
+  | { ok: true; printer: string }
+  | { ok: false; reason: string; fixHint: string };
+
+/**
+ * Ask QZ Tray whether it is reachable and whether the configured printer is
+ * present, WITHOUT printing anything.
+ *
+ * Exists so the door learns the printer is down while the queue is still
+ * outside, rather than on the first attendee. Every failure carries a fix hint,
+ * because the raw errors point at the wrong thing: a browser blocked by CSP and
+ * a QZ Tray that genuinely is not running produce the same "cannot connect".
+ */
+export async function probePrinter(): Promise<PrinterHealth> {
+  let qz: Qz;
+  try {
+    qz = await getQz();
+    await ensureConnected(qz);
+  } catch {
+    return {
+      ok: false,
+      reason: "Printer service not reachable",
+      fixHint: "Open QZ Tray on this machine, then press Retry.",
+    };
+  }
+
+  const configured = getPrinterName();
+  try {
+    const found = await qz.printers.find(configured ?? undefined);
+    const printer = Array.isArray(found) ? found[0] : found;
+    if (!printer) {
+      return {
+        ok: false,
+        reason: "No printer selected",
+        fixHint: "Open Printer settings and enter the name QZ Tray reports.",
+      };
+    }
+    return { ok: true, printer };
+  } catch {
+    return {
+      ok: false,
+      reason: configured ? `Printer "${configured}" not found` : "No default printer",
+      fixHint: "Check the printer is on and connected, then press Retry.",
+    };
+  }
+}
+
 /**
  * Print raw ZPL to the configured (or default) printer. Throws PrintError with a
  * staff-readable message if QZ Tray isn't running or the printer can't be found.
