@@ -8,10 +8,11 @@
  * which QZ forwards to the USB printer — giving silent, dialog-free printing of
  * crisp 203 dpi labels (which browser print can't do for raw ZPL).
  *
- * Signing: in production QZ uses a code-signing cert to avoid a per-print trust
- * prompt. Here we run UNSIGNED (dev mode): the first print shows a one-time
- * "Allow" dialog in QZ Tray. Drop a real cert into the security promises below
- * when you have one — see the QZ Tray "Signing Messages" docs.
+ * Signing: requests are SIGNED, so QZ never shows its "anonymous request"
+ * dialog. The private key lives on the server (see lib/checkin/qz-signing.ts);
+ * the browser only ever fetches the public certificate and asks the server to
+ * sign QZ's challenge. If signing is not configured, both promises reject and
+ * QZ falls back to prompting — degraded, but still able to print.
  *
  * Raw printing: see RAW_PRINT_OPTIONS. Sending ZPL without it prints the ZPL
  * source as text rather than a badge.
@@ -92,7 +93,10 @@ type Qz = {
   websocket: { isActive: () => boolean; connect: () => Promise<void> };
   security: {
     setCertificatePromise: (fn: (resolve: (v?: unknown) => void, reject: (e?: unknown) => void) => void) => void;
-    setSignaturePromise: (fn: (toSign: string) => (resolve: (v?: unknown) => void) => void) => void;
+    setSignaturePromise: (
+      fn: (toSign: string) => (resolve: (v?: unknown) => void, reject: (e?: unknown) => void) => void,
+    ) => void;
+    setSignatureAlgorithm?: (algorithm: string) => void;
   };
   printers: { find: (name?: string) => Promise<string | string[]> };
   configs: {
@@ -111,9 +115,41 @@ async function getQz(): Promise<Qz> {
     qzPromise = (async () => {
       const mod = await import("qz-tray");
       const qz = (mod.default ?? mod) as unknown as Qz;
-      // Unsigned dev mode: empty cert + no signature → QZ prompts once to allow.
-      qz.security.setCertificatePromise((resolve) => resolve());
-      qz.security.setSignaturePromise(() => (resolve) => resolve());
+
+      // Signed requests. Without these QZ shows "an anonymous request wants to
+      // access connected printers" — and that grant lasts only for the current
+      // QZ SESSION, so restarting QZ Tray brings the dialog back. At a door
+      // that means the first badge of the morning blocks behind a modal.
+      //
+      // The private key never reaches the browser: we fetch the public
+      // certificate, and send QZ's challenge to an authenticated endpoint that
+      // signs it. Shipping the key in this bundle would let anyone view-source
+      // it and print to every QZ Tray trusting our certificate.
+      qz.security.setSignatureAlgorithm?.("SHA512");
+
+      qz.security.setCertificatePromise((resolve, reject) => {
+        fetch("/api/print/certificate")
+          .then((r) => (r.ok ? r.text() : Promise.reject(new Error(String(r.status)))))
+          .then(resolve)
+          // Rejecting makes QZ fall back to its unsigned path, which still
+          // prints — it just prompts. A deployment without signing configured
+          // must not lose the ability to print entirely.
+          .catch(reject);
+      });
+
+      qz.security.setSignaturePromise((toSign) => (resolve, reject) => {
+        fetch("/api/print/sign", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ toSign }),
+        })
+          .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
+          .then((d: { signature?: string }) =>
+            d.signature ? resolve(d.signature) : reject(new Error("no signature")),
+          )
+          .catch(reject);
+      });
+
       return qz;
     })();
   }
