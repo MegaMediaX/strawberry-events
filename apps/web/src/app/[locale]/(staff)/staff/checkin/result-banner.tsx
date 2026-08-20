@@ -2,7 +2,7 @@
 
 export type DoorResult =
   | { kind: "ok"; name: string; detail: string; label?: string }
-  | { kind: "warn"; name: string; detail: string }
+  | { kind: "warn"; name: string; detail: string; label?: string }
   | { kind: "err"; name: string; detail: string }
   | { kind: "working" };
 

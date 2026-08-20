@@ -134,7 +134,6 @@ export function CheckinPanel({
       if (res.ok && res.badge) {
         const b = toBadge(res.badge);
         const who = res.badge.fullName;
-        setBadge(b);
         setBrowserFallback(false);
         setConfirmReprint(null);
         setResult({ kind: "working" });
@@ -156,10 +155,17 @@ export function CheckinPanel({
           if (!printOwner.current.owns(ticket)) return;
 
           if (printError) {
+            // Only now, and only if this print still owns the screen.
+            setBadge(b);
             setBrowserFallback(true);
             setResult({
               kind: "warn",
               name: who,
+              // NOT the default "Already in": this person was just admitted (or
+              // just had a replacement attempted). The static label would tell
+              // the operator they were already inside, which is false and
+              // invites second-guessing a valid admission.
+              label: "Not printed",
               detail:
                 kind === "reprint"
                   ? `Badge NOT printed — ${printError}`
@@ -168,6 +174,7 @@ export function CheckinPanel({
             return;
           }
 
+          setBadge(null);
           setBrowserFallback(false);
           setResult({
             kind: "ok",
@@ -182,7 +189,13 @@ export function CheckinPanel({
         return;
       }
 
-      setBadge(null);
+      // `badge` is deliberately NOT cleared here. It exists only to feed the
+      // browser-fallback panel, and it is written exclusively by the
+      // ownership-gated print handler below. Clearing it on an unrelated
+      // outcome — a failed scan, or the very common "already checked in" —
+      // removed the recovery UI for an EARLIER attendee whose print was still
+      // in flight, leaving them told about a failure they could no longer act
+      // on.
 
       // Already checked in for this day. Usually a lost or torn badge, so offer
       // a reprint — but never print automatically: a second badge for someone
