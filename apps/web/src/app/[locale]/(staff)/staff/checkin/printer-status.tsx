@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { probePrinter, type PrinterHealth } from "@/lib/checkin/print-client";
 
@@ -17,9 +17,28 @@ import { probePrinter, type PrinterHealth } from "@/lib/checkin/print-client";
  */
 const PROBE_INTERVAL_MS = 30_000;
 
-export function PrinterStatus() {
+export function PrinterStatus({
+  /**
+   * Called when a probe finds the printer healthy again.
+   *
+   * Without this the Retry button is a DECOY: it re-probed and repainted its
+   * own pill green, while the panel's "stop dialling QZ" latch stayed set — so
+   * every subsequent attendee still went to browser printing. An operator would
+   * fix QZ Tray, see green, and walk away with printing still broken.
+   */
+  onRecovered,
+}: {
+  onRecovered?: () => void;
+}) {
   const [health, setHealth] = useState<PrinterHealth | null>(null);
   const [retrying, setRetrying] = useState(false);
+
+  // Held in a ref so an inline callback from the parent cannot restart the
+  // polling effect on every render.
+  const onRecoveredRef = useRef(onRecovered);
+  useEffect(() => {
+    onRecoveredRef.current = onRecovered;
+  }, [onRecovered]);
 
   useEffect(() => {
     let cancelled = false;
@@ -28,7 +47,9 @@ export function PrinterStatus() {
     // effect — a synchronous one cascades renders on mount.
     const run = async () => {
       const h = await probePrinter();
-      if (!cancelled) setHealth(h);
+      if (cancelled) return;
+      setHealth(h);
+      if (h.ok) onRecoveredRef.current?.();
     };
 
     void run();
@@ -42,7 +63,10 @@ export function PrinterStatus() {
   async function retry() {
     setRetrying(true);
     try {
-      setHealth(await probePrinter());
+      const h = await probePrinter();
+      setHealth(h);
+      // Re-arm thermal printing, so the pill and reality agree.
+      if (h.ok) onRecoveredRef.current?.();
     } finally {
       setRetrying(false);
     }

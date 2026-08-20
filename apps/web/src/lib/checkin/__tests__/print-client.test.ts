@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { rawZplData, stripToRawOptions, isRawOnly } from "@/lib/checkin/print-client";
+import { rawZplData, stripToRawOptions, isRawOnly, PrintError, isPersistentPrintFailure} from "@/lib/checkin/print-client";
 
 describe("rawZplData", () => {
   it("wraps ZPL as a single raw/plain print job", () => {
@@ -187,5 +187,76 @@ describe("probePrinter", () => {
     });
     await probePrinter();
     expect(printed).toBe(0);
+  });
+});
+
+describe("which print failures should stop the door retrying", () => {
+  // A single jammed label must NOT downgrade every remaining attendee. The
+  // panel latches on a persistent failure and stops dialling QZ; latching on a
+  // rejected label would send the whole rest of the queue to browser printing
+  // after one bad badge.
+  it("treats a rejected label as transient", () => {
+    const jam = new PrintError("The printer rejected that label.", "job");
+    expect(jam.kind).toBe("job");
+    expect(isPersistentPrintFailure(jam)).toBe(false);
+  });
+
+  it("treats QZ Tray being unreachable as persistent", () => {
+    expect(isPersistentPrintFailure(new PrintError("no qz", "transport"))).toBe(true);
+  });
+
+  it("treats a missing printer as persistent", () => {
+    expect(isPersistentPrintFailure(new PrintError("no printer", "printer"))).toBe(true);
+  });
+
+  it("does not treat an unrelated error as a print failure at all", () => {
+    expect(isPersistentPrintFailure(new Error("boom"))).toBe(false);
+    expect(isPersistentPrintFailure(null)).toBe(false);
+  });
+
+  it("a rejected job surfaces as kind 'job' from printZpl", async () => {
+    // The real path: QZ connects, the printer exists, but print() throws.
+    vi.doMock("qz-tray", () => ({
+      default: {
+        websocket: { isActive: () => true, connect: async () => {} },
+        security: { setCertificatePromise: () => {}, setSignaturePromise: () => {} },
+        printers: { find: async () => "PC42d" },
+        configs: { create: () => ({ getOptions: () => ({ altPrinting: true }) }) },
+        print: async () => {
+          throw new Error("out of paper");
+        },
+      },
+    }));
+    vi.resetModules();
+    const mod = await import("@/lib/checkin/print-client");
+
+    await expect(mod.printZpl("^XA^XZ")).rejects.toMatchObject({ kind: "job" });
+
+    vi.doUnmock("qz-tray");
+    vi.resetModules();
+  });
+
+  it("an unreachable QZ surfaces as kind 'transport'", async () => {
+    vi.doMock("qz-tray", () => ({
+      default: {
+        websocket: {
+          isActive: () => false,
+          connect: async () => {
+            throw new Error("refused");
+          },
+        },
+        security: { setCertificatePromise: () => {}, setSignaturePromise: () => {} },
+        printers: { find: async () => "PC42d" },
+        configs: { create: () => ({ getOptions: () => ({}) }) },
+        print: async () => {},
+      },
+    }));
+    vi.resetModules();
+    const mod = await import("@/lib/checkin/print-client");
+
+    await expect(mod.printZpl("^XA^XZ")).rejects.toMatchObject({ kind: "transport" });
+
+    vi.doUnmock("qz-tray");
+    vi.resetModules();
   });
 });

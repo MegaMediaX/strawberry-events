@@ -3,9 +3,14 @@ import { Input as InputPrimitive } from "@base-ui/react/input"
 
 import { cn } from "@/lib/utils"
 
-function Input({ className, type, ...props }: React.ComponentProps<"input">) {
+function Input({ className, type, ref, ...props }: React.ComponentProps<"input">) {
   return (
     <InputPrimitive
+      // Forwarded explicitly. This previously worked only incidentally — `ref`
+      // rode along inside the rest spread — so reordering the destructuring
+      // would have silently produced a null ref with no type or runtime error,
+      // quietly disabling focus management wherever a caller relies on it.
+      ref={ref}
       type={type}
       data-slot="input"
       className={cn(

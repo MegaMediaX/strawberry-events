@@ -20,6 +20,18 @@ export type DoorResult =
  * screen in daylight.
  */
 export function ResultBanner({ result }: { result: DoorResult | null }) {
+  return (
+    // ONE live region, always mounted. Swapping between separate live-region
+    // subtrees per state makes some screen readers miss announcements entirely,
+    // which matters most when a queue is moving fast and results land in quick
+    // succession.
+    <div role="status" aria-live="assertive" aria-atomic="true">
+      <BannerBody result={result} />
+    </div>
+  );
+}
+
+function BannerBody({ result }: { result: DoorResult | null }) {
   if (!result) {
     return (
       <div className="flex min-h-[104px] items-center justify-center rounded-xl border border-dashed border-border px-6">
@@ -34,9 +46,7 @@ export function ResultBanner({ result }: { result: DoorResult | null }) {
     return (
       <div className="flex min-h-[104px] items-center gap-4 rounded-xl border border-border bg-muted/40 px-6">
         <span className="size-5 animate-spin rounded-full border-2 border-muted-foreground border-t-transparent" aria-hidden />
-        <p className="text-[19px] font-semibold" role="status" aria-live="polite">
-          Checking in…
-        </p>
+        <p className="text-[19px] font-semibold">Checking in…</p>
       </div>
     );
   }
@@ -63,11 +73,7 @@ export function ResultBanner({ result }: { result: DoorResult | null }) {
   }[result.kind];
 
   return (
-    <div
-      role="status"
-      aria-live="assertive"
-      className={`flex min-h-[104px] items-center gap-4 rounded-xl border px-6 py-4 ${style.box}`}
-    >
+    <div className={`flex min-h-[104px] items-center gap-4 rounded-xl border px-6 py-4 ${style.box}`}>
       <span
         aria-hidden
         className={`flex size-11 shrink-0 items-center justify-center rounded-full border-2 text-[22px] font-bold ${style.word}`}

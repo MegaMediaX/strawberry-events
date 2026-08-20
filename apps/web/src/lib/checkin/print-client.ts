@@ -126,7 +126,32 @@ async function ensureConnected(qz: Qz): Promise<void> {
   }
 }
 
-export class PrintError extends Error {}
+/**
+ * Why a print failed, because the caller must treat these differently.
+ *
+ * - "transport": QZ Tray itself is unreachable. Nothing will print until a human
+ *   fixes it, so the door should stop dialling and switch to browser printing.
+ * - "printer": QZ is up but the configured printer is missing. Also persistent,
+ *   but the fix is in settings, not in QZ.
+ * - "job": THIS label was rejected — out of stock, jam, bad ribbon. Transient
+ *   and per-badge. Latching on this would let one bad label downgrade every
+ *   remaining attendee in the queue.
+ */
+export type PrintErrorKind = "transport" | "printer" | "job";
+
+export class PrintError extends Error {
+  constructor(
+    message: string,
+    readonly kind: PrintErrorKind,
+  ) {
+    super(message);
+  }
+}
+
+/** Only these mean "stop trying" — a rejected job does not. */
+export function isPersistentPrintFailure(err: unknown): boolean {
+  return err instanceof PrintError && err.kind !== "job";
+}
 
 export type PrinterHealth =
   | { ok: true; printer: string }
@@ -187,6 +212,7 @@ export async function printZpl(zpl: string): Promise<void> {
   } catch {
     throw new PrintError(
       "Can't reach the printer service (QZ Tray). Is QZ Tray running on this machine?",
+      "transport",
     );
   }
 
@@ -200,6 +226,7 @@ export async function printZpl(zpl: string): Promise<void> {
       configured
         ? `Printer "${configured}" not found. Check it's connected and powered on.`
         : "No default printer found. Connect the badge printer or set one in settings.",
+      "printer",
     );
   }
 
@@ -213,17 +240,23 @@ export async function printZpl(zpl: string): Promise<void> {
     if (!options) {
       throw new PrintError(
         "Printer options unavailable — QZ Tray may be an unsupported version. Badges would print as raw text.",
+        "transport",
       );
     }
     stripToRawOptions(options);
     if (!isRawOnly(config.getOptions?.() ?? {})) {
       throw new PrintError(
         "Could not put the printer in raw mode — badges would print as text. Check the QZ Tray version.",
+        "transport",
       );
     }
 
     await qz.print(config, rawZplData(zpl));
   } catch {
-    throw new PrintError("The printer rejected the job. Check paper/ribbon and try again.");
+    // "job", not "transport": this label failed, the next one may well succeed.
+    throw new PrintError(
+      "The printer rejected that label. Check paper and ribbon, then reprint.",
+      "job",
+    );
   }
 }

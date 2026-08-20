@@ -8,7 +8,7 @@ import { BadgePrintDialog } from "@/components/badges/badge-print-dialog";
 import type { BadgeData } from "@/components/badges/badge-template";
 import type { CheckInResult } from "@/lib/checkin/service";
 import { buildBadgeZpl } from "@/lib/checkin/badge-zpl";
-import { printZpl, PrintError } from "@/lib/checkin/print-client";
+import { printZpl, PrintError, isPersistentPrintFailure } from "@/lib/checkin/print-client";
 import { QrScanner } from "./qr-scanner";
 import { PrinterSettings } from "./printer-settings";
 import { PrinterStatus } from "./printer-status";
@@ -76,19 +76,37 @@ export function CheckinPanel({
   // per attendee puts the delay in front of every person in the queue.
   const qzUnreachable = useRef(false);
   const recentId = useRef(0);
+  // Mirrors confirmReprint for the window key handler, which is bound once.
+  const confirmReprintRef = useRef<typeof confirmReprint>(null);
+  const confirmBoxRef = useRef<HTMLDivElement>(null);
+  // Where focus came from, so closing the dialog returns it.
+  const returnFocusRef = useRef<HTMLElement | null>(null);
 
   /* ---------------------------------------------------------------- printing */
 
-  const thermalPrint = useCallback(async (b: BadgeData) => {
+  /**
+   * Print, and report what ACTUALLY happened.
+   *
+   * Returns the failure message, or null on success. The caller must reflect
+   * this in the banner: a green "Checked in" while no badge emerged is the
+   * worst outcome here — the attendee walks away badgeless believing they are
+   * done, and nobody notices until they are refused entry to a session.
+   */
+  const thermalPrint = useCallback(async (b: BadgeData): Promise<string | null> => {
     if (qzUnreachable.current) {
       setBrowserFallback(true);
-      return;
+      return "Printer unavailable — use the on-screen print below.";
     }
     try {
       await printZpl(buildBadgeZpl(b));
+      return null;
     } catch (err) {
-      if (err instanceof PrintError) qzUnreachable.current = true;
+      // Only a persistent failure stops us dialling. A rejected label is
+      // per-badge: latching on it would downgrade every remaining attendee in
+      // the queue after a single jam.
+      if (isPersistentPrintFailure(err)) qzUnreachable.current = true;
       setBrowserFallback(true);
+      return err instanceof PrintError ? err.message : "Printing failed.";
     }
   }, []);
 
@@ -110,21 +128,35 @@ export function CheckinPanel({
     (res: CheckInResult, kind: RecentEntry["kind"]) => {
       if (res.ok && res.badge) {
         const b = toBadge(res.badge);
+        const who = res.badge.fullName;
         setBadge(b);
         setBrowserFallback(false);
         setConfirmReprint(null);
-        setResult({
-          kind: "ok",
-          name: res.badge.fullName,
-          detail: kind === "reprint" ? "Badge reprinted — not checked in again" : "Badge printing…",
-        });
-        remember(res.badge.orderCode, res.badge.fullName, kind);
-        void thermalPrint(b);
+        setResult({ kind: "working" });
+        remember(res.badge.orderCode, who, kind);
         // Clear the search so the next person starts from an empty field rather
         // than the previous attendee's results.
         setQ("");
         setRows([]);
         searchRef.current?.focus();
+
+        // AWAITED. The banner must not go green until a badge has actually
+        // come out — the check-in itself already succeeded either way, so this
+        // never blocks entry, it only tells the truth about the badge.
+        void thermalPrint(b).then((printError) => {
+          setResult(
+            printError
+              ? { kind: "warn", name: who, detail: `Checked in, but NOT printed — ${printError}` }
+              : {
+                  kind: "ok",
+                  name: who,
+                  detail:
+                    kind === "reprint"
+                      ? "Replacement badge printed — not checked in again"
+                      : "Badge printed",
+                },
+          );
+        });
         return;
       }
 
@@ -146,8 +178,11 @@ export function CheckinPanel({
       setConfirmReprint(null);
       setResult({
         kind: "err",
-        name: res.reason ?? "Check-in failed",
-        detail: "Not checked in — try search, or send them to the help desk",
+        name: "Not checked in",
+        // The reason belongs in the detail line. The 26px headline is a name in
+        // every other state; putting a system message there made the one state
+        // staff most need to parse read differently from all the others.
+        detail: res.reason ?? "Check-in failed — try search, or use the help desk",
       });
     },
     [remember, thermalPrint],
@@ -157,18 +192,28 @@ export function CheckinPanel({
 
   const doCheckIn = useCallback(
     (orderCode: string) => {
+      // Same guard as doScan. A double-tap on a touchscreen fires twice before
+      // React commits `disabled`, and the LAST response to resolve wins the
+      // shared result state — which may not be the one the operator just asked
+      // for.
+      if (pending) return;
       setResult({ kind: "working" });
       start(async () => handleResult(await checkInAction(eventId, orderCode, listId), "in"));
     },
-    [eventId, listId, handleResult],
+    [eventId, listId, pending, handleResult],
   );
 
   const doReprint = useCallback(
     (orderCode: string) => {
+      // Reprint needs this MORE than check-in does: pretix makes a duplicate
+      // check-in idempotent, but reprintBadge has no such protection — a second
+      // call prints a second physical badge, which is the exact fraud vector
+      // the confirm dialog exists to prevent.
+      if (pending) return;
       setResult({ kind: "working" });
       start(async () => handleResult(await reprintAction(eventId, orderCode), "reprint"));
     },
-    [eventId, handleResult],
+    [eventId, pending, handleResult],
   );
 
   const doScan = useCallback(
@@ -195,11 +240,15 @@ export function CheckinPanel({
         return;
       }
       setSearching(true);
-      const found = await searchAction(eventId, query);
-      // A slow response for an older query must not overwrite a newer one.
-      if (cancelled) return;
-      setRows(found);
-      setSearching(false);
+      try {
+        const found = await searchAction(eventId, query);
+        // A slow response for an older query must not overwrite a newer one.
+        if (!cancelled) setRows(found);
+      } finally {
+        // finally, not the happy path: without this any transient failure
+        // leaves "Searching…" on screen forever, with no error and no recovery.
+        if (!cancelled) setSearching(false);
+      }
     }, SEARCH_DEBOUNCE_MS);
 
     return () => {
@@ -207,6 +256,26 @@ export function CheckinPanel({
       clearTimeout(id);
     };
   }, [q, eventId]);
+
+  /* ------------------------------------------- confirm dialog focus */
+
+  useEffect(() => {
+    confirmReprintRef.current = confirmReprint;
+
+    if (confirmReprint) {
+      // Remember where we came from, then move focus INTO the dialog.
+      // Without this the dialog renders before the search results in DOM order,
+      // so a keyboard user tabbing forward from the row they just activated
+      // never reaches its buttons — the confirmation becomes invisible to them
+      // and the anti-fraud step is silently skipped.
+      returnFocusRef.current =
+        document.activeElement instanceof HTMLElement ? document.activeElement : null;
+      confirmBoxRef.current?.focus();
+    } else if (returnFocusRef.current) {
+      returnFocusRef.current.focus();
+      returnFocusRef.current = null;
+    }
+  }, [confirmReprint]);
 
   /* --------------------------------------------------- success auto-clear */
 
@@ -230,9 +299,15 @@ export function CheckinPanel({
         return;
       }
       if (e.key === "Escape") {
+        // The reprint confirm owns Escape while it is open. Otherwise a stray
+        // Escape — someone starting to retype a search — silently dismisses a
+        // decision they had not made yet.
+        if (confirmReprintRef.current) {
+          setConfirmReprint(null);
+          return;
+        }
         setQ("");
         setRows([]);
-        setConfirmReprint(null);
         setResult(null);
       }
     }
@@ -247,30 +322,49 @@ export function CheckinPanel({
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <PrinterStatus />
+        <PrinterStatus
+          onRecovered={() => {
+            // The pill going green must actually re-arm thermal printing,
+            // otherwise it reports a recovery that has not happened.
+            qzUnreachable.current = false;
+            setBrowserFallback(false);
+          }}
+        />
         <button
           type="button"
           onClick={() => setShowSettings((v) => !v)}
-          className="min-h-9 text-[13px] font-semibold text-muted-foreground underline-offset-4 hover:underline"
+          aria-expanded={showSettings}
+          aria-controls="printer-settings"
+          className="min-h-11 text-[13px] font-semibold text-muted-foreground underline-offset-4 hover:underline"
         >
           {showSettings ? "Hide printer settings" : "Printer settings"}
         </button>
       </div>
 
-      {showSettings && <PrinterSettings />}
+      <div id="printer-settings">{showSettings && <PrinterSettings />}</div>
 
       <ResultBanner result={result} />
 
       {confirmReprint && (
         <div
+          ref={confirmBoxRef}
           role="alertdialog"
+          aria-modal="true"
           aria-labelledby="reprint-title"
-          className="rounded-xl border border-amber-500/45 bg-amber-500/10 p-4"
+          aria-describedby="reprint-body"
+          tabIndex={-1}
+          onKeyDown={(e) => {
+            if (e.key === "Escape") {
+              e.stopPropagation();
+              setConfirmReprint(null);
+            }
+          }}
+          className="rounded-xl border border-amber-500/45 bg-amber-500/10 p-4 outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
         >
           <p id="reprint-title" className="text-[15px] font-semibold text-foreground">
             Print another badge for {confirmReprint.fullName}?
           </p>
-          <p className="mt-1 text-[14px] text-muted-foreground">
+          <p id="reprint-body" className="mt-1 text-[14px] text-muted-foreground">
             They are already checked in. This prints a replacement badge and records a
             reprint — it does not check them in again.
           </p>
@@ -374,11 +468,15 @@ export function CheckinPanel({
                 </span>
                 {/* The lost-badge path: no searching again for someone who was
                     standing here thirty seconds ago. */}
+                {/* Confirms, like every other reprint path. A bare tap here
+                    printed a second physical badge with no confirmation and no
+                    undo — which is exactly the "handed to a friend at the door"
+                    risk the already-checked-in prompt exists to prevent. */}
                 <button
                   type="button"
-                  onClick={() => doReprint(r.orderCode)}
+                  onClick={() => setConfirmReprint({ orderCode: r.orderCode, fullName: r.name })}
                   disabled={busy}
-                  className="min-h-9 shrink-0 rounded-md border border-border px-3 text-[13px] font-semibold hover:bg-accent disabled:opacity-50"
+                  className="min-h-11 shrink-0 rounded-md border border-border px-4 text-[13px] font-semibold hover:bg-accent disabled:opacity-50"
                 >
                   Reprint
                 </button>
