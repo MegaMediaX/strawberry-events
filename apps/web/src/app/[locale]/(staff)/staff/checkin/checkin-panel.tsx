@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { BadgePrintDialog } from "@/components/badges/badge-print-dialog";
@@ -29,6 +29,10 @@ function toBadge(b: NonNullable<CheckInResult["badge"]>): BadgeData {
   };
 }
 
+/** Typing settles before we query. Long enough to avoid a request per
+ *  keystroke, short enough to feel instant to someone mid-conversation. */
+const SEARCH_DEBOUNCE_MS = 220;
+
 export function CheckinPanel({
   eventId,
   listId,
@@ -39,6 +43,7 @@ export function CheckinPanel({
   const [mode, setMode] = useState<"search" | "scan">("search");
   const [q, setQ] = useState("");
   const [rows, setRows] = useState<AttendeeRow[]>([]);
+  const [searching, setSearching] = useState(false);
   const [pending, start] = useTransition();
   const [status, setStatus] = useState<Status>(null);
   const [badge, setBadge] = useState<BadgeData | null>(null);
@@ -116,10 +121,34 @@ export function CheckinPanel({
     setStatus({ kind: res.reason?.match(/already/i) ? "warn" : "err", text: res.reason ?? "Failed" });
   }
 
-  function doSearch() {
-    setStatus(null);
-    start(async () => setRows(await searchAction(eventId, q)));
-  }
+  // Search as the operator types. Previously they typed, then had to click
+  // Search — an extra action per attendee, at a door with a queue behind.
+  //
+  // Every setState sits inside the timeout, never synchronously in the effect
+  // body: a synchronous one cascades renders on every keystroke.
+  useEffect(() => {
+    const query = q.trim();
+    let cancelled = false;
+
+    const id = setTimeout(async () => {
+      if (!query) {
+        setRows([]);
+        setSearching(false);
+        return;
+      }
+      setSearching(true);
+      const found = await searchAction(eventId, query);
+      // A slow reply for an older query must never overwrite a newer one.
+      if (cancelled) return;
+      setRows(found);
+      setSearching(false);
+    }, SEARCH_DEBOUNCE_MS);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(id);
+    };
+  }, [q, eventId]);
 
   function doCheckIn(orderCode: string) {
     start(async () => handleResult(await checkInAction(eventId, orderCode, listId), "Checked in"));
@@ -155,14 +184,23 @@ export function CheckinPanel({
       </div>
 
       {mode === "search" ? (
-        <div className="flex gap-2">
+        <div>
           <Input
+            autoFocus
             placeholder="Search name / email / phone / order code"
+            aria-label="Search attendees"
             value={q}
             onChange={(e) => setQ(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && doSearch()}
+            className="h-12 text-[16px]"
           />
-          <Button onClick={doSearch} disabled={pending}>Search</Button>
+          {q.trim() && searching && (
+            <p className="mt-2 text-sm text-muted-foreground">Searching…</p>
+          )}
+          {q.trim() && !searching && rows.length === 0 && (
+            <p className="mt-2 text-sm text-muted-foreground">
+              No one matches “{q.trim()}”. Check the spelling, or try their order code.
+            </p>
+          )}
         </div>
       ) : (
         <QrScanner onScan={doScan} />
