@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { setRequestLocale } from "next-intl/server";
+import { STAFF_ROLES } from "@/lib/auth/areas";
 import { requireRole } from "@/lib/auth/session";
 
 export default async function StaffLayout({
@@ -12,7 +13,7 @@ export default async function StaffLayout({
   const { locale } = await params;
   setRequestLocale(locale);
   await requireRole(
-    ["super_admin", "organizer_admin", "checkin_staff"],
+    STAFF_ROLES,
     `/${locale}/login`,
   );
 

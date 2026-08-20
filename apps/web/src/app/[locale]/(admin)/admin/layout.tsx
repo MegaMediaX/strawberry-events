@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { setRequestLocale } from "next-intl/server";
+import { ADMIN_ROLES } from "@/lib/auth/areas";
 import { requireRole } from "@/lib/auth/session";
 import { getActiveOrg } from "@/lib/auth/active-org.server";
 import { getSessionContext } from "@/lib/auth/session";
@@ -19,7 +20,7 @@ export default async function AdminLayout({
   const { locale } = await params;
   setRequestLocale(locale);
   await requireRole(
-    ["super_admin", "organizer_admin", "finance", "workshop_organiser"],
+    ADMIN_ROLES,
     `/${locale}/login`,
   );
 
