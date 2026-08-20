@@ -5,9 +5,14 @@ import { useEffect, useRef, useState } from "react";
 const CONTAINER_ID = "qr-reader";
 
 /**
- * Camera QR scanner for check-in. Reads the badge QR (which encodes the pretix
- * secret) and calls onScan with the decoded text. Duplicate reads of the same
- * code within a short window are suppressed so one badge doesn't fire twice.
+ * Camera QR scanner for check-in.
+ *
+ * Reads EITHER payload and hands the raw text to onScan: the pretix e-ticket QR
+ * (a pretix secret) or the printed badge QR (a contact-profile URL carrying a
+ * badgeSlug). `checkInBySecret` resolves both, secret first.
+ *
+ * Duplicate reads of the same code within a short window are suppressed, so a
+ * badge left in front of the lens does not check someone in repeatedly.
  *
  * html5-qrcode touches navigator/document, so it's imported lazily inside the
  * effect (never during SSR).

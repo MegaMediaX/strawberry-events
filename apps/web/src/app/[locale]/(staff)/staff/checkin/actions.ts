@@ -20,15 +20,23 @@ export async function searchAction(
   eventId: string,
   query: string,
 ): Promise<AttendeeRow[]> {
-  const session = await getSessionContext();
-  if (!session || !query.trim()) return [];
-  const rows = await searchAttendees(session, eventId, query.trim());
-  return rows.map((r) => ({
-    orderCode: r.orderCode,
-    email: r.email,
-    name: r.attendeeName,
-    phone: r.phone,
-  }));
+  // Never throws. The door renders a "Searching…" indicator while this is in
+  // flight; a rejected promise leaves that indicator up forever with no error
+  // and no way back, in the primary find-by-name flow. An empty list is a far
+  // better failure than a permanently spinning one.
+  try {
+    const session = await getSessionContext();
+    if (!session || !query.trim()) return [];
+    const rows = await searchAttendees(session, eventId, query.trim());
+    return rows.map((r) => ({
+      orderCode: r.orderCode,
+      email: r.email,
+      name: r.attendeeName,
+      phone: r.phone,
+    }));
+  } catch {
+    return [];
+  }
 }
 
 export async function checkInAction(
@@ -36,9 +44,9 @@ export async function checkInAction(
   orderCode: string,
   listId: number,
 ): Promise<CheckInResult> {
-  const session = await getSessionContext();
-  if (!session) return { ok: false, reason: "Not authenticated" };
   try {
+    const session = await getSessionContext();
+    if (!session) return { ok: false, reason: "Not authenticated" };
     return await checkInOrder(session, eventId, orderCode, listId);
   } catch (err) {
     return { ok: false, reason: (err as Error).message };
@@ -57,9 +65,9 @@ export async function scanAction(
   secret: string,
   listId: number,
 ): Promise<CheckInResult> {
-  const session = await getSessionContext();
-  if (!session) return { ok: false, reason: "Not authenticated" };
   try {
+    const session = await getSessionContext();
+    if (!session) return { ok: false, reason: "Not authenticated" };
     return await checkInBySecret(session, eventId, secret, listId);
   } catch (err) {
     return { ok: false, reason: (err as Error).message };
@@ -71,9 +79,9 @@ export async function reprintAction(
   eventId: string,
   orderCode: string,
 ): Promise<CheckInResult> {
-  const session = await getSessionContext();
-  if (!session) return { ok: false, reason: "Not authenticated" };
   try {
+    const session = await getSessionContext();
+    if (!session) return { ok: false, reason: "Not authenticated" };
     return await reprintBadge(session, eventId, orderCode);
   } catch (err) {
     return { ok: false, reason: (err as Error).message };
