@@ -6,7 +6,7 @@ import { isBadgeSlug } from "@/lib/checkin/badge-slug";
 import { badgeProfilesEnabled } from "@/lib/checkin/badge-profile-flag";
 import { badgeProfileUrl } from "@/lib/checkin/badge-slug";
 import { formatPhone } from "@/lib/checkin/vcard";
-import { SaveContactButton } from "@/components/public/save-contact-button";
+import { ContactCard } from "@/components/public/contact-card";
 
 export const dynamic = "force-dynamic";
 
@@ -26,12 +26,19 @@ export const metadata: Metadata = {
 /**
  * What the badge QR resolves to.
  *
- * Deliberately NOT a contact dump. The page shows exactly what is already
- * printed on the badge and visible to anyone standing in the room — name,
- * company, role — and nothing more. Email and phone are not published here:
- * a scan is unauthenticated, so putting them on this page would publish 812
- * people's contact details to anyone who photographs a lanyard. The attendee
- * never consented to that, and it is not the consent they gave at registration.
+ * This is a contact card, addressed to the STRANGER who scanned the badge —
+ * not to the person wearing it. Name and affiliation lead; Save contact is the
+ * page's only conversion goal and is the last thing before the footer.
+ *
+ * It publishes name, affiliation, email and phone. That is a deliberate
+ * product decision and a real disclosure: a scan is unauthenticated, so these
+ * details are readable by anyone who photographs a lanyard, which is not the
+ * consent given at registration. Two controls exist — `badgeProfileRevokedAt`
+ * takes one person's page down without touching their ticket, and
+ * BADGE_PROFILES_ENABLED takes every page down without a deploy.
+ *
+ * Never widen the `select` beyond these fields. orderCode, pretixSecret and
+ * magicLinkToken are credentials and must never reach this page.
  */
 export default async function BadgeProfilePage({
   params,
@@ -56,7 +63,6 @@ export default async function BadgeProfilePage({
       attendeeName: true,
       company: true,
       attendeeType: true,
-      roleTag: true,
       status: true,
       badgeProfileRevokedAt: true,
       // Contact details, published so someone who scans the badge can save the
@@ -76,14 +82,37 @@ export default async function BadgeProfilePage({
 
   const name = order.attendeeName?.trim() || "LEBTECH Attendee";
   const company = order.company?.trim() || null;
-  const role = order.attendeeType?.trim() || null;
   const email = order.email?.trim() || null;
+
+  // attendeeType describes what the person DOES — company / freelancer /
+  // student. It is not their event role (that is roleTag, the band on the
+  // printed badge), which is why a red pill reading "COMPANY" under a company
+  // name read as a bug rather than a label.
+  const TYPE_LABEL: Record<string, string> = {
+    company: "Company",
+    freelancer: "Freelancer",
+    student: "Student",
+  };
+  const typeKey = order.attendeeType?.trim().toLowerCase() ?? "";
+  const typeLabel = TYPE_LABEL[typeKey] ?? null;
+
+  // 53% of attendees give no company. Rather than leave the line blank, a
+  // freelancer or student says who they are — which is the whole point of the
+  // line. "Company" is not a fallback: it names no one.
+  const affiliation = company ?? (typeKey === "company" ? null : typeLabel);
+
+  // The pill only earns its place when it says something the affiliation line
+  // does not. A freelancer who also gave a company name is worth marking; a
+  // line that already reads "Freelancer" is not worth repeating.
+  const showType = Boolean(company) && typeLabel !== null && typeKey !== "company";
   const phone = formatPhone(order.phone, order.phoneCC);
 
   const contact = {
     fullName: name,
     company,
-    role,
+    // TITLE gets the display label, not the raw enum: a contact saved with the
+    // title "freelancer" in lowercase looks like a data leak in someone's phone.
+    role: typeLabel,
     email,
     phone,
     url: badgeProfileUrl(normalized).replace("HTTPS://", "https://").toLowerCase(),
@@ -92,78 +121,22 @@ export default async function BadgeProfilePage({
 
   return (
     <main className="mx-auto flex min-h-screen w-full max-w-md flex-col justify-center px-6 py-12">
-      <div className="rounded-2xl border border-border bg-card p-8 shadow-sm">
-        <p className="text-[11px] font-semibold tracking-[0.18em] text-muted-foreground uppercase">
-          LEBTECH 2026 &middot; 6th Edition
-        </p>
-
-        <h1 className="mt-5 font-[family-name:var(--font-heading)] text-3xl leading-tight text-foreground">
-          {name}
-        </h1>
-
-        {company ? <p className="mt-2 text-base text-foreground/80">{company}</p> : null}
-
-        {role ? (
-          <p className="mt-4 inline-flex rounded-full bg-primary/10 px-3 py-1 text-[12px] font-semibold tracking-[0.08em] text-primary uppercase">
-            {role}
-          </p>
-        ) : null}
-
-        {email || phone ? (
-          <>
-            <hr className="my-7 border-border" />
-            <dl className="space-y-3">
-              {email ? (
-                <div>
-                  <dt className="text-[11px] font-semibold tracking-[0.14em] text-muted-foreground uppercase">
-                    Email
-                  </dt>
-                  <dd className="mt-0.5 text-[15px] break-all">
-                    <a className="underline underline-offset-2" href={`mailto:${email}`}>
-                      {email}
-                    </a>
-                  </dd>
-                </div>
-              ) : null}
-              {phone ? (
-                <div>
-                  <dt className="text-[11px] font-semibold tracking-[0.14em] text-muted-foreground uppercase">
-                    Phone
-                  </dt>
-                  <dd className="mt-0.5 text-[15px]">
-                    {/* tel: strips spaces — some diallers choke on them. */}
-                    <a
-                      className="underline underline-offset-2"
-                      href={`tel:${phone.replace(/[^+\d]/g, "")}`}
-                    >
-                      {phone}
-                    </a>
-                  </dd>
-                </div>
-              ) : null}
-            </dl>
-
-            <SaveContactButton contact={contact} />
-          </>
-        ) : null}
-
-        <hr className="my-7 border-border" />
-
-        <p className="text-[15px] leading-[1.6] text-muted-foreground">
-          Thank you for joining us at LEBTECH 2026 in Beirut, 28&ndash;30 August. We hope to
-          see you at the next edition.
-        </p>
-
-        <p className="mt-6 text-[13px] text-muted-foreground">
-          Presented by{" "}
-          <span className="font-semibold text-foreground">Strawberry Agency</span>
-        </p>
-      </div>
+      <ContactCard
+        name={name}
+        affiliation={affiliation}
+        typeLabel={showType ? typeLabel : null}
+        email={email}
+        phone={phone}
+        contact={contact}
+      />
 
       <p className="mt-6 px-2 text-center text-[12px] leading-[1.5] text-muted-foreground">
         Shared from this attendee&rsquo;s LEBTECH badge, with their registration details.
         To have this page taken down, contact{" "}
-        <a className="underline underline-offset-2" href="mailto:events@strawberryagency.com">
+        <a
+          className="underline-offset-2 hover:underline"
+          href="mailto:events@strawberryagency.com"
+        >
           events@strawberryagency.com
         </a>
         .
