@@ -4,6 +4,9 @@ import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db/client";
 import { isBadgeSlug } from "@/lib/checkin/badge-slug";
 import { badgeProfilesEnabled } from "@/lib/checkin/badge-profile-flag";
+import { badgeProfileUrl } from "@/lib/checkin/badge-slug";
+import { formatPhone } from "@/lib/checkin/vcard";
+import { SaveContactButton } from "@/components/public/save-contact-button";
 
 export const dynamic = "force-dynamic";
 
@@ -56,6 +59,12 @@ export default async function BadgeProfilePage({
       roleTag: true,
       status: true,
       badgeProfileRevokedAt: true,
+      // Contact details, published so someone who scans the badge can save the
+      // person. This is the ONLY reason these are selected — keep the list
+      // narrow, and never add orderCode, pretixSecret or magicLinkToken here.
+      email: true,
+      phone: true,
+      phoneCC: true,
     },
   });
 
@@ -68,6 +77,18 @@ export default async function BadgeProfilePage({
   const name = order.attendeeName?.trim() || "LEBTECH Attendee";
   const company = order.company?.trim() || null;
   const role = order.attendeeType?.trim() || null;
+  const email = order.email?.trim() || null;
+  const phone = formatPhone(order.phone, order.phoneCC);
+
+  const contact = {
+    fullName: name,
+    company,
+    role,
+    email,
+    phone,
+    url: badgeProfileUrl(normalized).replace("HTTPS://", "https://").toLowerCase(),
+    note: "Met at LEBTECH 2026, Beirut - 28-30 August.",
+  };
 
   return (
     <main className="mx-auto flex min-h-screen w-full max-w-md flex-col justify-center px-6 py-12">
@@ -86,6 +107,44 @@ export default async function BadgeProfilePage({
           <p className="mt-4 inline-flex rounded-full bg-primary/10 px-3 py-1 text-[12px] font-semibold tracking-[0.08em] text-primary uppercase">
             {role}
           </p>
+        ) : null}
+
+        {email || phone ? (
+          <>
+            <hr className="my-7 border-border" />
+            <dl className="space-y-3">
+              {email ? (
+                <div>
+                  <dt className="text-[11px] font-semibold tracking-[0.14em] text-muted-foreground uppercase">
+                    Email
+                  </dt>
+                  <dd className="mt-0.5 text-[15px] break-all">
+                    <a className="underline underline-offset-2" href={`mailto:${email}`}>
+                      {email}
+                    </a>
+                  </dd>
+                </div>
+              ) : null}
+              {phone ? (
+                <div>
+                  <dt className="text-[11px] font-semibold tracking-[0.14em] text-muted-foreground uppercase">
+                    Phone
+                  </dt>
+                  <dd className="mt-0.5 text-[15px]">
+                    {/* tel: strips spaces — some diallers choke on them. */}
+                    <a
+                      className="underline underline-offset-2"
+                      href={`tel:${phone.replace(/[^+\d]/g, "")}`}
+                    >
+                      {phone}
+                    </a>
+                  </dd>
+                </div>
+              ) : null}
+            </dl>
+
+            <SaveContactButton contact={contact} />
+          </>
         ) : null}
 
         <hr className="my-7 border-border" />
