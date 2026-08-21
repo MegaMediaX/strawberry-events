@@ -161,8 +161,8 @@ export default async function BadgeProfilePage({
       </div>
 
       <p className="mt-6 px-2 text-center text-[12px] leading-[1.5] text-muted-foreground">
-        This page shows only what appears on the printed badge. To have it taken down,
-        contact{" "}
+        Shared from this attendee&rsquo;s LEBTECH badge, with their registration details.
+        To have this page taken down, contact{" "}
         <a className="underline underline-offset-2" href="mailto:events@strawberryagency.com">
           events@strawberryagency.com
         </a>
