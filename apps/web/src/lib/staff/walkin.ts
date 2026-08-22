@@ -90,6 +90,11 @@ export async function createWalkIn(
     consentSource: "staff_walkin",
     consentTerms: true,
     consentPrivacy: true,
+    // Same attestation as the two above: the staff member is confirming the
+    // notice was shown at the desk. This is only honest if the printed desk
+    // notice actually carries the Privacy & Data Protection Disclaimer — if it
+    // does not, this line is recording a consent nobody gave.
+    consentDataUse: true,
     userId: null,
   });
 

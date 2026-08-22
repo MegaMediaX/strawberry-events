@@ -74,7 +74,7 @@ describe.skipIf(!run)("register integration", () => {
       attendee,
       tickets: [{ itemId: 7, quantity: 1 }],
       consentTerms: true,
-      consentPrivacy: true,
+      consentPrivacy: true, consentDataUse: true,
     });
     expect(res.status).toBe("pending");
     const row = await prisma.attendeeOrder.findFirst({ where: { orderCode: res.orderCode } });
@@ -92,7 +92,7 @@ describe.skipIf(!run)("register integration", () => {
       attendee,
       tickets: [{ itemId: 8, quantity: 1 }],
       consentTerms: true,
-      consentPrivacy: true,
+      consentPrivacy: true, consentDataUse: true,
     });
     expect(res.status).toBe("paid");
   });

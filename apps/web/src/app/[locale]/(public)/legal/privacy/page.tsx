@@ -90,8 +90,20 @@ export default async function PrivacyPage({
           <li><strong>Event staff</strong>, who can see the registration list in
           order to run approvals, the door and the help desk.</li>
         </ul>
-        <p>That is the complete list of parties your details are disclosed to in the
+        <p>Those are the only third parties your details are passed to in the
         ordinary course of running an event.</p>
+      </Section>
+
+      <Section title="Your badge and its QR code">
+        <p>Your event badge carries a QR code. Scanning it opens a page showing your
+        name, your company or whether you are a freelancer or student, and the email
+        address and phone number you registered with, so that people you meet can save
+        your contact details.</p>
+        <p><strong>That page is public.</strong> It is not listed by search engines,
+        and the code in it cannot be guessed, but anyone who scans or photographs your
+        badge can open it. If you would rather it did not exist, email us and we will
+        take your page down &mdash; your ticket and your entry to the event are not
+        affected.</p>
       </Section>
 
       <Section title="How long we keep it">

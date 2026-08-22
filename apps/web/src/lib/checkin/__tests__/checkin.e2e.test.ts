@@ -76,7 +76,7 @@ describe.skipIf(!run)("M8 live check-in e2e", () => {
       eventSlug: slug, locale: "en",
       attendee: { firstName: "Jane", lastName: "Doe", email: "jane@x.local", phoneCC: "+961", phone: "70111222", company: "Acme" },
       tickets: [{ itemId: (await products.listItems(organizerSlug, slug, token))[0].id, quantity: 1 }],
-      consentTerms: true, consentPrivacy: true,
+      consentTerms: true, consentPrivacy: true, consentDataUse: true,
     });
     expect(res.status).toBe("paid"); // free → issued
 

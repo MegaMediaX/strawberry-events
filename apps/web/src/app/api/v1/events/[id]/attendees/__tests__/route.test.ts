@@ -43,7 +43,7 @@ describe("POST /api/v1/events/{id}/attendees — consent provenance", () => {
   });
 
   it("passes through an explicit consent assertion from the integrator", async () => {
-    await POST(body({ consentTerms: true, consentPrivacy: true }), { params });
+    await POST(body({ consentTerms: true, consentPrivacy: true, consentDataUse: true }), { params });
     const arg = mock(register).mock.calls[0][0];
     expect(arg.consentTerms).toBe(true);
     expect(arg.consentPrivacy).toBe(true);
