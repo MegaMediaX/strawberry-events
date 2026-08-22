@@ -142,6 +142,8 @@ export function RegistrationWizard({
   const [optedIn, setOptedIn] = useState<string[]>([]);
   const [terms, setTerms] = useState(false);
   const [privacy, setPrivacy] = useState(false);
+  // The organiser's data-protection consent, worded by them and shown verbatim.
+  const [dataUse, setDataUse] = useState(false);
   const [answers, setAnswers] = useState<Record<string, string>>({});
 
   // Custom fields that apply to the currently-selected tickets (deduped).
@@ -220,8 +222,8 @@ export function RegistrationWizard({
 
   async function submit() {
     setErr(null);
-    if (!terms || !privacy) {
-      setErr("You must accept the Terms and Privacy Policy.");
+    if (!terms || !privacy || !dataUse) {
+      setErr("You must accept the Terms, the Privacy Policy, and the data-use consent.");
       return;
     }
     if (!seatsSatisfied) {
@@ -258,6 +260,7 @@ export function RegistrationWizard({
       inviteToken,
       consentTerms: terms,
       consentPrivacy: privacy,
+      consentDataUse: dataUse,
     });
     setBusy(false);
     // On success the action redirects; only errors return.
@@ -684,6 +687,23 @@ export function RegistrationWizard({
                       className="text-primary underline"
                     >
                       Privacy Policy
+                    </a>
+                  </span>
+                </Checkbox>
+                {/* Worded by the organiser; shown verbatim. Do not paraphrase
+                    to fit the layout — it is the text people consent to. */}
+                <Checkbox checked={dataUse} onCheckedChange={setDataUse}>
+                  <span>
+                    By registering, you agree that your personal information will be used solely
+                    for event-related purposes and will not be shared with any third party without
+                    your prior consent, except where required by law.{" "}
+                    <a
+                      href={`/${locale}/legal/privacy-disclaimer`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-primary underline"
+                    >
+                      Read the full disclaimer
                     </a>
                   </span>
                 </Checkbox>

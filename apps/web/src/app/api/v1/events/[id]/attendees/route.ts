@@ -28,7 +28,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     let b: {
       email?: string; firstName?: string; lastName?: string;
       phoneCC?: string; phone?: string; company?: string; itemId?: number; quantity?: number;
-      consentTerms?: boolean; consentPrivacy?: boolean;
+      consentTerms?: boolean; consentPrivacy?: boolean; consentDataUse?: boolean;
     };
     try {
       b = await request.json();
@@ -55,6 +55,10 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
         consentSource: "api",
         consentTerms: b.consentTerms === true,
         consentPrivacy: b.consentPrivacy === true,
+        // Defaults to false, like the other two: an API caller that says
+        // nothing has collected nothing, and a null consentAt is an honest
+        // gap. Only the web form refuses to proceed without all three.
+        consentDataUse: b.consentDataUse === true,
       });
       return ok(
         { orderCode: res.orderCode, status: res.status, approvalStatus: res.approvalStatus },

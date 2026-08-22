@@ -6,7 +6,7 @@ const base = {
   attendee: { firstName: "A", lastName: "B", email: "a@b.com", phoneCC: "", phone: "" },
   tickets: [{ itemId: 1, quantity: 1 }],
   consentTerms: true as const,
-  consentPrivacy: true as const,
+  consentPrivacy: true, consentDataUse: true as const,
 };
 
 const validPhone = { phoneCC: "+961", phone: "70123456" };
@@ -80,8 +80,8 @@ describe("registerInputSchema — consent source", () => {
     if (r.success) expect(r.data.consentSource).toBeUndefined();
   });
 
-  it("web form registrations are rejected without both consents", () => {
-    for (const missing of ["consentTerms", "consentPrivacy"] as const) {
+  it("web form registrations are rejected without every consent", () => {
+    for (const missing of ["consentTerms", "consentPrivacy", "consentDataUse"] as const) {
       const r = registerInputSchema.safeParse({ ...publicBase, [missing]: false });
       expect(r.success).toBe(false);
       if (!r.success) {
@@ -94,6 +94,7 @@ describe("registerInputSchema — consent source", () => {
     const noConsent: Record<string, unknown> = { ...publicBase };
     delete noConsent.consentTerms;
     delete noConsent.consentPrivacy;
+    delete noConsent.consentDataUse;
     const r = registerInputSchema.safeParse(noConsent);
     expect(r.success).toBe(false);
   });
@@ -104,7 +105,7 @@ describe("registerInputSchema — consent source", () => {
         ...publicBase,
         consentSource,
         consentTerms: false,
-        consentPrivacy: false,
+        consentPrivacy: false, consentDataUse: false,
       });
       expect(r.success).toBe(true);
       if (r.success) {
@@ -164,5 +165,36 @@ describe("registerInputSchema — attendee type", () => {
       attendee: { ...base.attendee, ...validPhone, attendeeType: "investor" },
     });
     expect(r.success).toBe(false);
+  });
+});
+
+describe("the data-use disclaimer is a separate consent", () => {
+  const publicBase = { ...base, attendee: { ...base.attendee, ...validPhone } };
+
+  it("accepting the privacy policy does not imply accepting it", () => {
+    // They are different statements. Folding one into the other would record a
+    // consent the registrant never gave.
+    const r = registerInputSchema.safeParse({
+      ...publicBase,
+      consentPrivacy: true,
+      consentDataUse: false,
+    });
+    expect(r.success).toBe(false);
+    if (!r.success) {
+      expect(r.error.issues.map((i) => i.path.join("."))).toContain("consentDataUse");
+    }
+  });
+
+  it("is not required of the staff walk-in or API channels", () => {
+    // Those channels are allowed to say "no consent was collected", which
+    // yields a null consentAt — an honest gap beats a fabricated timestamp.
+    for (const consentSource of ["staff_walkin", "api"] as const) {
+      const r = registerInputSchema.safeParse({
+        ...publicBase,
+        consentSource,
+        consentDataUse: false,
+      });
+      expect(r.success).toBe(true);
+    }
   });
 });

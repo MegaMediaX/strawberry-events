@@ -47,7 +47,7 @@ const base = {
     phone: "70000000",
   },
   consentTerms: true as const,
-  consentPrivacy: true as const,
+  consentPrivacy: true, consentDataUse: true as const,
 };
 
 beforeEach(() => {

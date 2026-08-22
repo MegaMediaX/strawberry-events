@@ -293,7 +293,10 @@ export async function register(input: RegisterInput): Promise<RegisterResult> {
   // the channel on the row so an audit can tell those cases apart later.
   // Still computed server-side so the timestamp itself cannot be spoofed.
   const consentSource = data.consentSource ?? "web_form";
-  const consentAt = data.consentTerms && data.consentPrivacy ? new Date() : null;
+  // All three must be given. Stamping consentAt when one is missing would
+  // record a consent that was never granted, which is worse than a null.
+  const consentAt =
+    data.consentTerms && data.consentPrivacy && data.consentDataUse ? new Date() : null;
 
   await prisma.attendeeOrder.create({
     data: {

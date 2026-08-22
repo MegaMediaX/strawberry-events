@@ -45,6 +45,10 @@ export const registerInputSchema = z
     // consentAt — an honest gap beats a fabricated timestamp.
     consentTerms: z.boolean().default(false),
     consentPrivacy: z.boolean().default(false),
+    // The organiser's data-use consent, added alongside the other two rather
+    // than folded into consentPrivacy: they are separate statements and a
+    // registrant who accepted one has not thereby accepted the other.
+    consentDataUse: z.boolean().default(false),
   })
   .superRefine((val, ctx) => {
     // The public wizard renders both checkboxes and must not be submittable
@@ -56,6 +60,13 @@ export const registerInputSchema = z
       }
       if (!val.consentPrivacy) {
         ctx.addIssue({ code: "custom", path: ["consentPrivacy"], message: "You must accept the Privacy Policy" });
+      }
+      if (!val.consentDataUse) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["consentDataUse"],
+          message: "You must accept the data-use disclaimer",
+        });
       }
     }
 

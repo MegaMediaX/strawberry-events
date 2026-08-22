@@ -109,7 +109,7 @@ describe.skipIf(!run)("M7 live registration + approval e2e", () => {
     const res = await register({
       eventSlug: openSlug, locale: "en", attendee,
       tickets: [{ itemId: freeItem, quantity: 1 }],
-      consentTerms: true, consentPrivacy: true,
+      consentTerms: true, consentPrivacy: true, consentDataUse: true,
     });
     expect(res.status).toBe("paid");
     const o = await prisma.attendeeOrder.findFirstOrThrow({ where: { orderCode: res.orderCode } });
@@ -120,7 +120,7 @@ describe.skipIf(!run)("M7 live registration + approval e2e", () => {
     const res = await register({
       eventSlug: openSlug, locale: "en", attendee,
       tickets: [{ itemId: codItem, quantity: 1 }],
-      consentTerms: true, consentPrivacy: true,
+      consentTerms: true, consentPrivacy: true, consentDataUse: true,
     });
     expect(res.status).toBe("pending");
     const o = await prisma.attendeeOrder.findFirstOrThrow({ where: { orderCode: res.orderCode } });
@@ -131,7 +131,7 @@ describe.skipIf(!run)("M7 live registration + approval e2e", () => {
     const res = await register({
       eventSlug: vipSlug, locale: "en", attendee,
       tickets: [{ itemId: mediaItem, quantity: 1 }],
-      consentTerms: true, consentPrivacy: true,
+      consentTerms: true, consentPrivacy: true, consentDataUse: true,
     });
     expect(res.approvalStatus).toBe("pending");
     let o = await prisma.attendeeOrder.findFirstOrThrow({ where: { orderCode: res.orderCode } });

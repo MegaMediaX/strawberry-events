@@ -70,7 +70,7 @@ const base = {
     phone: "70123456",
   },
   consentTerms: true as const,
-  consentPrivacy: true as const,
+  consentPrivacy: true, consentDataUse: true as const,
 };
 
 describe("register", () => {
@@ -244,7 +244,7 @@ describe("register", () => {
       tickets: [{ itemId: 7, quantity: 1 }],
       consentSource: "api",
       consentTerms: false,
-      consentPrivacy: false,
+      consentPrivacy: false, consentDataUse: false,
     });
 
     const data = mock(prisma.attendeeOrder.create).mock.calls[0][0].data;
@@ -279,7 +279,7 @@ describe("register", () => {
       ...base,
       tickets: [{ itemId: 7, quantity: 1 }],
       consentSource: "api",
-      consentPrivacy: false,
+      consentPrivacy: false, consentDataUse: false,
     });
 
     expect(mock(prisma.attendeeOrder.create).mock.calls[0][0].data.consentAt).toBeNull();
