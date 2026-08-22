@@ -48,6 +48,17 @@ export default async function PrivacyDisclaimerPage({
           or by a competent governmental or legal authority.
         </Paragraph>
 
+        {/* Added to cover the badge QR. Without it the paragraph above reads as
+            a promise of no public disclosure, while the badge page publishes
+            contact details to anyone who scans a lanyard. */}
+        <Paragraph>
+          Your name, organisation and contact details will also appear on a page linked from the
+          QR code on your event badge, so that people you meet can save your contact details.
+          That page is public to anyone who scans or photographs your badge, though it is not
+          listed by search engines. You may ask us to remove it at any time, and doing so does
+          not affect your ticket or your entry to the event.
+        </Paragraph>
+
         <Paragraph>
           Your information will be handled responsibly and with appropriate measures to protect
           its confidentiality and security. By submitting your registration, you consent to the
