@@ -7,6 +7,7 @@ import {
   normalizeJobTitle,
   resolveJobTitleSelection,
   resolveVisibleJobTitle,
+  jobTitleForCompanyChange,
 } from "@/lib/registration/job-title";
 
 describe("job title presets", () => {
@@ -108,5 +109,38 @@ describe("resolveVisibleJobTitle — validation must track visibility", () => {
   it("still validates normally while the field IS on screen", () => {
     expect(resolveVisibleJobTitle(true, JOB_TITLE_OTHER, "").ok).toBe(false);
     expect(resolveVisibleJobTitle(true, "CEO", "")).toEqual({ ok: true, value: "CEO" });
+  });
+});
+
+describe("jobTitleForCompanyChange — a cleared company clears the title", () => {
+  const held = { jobTitle: "CTO", jobTitleOther: "" };
+
+  // The walk-in desk hides the title fields when the company is empty, but the
+  // selection stayed in state behind them:
+  //
+  //   type "Acme Corp" -> pick "CTO"
+  //   -> clear Company entirely (the dropdown disappears, "CTO" is still held)
+  //   -> type a DIFFERENT company, "TechCorp"
+  //   -> the dropdown reappears already reading "CTO"
+  //
+  // On screen that is indistinguishable from a deliberate choice, so an
+  // operator correcting the company name silently reattaches the old title to
+  // a different one — and it reaches the public profile and the CSV.
+  it("drops the held title when the company is cleared", () => {
+    expect(jobTitleForCompanyChange("", held)).toEqual({ jobTitle: "", jobTitleOther: "" });
+  });
+
+  it("drops it for a whitespace-only company too", () => {
+    expect(jobTitleForCompanyChange("   ", held)).toEqual({ jobTitle: "", jobTitleOther: "" });
+  });
+
+  it("keeps it while the company is merely being edited", () => {
+    // "Acme" -> "Acme Corp" is one company being corrected, not a new one.
+    expect(jobTitleForCompanyChange("Acme Corp", held)).toEqual(held);
+  });
+
+  it("drops free text typed behind Other as well", () => {
+    const other = { jobTitle: "Other", jobTitleOther: "Head of Ops" };
+    expect(jobTitleForCompanyChange("", other)).toEqual({ jobTitle: "", jobTitleOther: "" });
   });
 });

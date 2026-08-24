@@ -11,6 +11,7 @@ import {
   JOB_TITLE_OTHER,
   JOB_TITLE_PRESETS,
   resolveVisibleJobTitle,
+  jobTitleForCompanyChange,
 } from "@/lib/registration/job-title";
 
 interface WalkInTicket {
@@ -153,7 +154,18 @@ export function WalkInForm({
       </div>
       <div>
         <Label>Company (optional)</Label>
-        <Input value={a.company} onChange={(e) => setA({ ...a, company: e.target.value })} />
+        <Input
+          value={a.company}
+          onChange={(e) =>
+            setA({
+              ...a,
+              company: e.target.value,
+              // Clearing the company clears the title with it, so a held
+              // selection cannot reappear against a different company.
+              ...jobTitleForCompanyChange(e.target.value, a),
+            })
+          }
+        />
       </div>
       {/* A title belongs to an employer, so it is only asked once there is one.
           The walk-in form has no attendee type, so the company name is what

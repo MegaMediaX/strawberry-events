@@ -100,3 +100,28 @@ export function resolveVisibleJobTitle(
   if (!isVisible) return { ok: true, value: null };
   return resolveJobTitleSelection(selection, otherText);
 }
+
+/** The two pieces of form state a job title is held in. */
+export interface JobTitleState {
+  jobTitle: string;
+  jobTitleOther: string;
+}
+
+/**
+ * The title state to keep when the company name changes.
+ *
+ * Emptying the company hides the title fields, and a selection left behind
+ * them reappears — already filled in — the moment a company is typed again.
+ * On screen that is indistinguishable from a deliberate choice, so an operator
+ * correcting a company name at the walk-in desk silently reattaches the old
+ * title to a different company.
+ *
+ * Editing a company in place ("Acme" -> "Acme Corp") keeps the title: that is
+ * one company being corrected, not a new one.
+ */
+export function jobTitleForCompanyChange(
+  company: string,
+  current: JobTitleState,
+): JobTitleState {
+  return company.trim() ? current : { jobTitle: "", jobTitleOther: "" };
+}
