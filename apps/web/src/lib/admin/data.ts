@@ -450,6 +450,8 @@ export interface RosterEntry {
   name: string;
   email: string;
   company: string;
+  /** Empty for anyone who registered before the field existed, or skipped it. */
+  jobTitle: string;
   phone: string;
   attendeeType: string;
   /**
@@ -531,6 +533,8 @@ export async function rosters(
           name: app?.attendeeName || pos.attendee_name || "",
           email: app?.email || pos.attendee_email || order.email || "",
           company: app?.company || pos.company || "",
+          // App-only: pretix has no equivalent field to fall back to.
+          jobTitle: app?.jobTitle || "",
           phone: normalisePhone(app?.phoneCC ?? null, app?.phone ?? null),
           attendeeType: app?.attendeeType ?? "",
           seats: 1,
@@ -582,7 +586,7 @@ export function normalisePhone(cc: string | null, phone: string | null): string 
 
 /** CSV with the same formula-injection guard the registrations export uses. */
 export function rosterCsv(roster: Roster): string {
-  const headers = ["Order", "Name", "Email", "Company", "Phone", "Attendee type", "Seats", "In app DB"];
+  const headers = ["Order", "Name", "Email", "Company", "Job title", "Phone", "Attendee type", "Seats", "In app DB"];
   const esc = (v: unknown) => {
     let s = v == null ? "" : String(v);
     if (/^[=+\-@\t\r]/.test(s)) s = `'${s}`;
@@ -591,7 +595,7 @@ export function rosterCsv(roster: Roster): string {
   const lines = [headers.join(",")];
   for (const e of roster.entries) {
     lines.push(
-      [e.orderCode, e.name, e.email, e.company, e.phone, e.attendeeType, e.seats, e.inAppDb ? "yes" : "NO"]
+      [e.orderCode, e.name, e.email, e.company, e.jobTitle, e.phone, e.attendeeType, e.seats, e.inAppDb ? "yes" : "NO"]
         .map(esc)
         .join(","),
     );

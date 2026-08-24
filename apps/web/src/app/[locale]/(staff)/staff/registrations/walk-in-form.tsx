@@ -1,17 +1,32 @@
 "use client";
 
-import { useState } from "react";
+import { useId, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { centsToPrice } from "@/lib/pretix/mappers";
 import { walkInAction, type WalkInActionResult } from "./actions";
+import {
+  JOB_TITLE_MAX,
+  JOB_TITLE_OTHER,
+  JOB_TITLE_PRESETS,
+  resolveVisibleJobTitle,
+  jobTitleForCompanyChange,
+} from "@/lib/registration/job-title";
 
 interface WalkInTicket {
   id: number;
   title: string;
   priceCents: number;
 }
+
+/**
+ * The blank attendee, named once so the initial state and the post-success
+ * reset cannot drift. A field present in one literal and missing from the
+ * other is this feature's recurring bug: the desk would carry one walk-in's
+ * job title over to the next person in the queue.
+ */
+const EMPTY_ATTENDEE = { firstName: "", lastName: "", email: "", phoneCC: "+961", phone: "", company: "", jobTitle: "", jobTitleOther: "" };
 
 const ROLE_TAGS = ["visitor", "media", "partner", "speaker", "staff"] as const;
 
@@ -26,10 +41,25 @@ export function WalkInForm({
 }) {
   const [itemId, setItemId] = useState<number | "">(tickets[0]?.id ?? "");
   const [roleTag, setRoleTag] = useState<(typeof ROLE_TAGS)[number]>("visitor");
-  const [a, setA] = useState({ firstName: "", lastName: "", email: "", phoneCC: "+961", phone: "", company: "" });
+  const [a, setA] = useState(EMPTY_ATTENDEE);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<WalkInActionResult | null>(null);
   const [err, setErr] = useState<string | null>(null);
+
+  // Ids so the Labels below actually name their controls. Every other field in
+  // this form is a bare <Label> sibling with no htmlFor, so a screen reader
+  // announces them unlabelled — the public wizard was fixed for exactly this
+  // (see its `fid` map) and this form never was. Scoped to the two fields
+  // added here rather than quietly rewriting the whole form days before the
+  // event; the rest is worth a follow-up.
+  const uid = useId();
+  const jobTitleId = `${uid}-job-title`;
+  const jobTitleOtherId = `${uid}-job-title-other`;
+
+  // One source of truth for whether the job title fields are on screen. Both
+  // the JSX below and the validation in submit() read this, so an error can
+  // never point at a control the operator cannot see.
+  const showJobTitle = a.company.trim() !== "";
 
   async function submit() {
     setErr(null);
@@ -38,17 +68,37 @@ export function WalkInForm({
     if (!a.firstName || !a.lastName) {
       return setErr("First name and last name are required.");
     }
+    // Resolved before the request so "Other" with nothing typed is caught at
+    // the desk, not swallowed into a badge that reads "Other" — but only while
+    // the fields are visible, or clearing the company traps the desk behind an
+    // error about a control that is no longer rendered.
+    const title = resolveVisibleJobTitle(showJobTitle, a.jobTitle, a.jobTitleOther);
+    if (!title.ok) return setErr(title.error);
     setBusy(true);
     const res = await walkInAction(eventId, {
       itemId: Number(itemId),
       roleTag,
       locale: locale === "ar" ? "ar" : "en",
-      attendee: { ...a, company: a.company || null },
+      // Listed field by field rather than spread: `a` also carries the raw
+      // dropdown selection and the text behind "Other", neither of which is a
+      // job title until resolveVisibleJobTitle has turned them into one.
+      attendee: {
+        firstName: a.firstName,
+        lastName: a.lastName,
+        email: a.email,
+        phoneCC: a.phoneCC,
+        phone: a.phone,
+        // Trimmed, like the wizard does. Untrimmed, a company of a single
+        // space is stored verbatim while `showJobTitle` (which trims) treats
+        // it as absent — the form says "no company" and the row says " ".
+        company: a.company.trim() || null,
+        jobTitle: title.value,
+      },
     });
     setBusy(false);
     if (!res.ok) return setErr(res.error ?? "Registration failed.");
     setResult(res);
-    setA({ firstName: "", lastName: "", email: "", phoneCC: "+961", phone: "", company: "" });
+    setA(EMPTY_ATTENDEE);
   }
 
   if (result?.ok) {
@@ -125,8 +175,64 @@ export function WalkInForm({
       </div>
       <div>
         <Label>Company (optional)</Label>
-        <Input value={a.company} onChange={(e) => setA({ ...a, company: e.target.value })} />
+        <Input
+          value={a.company}
+          onChange={(e) =>
+            setA({
+              ...a,
+              company: e.target.value,
+              // Clearing the company clears the title with it, so a held
+              // selection cannot reappear against a different company.
+              ...jobTitleForCompanyChange({
+                company: e.target.value,
+                jobTitle: a.jobTitle,
+                jobTitleOther: a.jobTitleOther,
+              }),
+            })
+          }
+        />
       </div>
+      {/* A title belongs to an employer, so it is only asked once there is one.
+          The walk-in form has no attendee type, so the company name is what
+          stands in for "is this person with a company". */}
+      {showJobTitle && (
+        <div>
+          <Label htmlFor={jobTitleId}>Job title (optional)</Label>
+          <select
+            id={jobTitleId}
+            className="h-10 w-full rounded-[var(--radius-md)] border border-input bg-transparent px-3 text-sm"
+            value={a.jobTitle}
+            onChange={(e) =>
+              setA({
+                ...a,
+                jobTitle: e.target.value,
+                jobTitleOther: e.target.value === JOB_TITLE_OTHER ? a.jobTitleOther : "",
+              })
+            }
+          >
+            <option value="">Select…</option>
+            {JOB_TITLE_PRESETS.map((preset) => (
+              <option key={preset} value={preset}>
+                {preset}
+              </option>
+            ))}
+            <option value={JOB_TITLE_OTHER}>{JOB_TITLE_OTHER}</option>
+          </select>
+        </div>
+      )}
+      {showJobTitle && a.jobTitle === JOB_TITLE_OTHER && (
+        <div>
+          <Label htmlFor={jobTitleOtherId}>Job title</Label>
+          <Input
+            id={jobTitleOtherId}
+            required
+            aria-required="true"
+            maxLength={JOB_TITLE_MAX}
+            value={a.jobTitleOther}
+            onChange={(e) => setA({ ...a, jobTitleOther: e.target.value })}
+          />
+        </div>
+      )}
       {err && <p className="text-sm text-destructive">{err}</p>}
       <Button type="button" onClick={submit} disabled={busy}>
         {busy ? "Registering…" : "Register walk-in"}

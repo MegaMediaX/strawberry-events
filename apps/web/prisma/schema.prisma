@@ -787,6 +787,11 @@ model AttendeeOrder {
   // Optional attendee type: "student" | "company" | "freelancer". `company`
   // (above) holds the free-text company name when attendeeType = "company".
   attendeeType   String?
+  /// Job title, asked under the company name and stored resolved: a preset
+  /// ("CEO") or the free text typed behind "Other" — never the sentinel itself.
+  /// Optional forever; the registrations taken before this column existed are
+  /// not incomplete, they simply were not asked.
+  jobTitle       String?
   phone          String?
   phoneCC        String?
   // Set ONLY when consent was actually obtained from the data subject on the

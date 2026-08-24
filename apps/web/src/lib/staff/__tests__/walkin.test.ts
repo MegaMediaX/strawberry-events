@@ -87,6 +87,25 @@ describe("createWalkIn — permission boundaries", () => {
     expect(mock(register).mock.calls[0][0].attendee.email).toBe("a@b.com");
   });
 
+  it("hands the job title to register(), which is what validates it", async () => {
+    // The two halves of the walk-in guarantee live in different files, so
+    // neither proves it alone:
+    //   here          -> createWalkIn routes through register()
+    //   service.test  -> register() rejects the sentinel and over-length titles
+    // Together they mean a walk-in cannot store a title the public wizard
+    // could not. If a future edit made createWalkIn write to Prisma directly,
+    // this file's `expect(register).toHaveBeenCalled...` assertions fail and
+    // the server-side guard stops being reachable — which is exactly the
+    // regression worth catching.
+    await createWalkIn(staff, {
+      ...input,
+      attendee: { ...attendee, company: "Acme", jobTitle: "CTO" },
+    });
+    const arg = mock(register).mock.calls[0][0];
+    expect(arg.attendee.company).toBe("Acme");
+    expect(arg.attendee.jobTitle).toBe("CTO");
+  });
+
   it("attributes consent to the walk-in desk, not the public web form", async () => {
     await createWalkIn(staff, input);
     const arg = mock(register).mock.calls[0][0];

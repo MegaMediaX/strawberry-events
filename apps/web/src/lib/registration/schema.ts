@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { JOB_TITLE_MAX, JOB_TITLE_OTHER } from "@/lib/registration/job-title";
+
 export const registerInputSchema = z
   .object({
     eventSlug: z.string().min(1),
@@ -17,6 +19,16 @@ export const registerInputSchema = z
       // Attendee type (Student / Company / Freelancer). `company` carries the
       // free-text company name when attendeeType = "company".
       attendeeType: z.enum(["student", "company", "freelancer"]).optional().nullable(),
+      // Job title, offered under the company name. Optional for everyone,
+      // always — 526 company registrations predate this field and must stay
+      // valid. The forms gate WHERE it is asked; the schema only says what a
+      // title may look like.
+      jobTitle: z
+        .string()
+        .trim()
+        .max(JOB_TITLE_MAX, `Job title must be ${JOB_TITLE_MAX} characters or fewer`)
+        .optional()
+        .nullable(),
     }),
     tickets: z
       .array(z.object({ itemId: z.number().int(), quantity: z.number().int().min(1) }))
@@ -76,6 +88,17 @@ export const registerInputSchema = z
       !val.attendee.company?.trim()
     ) {
       ctx.addIssue({ code: "custom", path: ["attendee", "company"], message: "Company name is required" });
+    }
+
+    // "Other" is the dropdown's sentinel for "let me type one", never a title.
+    // Storing it would publish "Other" on the contact profile and print it on
+    // the badge, which reads as data rather than as the bug it is.
+    if (val.attendee.jobTitle?.trim() === JOB_TITLE_OTHER) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["attendee", "jobTitle"],
+        message: "Enter your job title",
+      });
     }
 
     const email = val.attendee.email;

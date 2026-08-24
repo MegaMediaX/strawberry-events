@@ -62,6 +62,7 @@ export default async function BadgeProfilePage({
     select: {
       attendeeName: true,
       company: true,
+      jobTitle: true,
       attendeeType: true,
       status: true,
       badgeProfileRevokedAt: true,
@@ -82,6 +83,7 @@ export default async function BadgeProfilePage({
 
   const name = order.attendeeName?.trim() || "LEBTECH Attendee";
   const company = order.company?.trim() || null;
+  const jobTitle = order.jobTitle?.trim() || null;
   const email = order.email?.trim() || null;
 
   // attendeeType describes what the person DOES — company / freelancer /
@@ -110,9 +112,11 @@ export default async function BadgeProfilePage({
   const contact = {
     fullName: name,
     company,
-    // TITLE gets the display label, not the raw enum: a contact saved with the
-    // title "freelancer" in lowercase looks like a data leak in someone's phone.
-    role: typeLabel,
+    // TITLE gets the real job title when there is one — that is what the vCard
+    // field means. It falls back to the display label, not the raw enum: a
+    // contact saved with the title "freelancer" in lowercase looks like a data
+    // leak in someone's phone.
+    role: jobTitle ?? typeLabel,
     email,
     phone,
     url: badgeProfileUrl(normalized).replace("HTTPS://", "https://").toLowerCase(),
@@ -123,6 +127,7 @@ export default async function BadgeProfilePage({
     <main className="mx-auto flex min-h-screen w-full max-w-md flex-col justify-center px-6 py-12">
       <ContactCard
         name={name}
+        jobTitle={jobTitle}
         affiliation={affiliation}
         typeLabel={showType ? typeLabel : null}
         email={email}

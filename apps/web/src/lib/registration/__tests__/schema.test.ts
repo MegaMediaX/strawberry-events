@@ -198,3 +198,63 @@ describe("the data-use disclaimer is a separate consent", () => {
     }
   });
 });
+
+describe("registerInputSchema — job title", () => {
+  const company = { ...base.attendee, ...validPhone, attendeeType: "company" as const, company: "Acme" };
+
+  it("a company attendee may give a job title", () => {
+    const r = registerInputSchema.safeParse({ ...base, attendee: { ...company, jobTitle: "CEO" } });
+    expect(r.success).toBe(true);
+    if (r.success) expect(r.data.attendee.jobTitle).toBe("CEO");
+  });
+
+  it("a company attendee with NO job title still passes", () => {
+    // The 526 company registrations taken before this field existed. If this
+    // ever fails, every one of them has become unrepresentable.
+    const r = registerInputSchema.safeParse({ ...base, attendee: company });
+    expect(r.success).toBe(true);
+  });
+
+  it("students and freelancers may omit it", () => {
+    for (const attendeeType of ["student", "freelancer"] as const) {
+      const r = registerInputSchema.safeParse({
+        ...base,
+        attendee: { ...base.attendee, ...validPhone, attendeeType },
+      });
+      expect(r.success).toBe(true);
+    }
+  });
+
+  it("trims the stored value", () => {
+    const r = registerInputSchema.safeParse({
+      ...base,
+      attendee: { ...company, jobTitle: "  Head of Ops  " },
+    });
+    expect(r.success).toBe(true);
+    if (r.success) expect(r.data.attendee.jobTitle).toBe("Head of Ops");
+  });
+
+  it("rejects a title over the cap", () => {
+    const r = registerInputSchema.safeParse({
+      ...base,
+      attendee: { ...company, jobTitle: "x".repeat(16) },
+    });
+    expect(r.success).toBe(false);
+    if (!r.success) {
+      expect(r.error.issues.map((i) => i.path.join("."))).toContain("attendee.jobTitle");
+    }
+  });
+
+  it("rejects the literal sentinel 'Other'", () => {
+    // A form bug that submits the dropdown sentinel instead of the typed text
+    // would otherwise store "Other" and print it on the badge.
+    const r = registerInputSchema.safeParse({
+      ...base,
+      attendee: { ...company, jobTitle: "Other" },
+    });
+    expect(r.success).toBe(false);
+    if (!r.success) {
+      expect(r.error.issues.map((i) => i.path.join("."))).toContain("attendee.jobTitle");
+    }
+  });
+});

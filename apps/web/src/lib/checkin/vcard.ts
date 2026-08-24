@@ -26,9 +26,17 @@ export interface VCardInput {
 export function escapeVCardValue(value: string): string {
   return value
     .replace(/\\/g, "\\\\")
+    // Fold every line terminator to \n BEFORE escaping it. vCard lines are
+    // CRLF-delimited, and a bare CR was passing straight through: it survives
+    // Zod (.trim() only strips the ends) and lets a value split into what
+    // parsers read as a new property in whoever saved the contact.
+    .replace(/\r\n?/g, "\n")
     .replace(/\n/g, "\\n")
     .replace(/,/g, "\\,")
-    .replace(/;/g, "\;");
+    // Doubled backslash, like the three above it. Written as "\;" this was a
+    // no-op: "\;" is not an escape sequence in a JS string, so it collapsed to
+    // a bare ";" and replaced a semicolon with itself.
+    .replace(/;/g, "\\;");
 }
 
 /**

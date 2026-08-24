@@ -31,7 +31,7 @@ const orgAdmin: SessionContext = {
 
 const baseOrder = {
   id: "o1", orderCode: "ABC12", eventMappingId: "e1",
-  attendeeName: "Jane", email: "j@x.com", phone: "70", phoneCC: "+961", company: null,
+  attendeeName: "Jane", email: "j@x.com", phone: "70", phoneCC: "+961", company: null, jobTitle: null,
   roleTag: "visitor", provider: "manual_cod", status: "pending", approvalStatus: "not_required",
   totalCents: 2500, pretixSecret: "SEC", createdAt: new Date("2026-01-01"),
   eventMapping: { titleEn: "Expo", organizationId: "orgA", localEventId: "loc1" },
@@ -183,7 +183,7 @@ describe("listRegistrationsPage — never presents a truncated list as the total
       Array.from({ length: 2 }, (_, i) => ({
         id: `o${i}`, orderCode: `C${i}`, eventMappingId: "e1",
         eventMapping: { titleEn: "Expo" }, attendeeName: "A", email: "a@b.com",
-        phone: null, company: null, roleTag: "visitor", provider: "free",
+        phone: null, company: null, jobTitle: null, roleTag: "visitor", provider: "free",
         status: "paid", approvalStatus: "not_required", createdAt: new Date(),
       })),
     );
@@ -237,7 +237,7 @@ describe("buildCsv", () => {
   it("emits a header + one row, escaping commas", () => {
     const rows: RegistrationRow[] = [{
       id: "o1", orderCode: "ABC12", event: "Expo, 2026", eventId: "e1", attendee: "Jane",
-      email: "j@x.com", phone: "70", company: null, roleTag: "visitor", method: "COD",
+      email: "j@x.com", phone: "70", company: null, jobTitle: null, roleTag: "visitor", method: "COD",
       status: "pending", approvalStatus: "not_required", state: "pending_payment", createdAt: new Date("2026-01-01T00:00:00Z"),
     }];
     const csv = buildCsv(rows);
@@ -251,7 +251,7 @@ describe("buildCsv", () => {
     const rows: RegistrationRow[] = [{
       id: "o1", orderCode: "ABC12", event: "Expo", eventId: "e1",
       attendee: "=HYPERLINK(\"http://evil\")", email: "j@x.com", phone: "70",
-      company: "@SUM(1)", roleTag: "visitor", method: "COD",
+      company: "@SUM(1)", jobTitle: null, roleTag: "visitor", method: "COD",
       status: "pending", approvalStatus: "not_required", state: "pending_payment",
       createdAt: new Date("2026-01-01T00:00:00Z"),
     }];
@@ -261,6 +261,41 @@ describe("buildCsv", () => {
     expect(csv).toContain("'=HYPERLINK");
     expect(csv).toContain("'@SUM(1)");
     expect(csv).not.toMatch(/,=HYPERLINK/);
+  });
+
+  it("neutralizes formula injection in the job title too", () => {
+    // Job title is attendee-controlled free text (the "Other" path lets someone
+    // type anything), so it needs the same guard as name and company. The test
+    // above passes whether or not jobTitle shares the escaper — it never sets
+    // one — so without this case a refactor could give jobTitle its own
+    // unescaped cell and nothing would fail.
+    const rows: RegistrationRow[] = [{
+      id: "o1", orderCode: "ABC12", event: "Expo", eventId: "e1",
+      attendee: "Jane", email: "j@x.com", phone: "70",
+      company: "Acme", jobTitle: "=cmd|'/c calc'!A1", roleTag: "visitor", method: "COD",
+      status: "pending", approvalStatus: "not_required", state: "pending_payment",
+      createdAt: new Date("2026-01-01T00:00:00Z"),
+    }];
+    const csv = buildCsv(rows);
+    expect(csv).toContain("'=cmd");
+    expect(csv).not.toMatch(/,=cmd/);
+  });
+
+  it("keeps the job title in its own column, aligned with its header", () => {
+    // Inserting a column into the header array but not the cell array (or vice
+    // versa) shifts every later field by one — the export would still look
+    // plausible while Role, Method and State were all wrong.
+    const rows: RegistrationRow[] = [{
+      id: "o1", orderCode: "ABC12", event: "Expo", eventId: "e1",
+      attendee: "Jane", email: "j@x.com", phone: "70",
+      company: "Acme", jobTitle: "CTO", roleTag: "visitor", method: "COD",
+      status: "pending", approvalStatus: "not_required", state: "pending_payment",
+      createdAt: new Date("2026-01-01T00:00:00Z"),
+    }];
+    const [header, row] = buildCsv(rows).split("\n");
+    const at = header.split(",").indexOf("Job title");
+    expect(at).toBeGreaterThan(-1);
+    expect(row.split(",")[at]).toBe("CTO");
   });
 });
 

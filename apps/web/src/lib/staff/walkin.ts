@@ -22,6 +22,7 @@ export interface WalkInInput {
     /** Optional for walk-ins. */
     phone?: string;
     company?: string | null;
+    jobTitle?: string | null;
   };
   /** Required only for seated events. */
   seatIds?: string[];

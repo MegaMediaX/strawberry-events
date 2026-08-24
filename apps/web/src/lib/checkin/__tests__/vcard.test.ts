@@ -11,7 +11,11 @@ describe("escapeVCardValue", () => {
     // A company like "Smith, Jones & Co" would otherwise split into two fields
     // and the contact imports mangled — or not at all.
     expect(escapeVCardValue("Smith, Jones")).toBe("Smith\\, Jones");
-    expect(escapeVCardValue("A;B")).toBe("A\;B");
+    // NOTE the doubled backslash. This line previously read "A\;B", which is
+    // not an escape sequence in a JS string and collapses to "A;B" — the
+    // same typo the implementation had, so the test asserted the no-op and
+    // passed while nothing was escaped.
+    expect(escapeVCardValue("A;B")).toBe("A\\;B");
     expect(escapeVCardValue("line1\nline2")).toBe("line1\\nline2");
     expect(escapeVCardValue("back\\slash")).toBe("back\\\\slash");
   });
@@ -71,6 +75,41 @@ describe("buildVCard", () => {
   it("escapes a comma inside a company name", () => {
     const v = buildVCard({ fullName: "X", company: "Smith, Jones" });
     expect(v).toContain("ORG:Smith\\, Jones");
+
+  });
+
+  it("escapes a semicolon inside a company name", () => {
+    // Semicolon is structural in vCard, and was not actually escaped: the
+    // source read .replace(/;/g, "\;") — and "\;" is not an escape sequence
+    // in a JS string, so it collapses to a bare ";" and the replace did
+    // nothing at all. "GPCS; Beirut" imported as a company plus a stray
+    // second field.
+    const v = buildVCard({ fullName: "X", company: "GPCS; Beirut" });
+    expect(v).toContain("ORG:GPCS\\; Beirut");
+  });
+
+  it("neutralises a carriage return, not just a newline", () => {
+    // vCard lines are CRLF-delimited. The escaper handled \n but not \r, and a
+    // bare CR survives Zod: .trim() only strips the ends, and "CEO\rX-EVIL:1"
+    // is 12 characters, under the 15-cap. Written into a .vcf, parsers that
+    // split on CR read the tail as a NEW PROPERTY — arbitrary fields injected
+    // into whoever saved the contact.
+    const v = buildVCard({ fullName: "X", role: "CEO\rX-EVIL:1" });
+    expect(v).not.toMatch(/TITLE:[^\r\n]*\r(?!\n)/);
+    expect(v).toContain("TITLE:CEO\\nX-EVIL:1");
+  });
+
+  it("neutralises a CRLF pair as a single break", () => {
+    const v = buildVCard({ fullName: "X", company: "A\r\nB" });
+    expect(v).toContain("ORG:A\\nB");
+    expect(v).not.toContain("ORG:A\r\nB");
+  });
+
+  it("escapes a semicolon inside a job title", () => {
+    // TITLE now carries the attendee's own free text (the "Other" path), so
+    // this is a live input, not a hypothetical one.
+    const v = buildVCard({ fullName: "X", role: "Head; Ops" });
+    expect(v).toContain("TITLE:Head\\; Ops");
   });
 });
 

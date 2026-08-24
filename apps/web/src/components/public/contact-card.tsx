@@ -14,6 +14,12 @@ export interface ContactCardProps {
   name: string;
   /** Company if given, else "Freelancer"/"Student". 53% of attendees give no company. */
   affiliation: string | null;
+  /**
+   * The person's job title, shown above the company. Absent for everyone who
+   * registered before the field existed, and for anyone who skipped it — so it
+   * renders as nothing at all rather than as an empty line.
+   */
+  jobTitle: string | null;
   /** Shown only when it adds something the affiliation line does not. */
   typeLabel: string | null;
   email: string | null;
@@ -23,6 +29,7 @@ export interface ContactCardProps {
 
 export function ContactCard({
   name,
+  jobTitle,
   affiliation,
   typeLabel,
   email,
@@ -39,7 +46,15 @@ export function ContactCard({
         {name}
       </h1>
 
-      {affiliation ? <p className="mt-2 text-base text-foreground/80">{affiliation}</p> : null}
+      {jobTitle ? (
+        <p className="mt-2 text-base font-medium text-foreground">{jobTitle}</p>
+      ) : null}
+
+      {affiliation ? (
+        <p className={`${jobTitle ? "mt-0.5" : "mt-2"} text-base text-foreground/80`}>
+          {affiliation}
+        </p>
+      ) : null}
 
       {/* Muted, not red: the one red thing on this page is Save contact. */}
       {typeLabel ? (

@@ -305,6 +305,12 @@ export async function register(input: RegisterInput): Promise<RegisterResult> {
       email: data.attendee.email,
       attendeeName: `${data.attendee.firstName} ${data.attendee.lastName}`.trim(),
       company: data.attendee.company ?? null,
+      // A job title is an answer about an employer, so it is kept only when
+      // there is one. This gates on the company NAME rather than on
+      // attendeeType because the staff walk-in form has no attendee type at
+      // all — gating on the type would silently drop every title taken at the
+      // door.
+      jobTitle: data.attendee.company?.trim() ? (data.attendee.jobTitle?.trim() || null) : null,
       // Only record a type when the event actually asks for one, so rows for
       // events without the field never carry a stray value.
       attendeeType: event.attendeeTypeEnabled ? (data.attendee.attendeeType ?? null) : null,

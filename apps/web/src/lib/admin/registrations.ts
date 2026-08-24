@@ -58,6 +58,7 @@ function buildWhere(session: SessionContext, f: RegistrationFilters): Prisma.Att
         { email: { contains: q, mode: "insensitive" } },
         { phone: { contains: q, mode: "insensitive" } },
         { company: { contains: q, mode: "insensitive" } },
+        { jobTitle: { contains: q, mode: "insensitive" } },
         { orderCode: { contains: q, mode: "insensitive" } },
       ],
     });
@@ -74,6 +75,7 @@ export interface RegistrationRow {
   email: string;
   phone: string | null;
   company: string | null;
+  jobTitle: string | null;
   roleTag: string;
   method: "Free" | "COD";
   status: string;
@@ -176,6 +178,7 @@ type OrderWithEvent = Parameters<typeof registrationState>[0] & {
   email: string;
   phone: string | null;
   company: string | null;
+  jobTitle: string | null;
   roleTag: RegistrationRow["roleTag"];
   provider: string;
   createdAt: Date;
@@ -191,6 +194,7 @@ function toRows(orders: OrderWithEvent[]): RegistrationRow[] {
     email: o.email,
     phone: o.phone,
     company: o.company,
+    jobTitle: o.jobTitle,
     roleTag: o.roleTag,
     method: o.provider === "free" ? "Free" : "COD",
     status: o.status,
@@ -322,18 +326,19 @@ export async function listRegistrations(
  */
 export function buildCsv(rows: RegistrationRow[], answersByOrder?: Map<string, string>): string {
   const withCustom = !!answersByOrder;
-  const headers = ["Event", "Order", "Attendee", "Email", "Phone", "Company", "Role", "Method", "State", "Created", ...(withCustom ? ["Custom fields"] : [])];
+  const headers = ["Event", "Order", "Attendee", "Email", "Phone", "Company", "Job title", "Role", "Method", "State", "Created", ...(withCustom ? ["Custom fields"] : [])];
   const esc = (v: unknown) => {
     let s = v == null ? "" : String(v);
     // Neutralize CSV formula injection: spreadsheet apps execute a cell that
     // starts with = + - @ (or tab/CR). Attendee-controlled fields (name, company,
+    // job title,
     // custom answers) flow here, so prefix a single quote to force a literal.
     if (/^[=+\-@\t\r]/.test(s)) s = `'${s}`;
     return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
   };
   const lines = [headers.join(",")];
   for (const r of rows) {
-    const cells: unknown[] = [r.event, r.orderCode, r.attendee, r.email, r.phone, r.company, r.roleTag, r.method, r.state, r.createdAt.toISOString()];
+    const cells: unknown[] = [r.event, r.orderCode, r.attendee, r.email, r.phone, r.company, r.jobTitle, r.roleTag, r.method, r.state, r.createdAt.toISOString()];
     if (withCustom) cells.push(answersByOrder!.get(r.orderCode) ?? "");
     lines.push(cells.map(esc).join(","));
   }
@@ -344,6 +349,7 @@ export interface RegistrationDetail {
   order: {
     id: string; orderCode: string; attendee: string; email: string;
     phone: string | null; phoneCC: string | null; company: string | null;
+    jobTitle: string | null;
     roleTag: string; method: "Free" | "COD"; status: string; approvalStatus: string;
     state: RegistrationState; totalCents: number; createdAt: Date;
   };
@@ -478,6 +484,7 @@ export async function getRegistrationDetail(
       id: order.id, orderCode: order.orderCode,
       attendee: order.attendeeName ?? order.email, email: order.email,
       phone: order.phone, phoneCC: order.phoneCC, company: order.company,
+      jobTitle: order.jobTitle,
       roleTag: order.roleTag, method: order.provider === "free" ? "Free" : "COD",
       status: order.status, approvalStatus: order.approvalStatus, state,
       totalCents: order.totalCents, createdAt: order.createdAt,

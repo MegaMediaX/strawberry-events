@@ -14,6 +14,7 @@ export interface WalkInActionInput {
     phoneCC?: string;
     phone?: string;
     company?: string | null;
+    jobTitle?: string | null;
   };
   seatIds?: string[];
 }
