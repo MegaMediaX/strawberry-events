@@ -39,6 +39,8 @@ export const NAME_Y = 98;
 export const NAME_SIZE = 38;
 export const NAME_LINE_H = 42;
 export const NAME_MAX_LINES = 2;
+/** Smallest the name may shrink to before we simply clip it. */
+export const NAME_MIN_SIZE = 24;
 export const COMPANY_Y = 196;
 export const COMPANY_SIZE = 26;
 export const TAG_SIZE = 46;
@@ -88,4 +90,35 @@ export function wrapText(
 /** Left x that centres `width` dots across the label. Never negative. */
 export function centreX(width: number): number {
   return Math.max(0, Math.round((LABEL_W - width) / 2));
+}
+
+/**
+ * Choose the largest font size at which the name fits the column.
+ *
+ * Extracted from the canvas renderer deliberately: the canvas file has no test
+ * coverage (no jsdom, no canvas in this suite), and this is the logic that
+ * decides whether a name reaches the QR. Leaving it in there put the fix in the
+ * one place CI cannot see.
+ *
+ * `measureAt(size, text)` supplies real metrics per size — a caller must not
+ * assume width scales linearly with point size, because it does not.
+ *
+ * Returns the chosen size and lines. `stillOverflows` means even the smallest
+ * size did not fit, and the caller must clip.
+ */
+export function fitName(
+  name: string,
+  maxWidth: number,
+  measureAt: (size: number, text: string) => number,
+  maxSize = NAME_SIZE,
+  minSize = NAME_MIN_SIZE,
+): { size: number; lines: string[]; stillOverflows: boolean } {
+  let size = maxSize;
+  for (;;) {
+    const { lines, overflows } = wrapText(name, maxWidth, (t) => measureAt(size, t));
+    if (!overflows || size <= minSize) {
+      return { size, lines, stillOverflows: overflows };
+    }
+    size -= 2;
+  }
 }

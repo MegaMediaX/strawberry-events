@@ -331,3 +331,34 @@ describe("printer language defaults to ZPL", () => {
     expect(store["strawberry.checkin.printerLanguage"]).toBeUndefined();
   });
 });
+
+describe("rawBinaryData", () => {
+  // The ~19KB TSPL bitmap goes through here. Any encoding slip prints noise,
+  // and the bug would only show as a garbled label at a door.
+  it("survives every byte value 0-255", async () => {
+    const { rawBinaryData } = await import("@/lib/checkin/print-client");
+    const bytes = new Uint8Array(256).map((_, i) => i);
+    const [job] = rawBinaryData(bytes);
+
+    expect(job.format).toBe("base64");
+    expect(job.type).toBe("raw");
+    const back = Uint8Array.from(atob(job.data), (c) => c.charCodeAt(0));
+    expect(Array.from(back)).toEqual(Array.from(bytes));
+  });
+
+  it("round-trips a full-size badge bitmap", async () => {
+    const { rawBinaryData } = await import("@/lib/checkin/print-client");
+    // 480x320 at 1 bit = 19200 bytes, the real payload size.
+    const bytes = new Uint8Array(19200).map((_, i) => (i * 7) & 0xff);
+    const back = Uint8Array.from(atob(rawBinaryData(bytes)[0].data), (c) => c.charCodeAt(0));
+    expect(back.length).toBe(19200);
+    expect(Array.from(back)).toEqual(Array.from(bytes));
+  });
+
+  it("does NOT use plain, which would corrupt high bytes", async () => {
+    // "plain" puts the payload through a UTF-8 round trip; every byte above
+    // 0x7f becomes a replacement sequence and the label prints garbage.
+    const { rawBinaryData } = await import("@/lib/checkin/print-client");
+    expect(rawBinaryData(new Uint8Array([0xff]))[0].format).not.toBe("plain");
+  });
+});

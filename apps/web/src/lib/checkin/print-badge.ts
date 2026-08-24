@@ -4,7 +4,7 @@ import type { BadgeData } from "@/components/badges/badge-template";
 import { buildBadgeZpl } from "./badge-zpl";
 import { buildBadgeTspl } from "./badge-tspl";
 import { renderBadgeBitmap } from "./badge-canvas";
-import { getPrinterLanguage, printZpl, printTspl } from "./print-client";
+import { getPrinterLanguage, printZpl, printTspl, PrintError } from "./print-client";
 
 /**
  * Print a badge on whatever this station's printer speaks.
@@ -17,7 +17,22 @@ import { getPrinterLanguage, printZpl, printTspl } from "./print-client";
  */
 export async function printBadge(badge: BadgeData): Promise<void> {
   if (getPrinterLanguage() === "tspl") {
-    return printTspl(buildBadgeTspl(renderBadgeBitmap(badge), badge.badgeSlug));
+    let job: Uint8Array;
+    try {
+      job = buildBadgeTspl(renderBadgeBitmap(badge), badge.badgeSlug);
+    } catch (err) {
+      // A render failure is a property of THIS STATION — no canvas, a bad size,
+      // a missing font — not of this label. Reported as a plain Error it would
+      // be bucketed with a paper jam: the door would silently re-run the same
+      // failing render for every attendee behind them, telling the operator to
+      // check paper each time. Classified as "printer" so it latches once and
+      // says the station needs fixing.
+      throw new PrintError(
+        `This station cannot render badges (${(err as Error).message}). Switch Printer language back to ZPL, or use the on-screen print.`,
+        "printer",
+      );
+    }
+    return printTspl(job);
   }
   return printZpl(buildBadgeZpl(badge));
 }

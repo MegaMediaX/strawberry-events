@@ -90,8 +90,7 @@ export function PrinterSettings() {
             value={name}
             onChange={(e) => setName(e.target.value)}
           />
-          <div className="mt-3 flex gap-2">
-            <label className="mt-3 flex flex-col gap-1 text-sm">
+          <label className="mt-3 flex flex-col gap-1 text-sm">
               <span className="font-medium">Printer language</span>
               <select
                 value={language}
@@ -105,8 +104,9 @@ export function PrinterSettings() {
                 Leave on ZPL unless this station has the Xprinter. The two are not
                 interchangeable — the wrong one prints nothing at all.
               </span>
-            </label>
+          </label>
 
+          <div className="mt-3 flex gap-2">
             <Button size="sm" onClick={save} disabled={busy}>Save</Button>
             <Button size="sm" variant="outline" onClick={testPrint} disabled={busy}>
               Test print

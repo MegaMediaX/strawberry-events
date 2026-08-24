@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   LABEL_W, QR_X, QR_SIZE, QR_QUIET, QR_MAG, TEXT_LEFT, TEXT_RIGHT, TEXT_WIDTH,
-  wrapText, centreX,
+  wrapText, centreX, fitName, NAME_SIZE, NAME_MIN_SIZE,
 } from "@/lib/checkin/badge-layout";
 
 // A stand-in for canvas metrics: every glyph is 20 dots wide. Enough to pin the
@@ -74,5 +74,53 @@ describe("centreX", () => {
   it("never goes negative for text wider than the label", () => {
     // TSPL would happily accept a negative x and clip the tag off the edge.
     expect(centreX(LABEL_W + 100)).toBe(0);
+  });
+});
+
+describe("fitName — the guard that keeps a name out of the QR", () => {
+  // Proportional metrics: width scales with size, as a real font roughly does.
+  const measureAt = (size: number, text: string) => text.length * size * 0.55;
+
+  it("keeps the full size when the name already fits", () => {
+    const { size, lines, stillOverflows } = fitName("Ana Haddad", TEXT_WIDTH, measureAt);
+    expect(size).toBe(NAME_SIZE);
+    expect(lines).toEqual(["Ana Haddad"]);
+    expect(stillOverflows).toBe(false);
+  });
+
+  it("shrinks rather than letting a long surname reach the QR", () => {
+    // THE bug this exists for. An unbroken surname cannot be wrapped, so the
+    // only options are shrink or overflow — and overflow silently destroys the
+    // QR's quiet zone while the badge still looks correct.
+    const { size, lines, stillOverflows } = fitName("Kouyoumdjian", TEXT_WIDTH, measureAt);
+    expect(size).toBeLessThan(NAME_SIZE);
+    expect(stillOverflows).toBe(false);
+    for (const line of lines) {
+      expect(measureAt(size, line)).toBeLessThanOrEqual(TEXT_WIDTH);
+    }
+  });
+
+  it("never shrinks below the readable floor", () => {
+    const { size } = fitName("Aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", TEXT_WIDTH, measureAt);
+    expect(size).toBeGreaterThanOrEqual(NAME_MIN_SIZE);
+  });
+
+  it("reports when even the smallest size cannot fit, so the caller clips", () => {
+    const { stillOverflows } = fitName("A".repeat(80), TEXT_WIDTH, measureAt);
+    expect(stillOverflows).toBe(true);
+  });
+
+  it("every produced line fits the column, across many real names", () => {
+    const names = [
+      "Ana Haddad", "Marven Mouaalem", "Kouyoumdjian", "Tchaghlassian",
+      "Jean-Pierre Abou Khalil", "Mohammad Al-Hassan", "Li", "Rita Khachatourian",
+    ];
+    for (const n of names) {
+      const { size, lines, stillOverflows } = fitName(n, TEXT_WIDTH, measureAt);
+      if (stillOverflows) continue; // caller clips these
+      for (const line of lines) {
+        expect(measureAt(size, line)).toBeLessThanOrEqual(TEXT_WIDTH);
+      }
+    }
   });
 });

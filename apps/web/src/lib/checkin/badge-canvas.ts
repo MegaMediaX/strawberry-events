@@ -5,9 +5,9 @@ import { sanitizeZplText } from "./badge-zpl";
 import { packBitmap } from "./badge-tspl";
 import {
   LABEL_W, LABEL_H, BAND_Y, BAND_H,
-  TEXT_LEFT, TEXT_WIDTH, NAME_Y, NAME_SIZE, NAME_LINE_H,
+  TEXT_LEFT, TEXT_WIDTH, NAME_Y, NAME_SIZE, NAME_LINE_H, NAME_MAX_LINES, NAME_MIN_SIZE,
   COMPANY_Y, COMPANY_SIZE, TAG_SIZE,
-  wrapText, centreX,
+  fitName, centreX,
 } from "./badge-layout";
 
 /**
@@ -45,12 +45,33 @@ export function renderBadgeBitmap(badge: BadgeData): Uint8Array {
   ctx.fillStyle = "#fff";
   ctx.fillText(tag, centreX(ctx.measureText(tag).width), BAND_Y + (BAND_H - TAG_SIZE) / 2);
 
-  // Name, wrapped inside the column that stops short of the QR's quiet zone.
+  // Name, kept inside the column that stops short of the QR's quiet zone.
+  //
+  // wrapText refuses to break a single over-long word — it reports `overflows`
+  // instead, so the caller can shrink rather than chop a name in half. ACTING
+  // on that is the whole point: drawing an unbounded line puts a surname like
+  // "Kouyoumdjian" straight through the quiet zone and into the QR, producing a
+  // badge that looks perfect, prints without error, and will not scan.
   ctx.fillStyle = "#000";
-  ctx.font = `bold ${NAME_SIZE}px ${FONT_STACK}`;
-  const measure = (s: string) => ctx.measureText(s).width;
-  const { lines } = wrapText(sanitizeZplText(badge.fullName), TEXT_WIDTH, measure);
-  lines.forEach((line, i) => ctx.fillText(line, TEXT_LEFT, NAME_Y + i * NAME_LINE_H));
+  const name = sanitizeZplText(badge.fullName);
+
+  const { size, lines } = fitName(name, TEXT_WIDTH, (px, text) => {
+    ctx.font = `bold ${px}px ${FONT_STACK}`;
+    return ctx.measureText(text).width;
+  });
+  ctx.font = `bold ${size}px ${FONT_STACK}`;
+
+  // Clip as well, so even a name that cannot be shrunk enough is cut off at the
+  // column edge rather than reaching the QR. Belt and braces: the shrink loop
+  // should make this unnecessary, and it is the guarantee that does not depend
+  // on font metrics being what we expect.
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(TEXT_LEFT, NAME_Y - 4, TEXT_WIDTH, NAME_LINE_H * NAME_MAX_LINES + 8);
+  ctx.clip();
+  const lineH = Math.round(size * (NAME_LINE_H / NAME_SIZE));
+  lines.forEach((line, i) => ctx.fillText(line, TEXT_LEFT, NAME_Y + i * lineH));
+  ctx.restore();
 
   if (badge.company) {
     ctx.font = `${COMPANY_SIZE}px ${FONT_STACK}`;
