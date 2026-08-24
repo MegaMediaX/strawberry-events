@@ -7,6 +7,7 @@ const render = (props: Partial<Parameters<typeof ContactCard>[0]> = {}) =>
   renderToStaticMarkup(
     <ContactCard
       name="Salwa Eid"
+      jobTitle={null}
       affiliation="GPCS"
       typeLabel={null}
       email="s@gpcs-lb.com"
@@ -78,5 +79,33 @@ describe("what the card shows", () => {
   it("keeps tel: dialable by stripping spaces", () => {
     // Some diallers choke on spaces in a tel: href.
     expect(render({ phone: "+961 3 260918" })).toContain('href="tel:+9613260918"');
+  });
+});
+
+describe("job title on the card", () => {
+  it("shows the job title above the company", () => {
+    const html = render({ jobTitle: "CEO", affiliation: "GPCS" });
+    expect(html).toContain("CEO");
+    expect(html).toContain("GPCS");
+    expect(html.indexOf("CEO")).toBeLessThan(html.indexOf("GPCS"));
+  });
+
+  it("emits no element at all when there is no job title", () => {
+    // The common path: 526 company registrations predate the field, and
+    // everyone may skip it. An empty <p> would push the company down a line
+    // for no reason.
+    //
+    // Asserting on the margin class instead would NOT catch this: an
+    // always-rendered empty paragraph leaves the affiliation's own margin
+    // untouched, so the card looks wrong while the test stays green.
+    const html = render({ jobTitle: null, affiliation: "GPCS" });
+    expect(html).toContain("GPCS");
+    expect(html).not.toMatch(/<p[^>]*><\/p>/);
+  });
+
+  it("still offers Save contact for someone with only a title", () => {
+    const html = render({ jobTitle: "CTO", affiliation: null, email: null, phone: null });
+    expect(html).toContain("Save contact");
+    expect(html).toContain("CTO");
   });
 });

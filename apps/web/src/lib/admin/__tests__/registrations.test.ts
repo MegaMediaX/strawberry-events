@@ -31,7 +31,7 @@ const orgAdmin: SessionContext = {
 
 const baseOrder = {
   id: "o1", orderCode: "ABC12", eventMappingId: "e1",
-  attendeeName: "Jane", email: "j@x.com", phone: "70", phoneCC: "+961", company: null,
+  attendeeName: "Jane", email: "j@x.com", phone: "70", phoneCC: "+961", company: null, jobTitle: null,
   roleTag: "visitor", provider: "manual_cod", status: "pending", approvalStatus: "not_required",
   totalCents: 2500, pretixSecret: "SEC", createdAt: new Date("2026-01-01"),
   eventMapping: { titleEn: "Expo", organizationId: "orgA", localEventId: "loc1" },
@@ -183,7 +183,7 @@ describe("listRegistrationsPage — never presents a truncated list as the total
       Array.from({ length: 2 }, (_, i) => ({
         id: `o${i}`, orderCode: `C${i}`, eventMappingId: "e1",
         eventMapping: { titleEn: "Expo" }, attendeeName: "A", email: "a@b.com",
-        phone: null, company: null, roleTag: "visitor", provider: "free",
+        phone: null, company: null, jobTitle: null, roleTag: "visitor", provider: "free",
         status: "paid", approvalStatus: "not_required", createdAt: new Date(),
       })),
     );
@@ -237,7 +237,7 @@ describe("buildCsv", () => {
   it("emits a header + one row, escaping commas", () => {
     const rows: RegistrationRow[] = [{
       id: "o1", orderCode: "ABC12", event: "Expo, 2026", eventId: "e1", attendee: "Jane",
-      email: "j@x.com", phone: "70", company: null, roleTag: "visitor", method: "COD",
+      email: "j@x.com", phone: "70", company: null, jobTitle: null, roleTag: "visitor", method: "COD",
       status: "pending", approvalStatus: "not_required", state: "pending_payment", createdAt: new Date("2026-01-01T00:00:00Z"),
     }];
     const csv = buildCsv(rows);
@@ -251,7 +251,7 @@ describe("buildCsv", () => {
     const rows: RegistrationRow[] = [{
       id: "o1", orderCode: "ABC12", event: "Expo", eventId: "e1",
       attendee: "=HYPERLINK(\"http://evil\")", email: "j@x.com", phone: "70",
-      company: "@SUM(1)", roleTag: "visitor", method: "COD",
+      company: "@SUM(1)", jobTitle: null, roleTag: "visitor", method: "COD",
       status: "pending", approvalStatus: "not_required", state: "pending_payment",
       createdAt: new Date("2026-01-01T00:00:00Z"),
     }];

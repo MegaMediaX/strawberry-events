@@ -129,7 +129,7 @@ export default async function RegistrationsPage({
       </div>
 
       <form className="mt-4 flex flex-wrap gap-2" method="get">
-        <input className={sel} type="search" name="q" placeholder="Name / email / phone / company" defaultValue={sp.q ?? ""} />
+        <input className={sel} type="search" name="q" placeholder="Name / email / phone / company / job title" defaultValue={sp.q ?? ""} />
         <select className={sel} name="event" defaultValue={sp.event ?? ""}>
           <option value="">All events</option>
           {events.map((e) => <option key={e.id} value={e.id}>{e.titleEn}</option>)}

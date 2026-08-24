@@ -80,6 +80,7 @@ export default async function RegistrationDetailPage({
             <Row label="Email" value={o.email} />
             <Row label="Phone" value={o.phoneCC && o.phone ? `${o.phoneCC} ${o.phone}` : (o.phone ?? "—")} />
             <Row label="Company" value={o.company ?? "—"} />
+            <Row label="Job title" value={o.jobTitle ?? "—"} />
             <Row label="Role / tag" value={o.roleTag} />
           </div>
         </section>

@@ -6,6 +6,12 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { centsToPrice } from "@/lib/pretix/mappers";
 import { walkInAction, type WalkInActionResult } from "./actions";
+import {
+  JOB_TITLE_MAX,
+  JOB_TITLE_OTHER,
+  JOB_TITLE_PRESETS,
+  resolveJobTitleSelection,
+} from "@/lib/registration/job-title";
 
 interface WalkInTicket {
   id: number;
@@ -26,7 +32,7 @@ export function WalkInForm({
 }) {
   const [itemId, setItemId] = useState<number | "">(tickets[0]?.id ?? "");
   const [roleTag, setRoleTag] = useState<(typeof ROLE_TAGS)[number]>("visitor");
-  const [a, setA] = useState({ firstName: "", lastName: "", email: "", phoneCC: "+961", phone: "", company: "" });
+  const [a, setA] = useState({ firstName: "", lastName: "", email: "", phoneCC: "+961", phone: "", company: "", jobTitle: "", jobTitleOther: "" });
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<WalkInActionResult | null>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -38,17 +44,32 @@ export function WalkInForm({
     if (!a.firstName || !a.lastName) {
       return setErr("First name and last name are required.");
     }
+    // Resolved before the request so "Other" with nothing typed is caught at
+    // the desk, not swallowed into a badge that reads "Other".
+    const title = resolveJobTitleSelection(a.jobTitle, a.jobTitleOther);
+    if (!title.ok) return setErr(title.error);
     setBusy(true);
     const res = await walkInAction(eventId, {
       itemId: Number(itemId),
       roleTag,
       locale: locale === "ar" ? "ar" : "en",
-      attendee: { ...a, company: a.company || null },
+      // Listed field by field rather than spread: `a` also carries the raw
+      // dropdown selection and the text behind "Other", neither of which is a
+      // job title until resolveJobTitleSelection has turned them into one.
+      attendee: {
+        firstName: a.firstName,
+        lastName: a.lastName,
+        email: a.email,
+        phoneCC: a.phoneCC,
+        phone: a.phone,
+        company: a.company || null,
+        jobTitle: title.value,
+      },
     });
     setBusy(false);
     if (!res.ok) return setErr(res.error ?? "Registration failed.");
     setResult(res);
-    setA({ firstName: "", lastName: "", email: "", phoneCC: "+961", phone: "", company: "" });
+    setA({ firstName: "", lastName: "", email: "", phoneCC: "+961", phone: "", company: "", jobTitle: "", jobTitleOther: "" });
   }
 
   if (result?.ok) {
@@ -127,6 +148,43 @@ export function WalkInForm({
         <Label>Company (optional)</Label>
         <Input value={a.company} onChange={(e) => setA({ ...a, company: e.target.value })} />
       </div>
+      {/* A title belongs to an employer, so it is only asked once there is one.
+          The walk-in form has no attendee type, so the company name is what
+          stands in for "is this person with a company". */}
+      {a.company.trim() !== "" && (
+        <div>
+          <Label>Job title (optional)</Label>
+          <select
+            className="h-10 w-full rounded-[var(--radius-md)] border border-input bg-transparent px-3 text-sm"
+            value={a.jobTitle}
+            onChange={(e) =>
+              setA({
+                ...a,
+                jobTitle: e.target.value,
+                jobTitleOther: e.target.value === JOB_TITLE_OTHER ? a.jobTitleOther : "",
+              })
+            }
+          >
+            <option value="">Select…</option>
+            {JOB_TITLE_PRESETS.map((preset) => (
+              <option key={preset} value={preset}>
+                {preset}
+              </option>
+            ))}
+            <option value={JOB_TITLE_OTHER}>{JOB_TITLE_OTHER}</option>
+          </select>
+        </div>
+      )}
+      {a.company.trim() !== "" && a.jobTitle === JOB_TITLE_OTHER && (
+        <div>
+          <Label>Job title</Label>
+          <Input
+            maxLength={JOB_TITLE_MAX}
+            value={a.jobTitleOther}
+            onChange={(e) => setA({ ...a, jobTitleOther: e.target.value })}
+          />
+        </div>
+      )}
       {err && <p className="text-sm text-destructive">{err}</p>}
       <Button type="button" onClick={submit} disabled={busy}>
         {busy ? "Registering…" : "Register walk-in"}

@@ -15,6 +15,12 @@ import { SeatSelector } from "@/components/seats/seat-selector";
 import { getFieldsForTicket, validateRequiredAnswers, fieldOptions, type FieldDef } from "@/lib/forms/fields";
 import { registerAction } from "@/app/[locale]/(public)/events/[slug]/register/actions";
 import { SubEventPicker, type SubEventItem, type SubEventSelection } from "./sub-event-picker";
+import {
+  JOB_TITLE_OTHER,
+  JOB_TITLE_PRESETS,
+  JOB_TITLE_MAX,
+  resolveJobTitleSelection,
+} from "@/lib/registration/job-title";
 import { gatedCategories, visibleSubEvents, pruneSelection } from "@/lib/registration/opt-in";
 
 interface WizardTicket {
@@ -119,6 +125,8 @@ export function RegistrationWizard({
     phone: `${uid}-phone`,
     attendeeType: `${uid}-attendee-type`,
     company: `${uid}-company`,
+    jobTitle: `${uid}-job-title`,
+    jobTitleOther: `${uid}-job-title-other`,
     error: `${uid}-error`,
   };
   const [step, setStep] = useState(0);
@@ -134,6 +142,10 @@ export function RegistrationWizard({
     phone: "",
     company: "",
     attendeeType: "",
+    // The dropdown selection (may be the "Other" sentinel) and the text typed
+    // behind it. Only the resolved value is ever submitted.
+    jobTitle: "",
+    jobTitleOther: "",
   });
   const [qty, setQty] = useState<Record<number, number>>({});
   const [subEventSelection, setSubEventSelection] = useState<SubEventSelection[]>([]);
@@ -205,6 +217,13 @@ export function RegistrationWizard({
           setErr("Company name is required.");
           return;
         }
+        if (a.attendeeType === "company") {
+          const title = resolveJobTitleSelection(a.jobTitle, a.jobTitleOther);
+          if (!title.ok) {
+            setErr(title.error);
+            return;
+          }
+        }
       }
     }
     if (step === 1) {
@@ -243,6 +262,13 @@ export function RegistrationWizard({
       .filter((t) => (qty[t.id] ?? 0) > 0)
       .map((t) => ({ itemId: t.id, quantity: qty[t.id] }));
     const allTickets = [...mainTickets, ...subEventSelection.filter((s) => s.quantity > 0)];
+    // Resolved here so the "Other" sentinel can never leave the form. next()
+    // has already rejected the invalid cases; if resolution still fails, send
+    // no title rather than the sentinel — a blank line beats a badge and a
+    // public profile that both read "Other".
+    const titleResolution = resolveJobTitleSelection(a.jobTitle, a.jobTitleOther);
+    const jobTitle =
+      a.attendeeType === "company" && titleResolution.ok ? titleResolution.value : null;
     const res = await registerAction(locale, slug, {
       attendee: {
         firstName: a.firstName,
@@ -253,6 +279,7 @@ export function RegistrationWizard({
         attendeeType: a.attendeeType || null,
         // Company name is only meaningful for the "company" attendee type.
         company: a.attendeeType === "company" ? a.company.trim() || null : null,
+        jobTitle,
       },
       tickets: allTickets,
       seatIds: seatSections ? seatIds : undefined,
@@ -382,6 +409,10 @@ export function RegistrationWizard({
                             attendeeType: e.target.value,
                             // Clear a stale company name when leaving "Company".
                             company: e.target.value === "company" ? a.company : "",
+                            // Same for the title: it belongs to the company
+                            // answer, and a hidden leftover would be submitted.
+                            jobTitle: e.target.value === "company" ? a.jobTitle : "",
+                            jobTitleOther: e.target.value === "company" ? a.jobTitleOther : "",
                           })
                         }
                       >
@@ -404,6 +435,51 @@ export function RegistrationWizard({
                           autoComplete="organization"
                           value={a.company}
                           onChange={(e) => setA({ ...a, company: e.target.value })}
+                        />
+                      </div>
+                    )}
+                    {a.attendeeType === "company" && (
+                      <div className="flex flex-col gap-1.5">
+                        <Label htmlFor={fid.jobTitle}>Job title (optional)</Label>
+                        <select
+                          id={fid.jobTitle}
+                          className="well h-11 w-full rounded-lg border border-input px-3 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+                          value={a.jobTitle}
+                          onChange={(e) =>
+                            setA({
+                              ...a,
+                              jobTitle: e.target.value,
+                              // Drop text typed behind "Other" when the choice
+                              // moves away, so a stale value cannot be revived
+                              // by picking "Other" again later.
+                              jobTitleOther: e.target.value === JOB_TITLE_OTHER ? a.jobTitleOther : "",
+                            })
+                          }
+                        >
+                          <option value="">Select…</option>
+                          {JOB_TITLE_PRESETS.map((preset) => (
+                            <option key={preset} value={preset}>
+                              {preset}
+                            </option>
+                          ))}
+                          <option value={JOB_TITLE_OTHER}>{JOB_TITLE_OTHER}</option>
+                        </select>
+                      </div>
+                    )}
+                    {a.attendeeType === "company" && a.jobTitle === JOB_TITLE_OTHER && (
+                      <div className="flex flex-col gap-1.5">
+                        <Label htmlFor={fid.jobTitleOther}>
+                          Your job title <RequiredMark />
+                        </Label>
+                        <Input
+                          className="well h-11"
+                          id={fid.jobTitleOther}
+                          required
+                          aria-required="true"
+                          maxLength={JOB_TITLE_MAX}
+                          autoComplete="organization-title"
+                          value={a.jobTitleOther}
+                          onChange={(e) => setA({ ...a, jobTitleOther: e.target.value })}
                         />
                       </div>
                     )}

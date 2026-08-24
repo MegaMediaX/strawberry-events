@@ -213,6 +213,48 @@ describe("register", () => {
     expect(data.consentSource).toBe("web_form");
   });
 
+  describe("job title", () => {
+    const itemsAndOrder = (code: string) => {
+      mock(pretixProducts.listItems).mockResolvedValue([
+        { id: 7, titleEn: "V", titleAr: null, priceCents: 0, active: true },
+      ]);
+      mock(pretixOrders.createOrder).mockResolvedValue({ code, status: "n" });
+    };
+
+    it("stores the title when a company was given", async () => {
+      itemsAndOrder("JT1");
+      await register({
+        ...base,
+        attendee: { ...base.attendee, company: "Acme", jobTitle: "CEO" },
+        tickets: [{ itemId: 7, quantity: 1 }],
+      });
+      expect(mock(prisma.attendeeOrder.create).mock.calls[0][0].data.jobTitle).toBe("CEO");
+    });
+
+    it("drops a title that arrives with no company", async () => {
+      // A title with no employer is not a fact about anyone. This also stops a
+      // stale value surviving a change of attendee type in the form.
+      itemsAndOrder("JT2");
+      await register({
+        ...base,
+        attendee: { ...base.attendee, company: null, jobTitle: "CEO" },
+        tickets: [{ itemId: 7, quantity: 1 }],
+      });
+      expect(mock(prisma.attendeeOrder.create).mock.calls[0][0].data.jobTitle).toBeNull();
+    });
+
+    it("stores null — never an empty string — when no title was given", async () => {
+      // The path taken by every registration made before this field existed.
+      itemsAndOrder("JT3");
+      await register({
+        ...base,
+        attendee: { ...base.attendee, company: "Acme" },
+        tickets: [{ itemId: 7, quantity: 1 }],
+      });
+      expect(mock(prisma.attendeeOrder.create).mock.calls[0][0].data.jobTitle).toBeNull();
+    });
+  });
+
   it("records a staff walk-in against the walk-in source, keeping the timestamp", async () => {
     mock(pretixProducts.listItems).mockResolvedValue([
       { id: 7, titleEn: "V", titleAr: null, priceCents: 0, active: true },
