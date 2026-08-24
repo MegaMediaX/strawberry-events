@@ -5,7 +5,7 @@ import { sanitizeZplText } from "./badge-zpl";
 import { packBitmap } from "./badge-tspl";
 import {
   LABEL_W, LABEL_H, BAND_Y, BAND_H,
-  TEXT_LEFT, TEXT_WIDTH, NAME_Y, NAME_SIZE, NAME_LINE_H, NAME_MAX_LINES, NAME_MIN_SIZE,
+  TEXT_LEFT, TEXT_WIDTH, NAME_Y, NAME_SIZE, NAME_LINE_H, NAME_MAX_LINES,
   COMPANY_Y, COMPANY_SIZE, TAG_SIZE,
   fitName, centreX,
 } from "./badge-layout";
