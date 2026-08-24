@@ -3,13 +3,15 @@
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { buildBadgeZpl } from "@/lib/checkin/badge-zpl";
 import {
   getPrinterName,
   setPrinterName,
-  printZpl,
+  getPrinterLanguage,
+  setPrinterLanguage,
+  type PrinterLanguage,
   PrintError,
 } from "@/lib/checkin/print-client";
+import { printBadge } from "@/lib/checkin/print-badge";
 
 /** A sample badge used by the "Test print" button. */
 const TEST_BADGE = {
@@ -26,6 +28,7 @@ const TEST_BADGE = {
 export function PrinterSettings() {
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
+  const [language, setLanguage] = useState<PrinterLanguage>("zpl");
   const [msg, setMsg] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -36,10 +39,12 @@ export function PrinterSettings() {
     // is the idiomatic fix and is deferred.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setName(getPrinterName() ?? "");
+    setLanguage(getPrinterLanguage());
   }, []);
 
   function save() {
     setPrinterName(name.trim() || null);
+    setPrinterLanguage(language);
     setMsg({ kind: "ok", text: "Saved." });
   }
 
@@ -47,8 +52,11 @@ export function PrinterSettings() {
     setBusy(true);
     setMsg(null);
     setPrinterName(name.trim() || null);
+    setPrinterLanguage(language);
     try {
-      await printZpl(buildBadgeZpl(TEST_BADGE));
+      // Goes through the same entry point as a real badge, so a test print
+      // proves the language setting too — not just that the printer answers.
+      await printBadge(TEST_BADGE);
       setMsg({ kind: "ok", text: "Test badge sent to the printer." });
     } catch (err) {
       setMsg({
@@ -82,6 +90,22 @@ export function PrinterSettings() {
             value={name}
             onChange={(e) => setName(e.target.value)}
           />
+          <label className="mt-3 flex flex-col gap-1 text-sm">
+              <span className="font-medium">Printer language</span>
+              <select
+                value={language}
+                onChange={(e) => setLanguage(e.target.value as PrinterLanguage)}
+                className="h-10 rounded-lg border border-input bg-transparent px-2 text-base md:text-sm"
+              >
+                <option value="zpl">ZPL — Honeywell PC42d</option>
+                <option value="tspl">TSPL — Xprinter XP-365B</option>
+              </select>
+              <span className="text-xs text-muted-foreground">
+                Leave on ZPL unless this station has the Xprinter. The two are not
+                interchangeable — the wrong one prints nothing at all.
+              </span>
+          </label>
+
           <div className="mt-3 flex gap-2">
             <Button size="sm" onClick={save} disabled={busy}>Save</Button>
             <Button size="sm" variant="outline" onClick={testPrint} disabled={busy}>

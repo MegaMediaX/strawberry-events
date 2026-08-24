@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, afterEach } from "vitest";
+import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 import { rawZplData, stripToRawOptions, isRawOnly, PrintError, isPersistentPrintFailure} from "@/lib/checkin/print-client";
 
 describe("rawZplData", () => {
@@ -288,5 +288,77 @@ describe("a raw-mode failure must not be reported as a paper jam", () => {
 
     vi.doUnmock("qz-tray");
     vi.resetModules();
+  });
+});
+
+describe("printer language defaults to ZPL", () => {
+  // Three stations are proven on ZPL. Adding TSPL must not change what they do,
+  // so anything other than a deliberate "tspl" resolves to ZPL.
+  const store: Record<string, string> = {};
+  const localStorage = {
+    getItem: (k: string) => store[k] ?? null,
+    setItem: (k: string, v: string) => { store[k] = v; },
+    removeItem: (k: string) => { delete store[k]; },
+  };
+
+  beforeEach(() => {
+    for (const k of Object.keys(store)) delete store[k];
+    vi.stubGlobal("window", { localStorage });
+  });
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("is ZPL when nothing has been chosen", async () => {
+    const { getPrinterLanguage } = await import("@/lib/checkin/print-client");
+    expect(getPrinterLanguage()).toBe("zpl");
+  });
+
+  it("is ZPL for any unexpected stored value", async () => {
+    // A corrupted or stale value must never silently switch a working station
+    // to a language its printer cannot read.
+    const { getPrinterLanguage } = await import("@/lib/checkin/print-client");
+    for (const junk of ["ZPL", "tspl2", "", "epl", "null"]) {
+      store["strawberry.checkin.printerLanguage"] = junk;
+      expect(getPrinterLanguage()).toBe("zpl");
+    }
+  });
+
+  it("round-trips a deliberate TSPL choice, and clears back to ZPL", async () => {
+    const { getPrinterLanguage, setPrinterLanguage } = await import("@/lib/checkin/print-client");
+    setPrinterLanguage("tspl");
+    expect(getPrinterLanguage()).toBe("tspl");
+    setPrinterLanguage("zpl");
+    expect(getPrinterLanguage()).toBe("zpl");
+    expect(store["strawberry.checkin.printerLanguage"]).toBeUndefined();
+  });
+});
+
+describe("rawBinaryData", () => {
+  // The ~19KB TSPL bitmap goes through here. Any encoding slip prints noise,
+  // and the bug would only show as a garbled label at a door.
+  it("survives every byte value 0-255", async () => {
+    const { rawBinaryData } = await import("@/lib/checkin/print-client");
+    const bytes = new Uint8Array(256).map((_, i) => i);
+    const [job] = rawBinaryData(bytes);
+
+    expect(job.format).toBe("base64");
+    expect(job.type).toBe("raw");
+    const back = Uint8Array.from(atob(job.data), (c) => c.charCodeAt(0));
+    expect(Array.from(back)).toEqual(Array.from(bytes));
+  });
+
+  it("round-trips a full-size badge bitmap", async () => {
+    const { rawBinaryData } = await import("@/lib/checkin/print-client");
+    // 480x320 at 1 bit = 19200 bytes, the real payload size.
+    const bytes = new Uint8Array(19200).map((_, i) => (i * 7) & 0xff);
+    const back = Uint8Array.from(atob(rawBinaryData(bytes)[0].data), (c) => c.charCodeAt(0));
+    expect(back.length).toBe(19200);
+    expect(Array.from(back)).toEqual(Array.from(bytes));
+  });
+
+  it("does NOT use plain, which would corrupt high bytes", async () => {
+    // "plain" puts the payload through a UTF-8 round trip; every byte above
+    // 0x7f becomes a replacement sequence and the label prints garbage.
+    const { rawBinaryData } = await import("@/lib/checkin/print-client");
+    expect(rawBinaryData(new Uint8Array([0xff]))[0].format).not.toBe("plain");
   });
 });

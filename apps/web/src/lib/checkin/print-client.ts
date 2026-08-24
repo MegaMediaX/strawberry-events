@@ -19,10 +19,46 @@
  */
 
 const PRINTER_KEY = "strawberry.checkin.printerName";
+const LANGUAGE_KEY = "strawberry.checkin.printerLanguage";
+
+/**
+ * Which command language this station's printer speaks.
+ *
+ * ZPL is the default and covers every Honeywell PC42d station. TSPL is for the
+ * Xprinter XP-365B, which REJECTS ZPL outright — the two are not
+ * interchangeable, so this is a per-machine setting rather than something to
+ * detect. Getting it wrong prints nothing at all, which is at least obvious.
+ */
+export type PrinterLanguage = "zpl" | "tspl";
+
+export function getPrinterLanguage(): PrinterLanguage {
+  if (typeof window === "undefined") return "zpl";
+  return window.localStorage.getItem(LANGUAGE_KEY) === "tspl" ? "tspl" : "zpl";
+}
+
+export function setPrinterLanguage(lang: PrinterLanguage): void {
+  if (typeof window === "undefined") return;
+  // Only a deliberate "tspl" is stored; anything else falls back to ZPL, so a
+  // corrupted value can never silently disable a proven station.
+  if (lang === "tspl") window.localStorage.setItem(LANGUAGE_KEY, "tspl");
+  else window.localStorage.removeItem(LANGUAGE_KEY);
+}
 
 /** The raw-ZPL print payload QZ Tray expects. Pure + unit-testable. */
 export function rawZplData(zpl: string) {
   return [{ type: "raw" as const, format: "plain" as const, data: zpl }];
+}
+
+/**
+ * The raw payload for a BINARY job (TSPL, whose bitmap is not text).
+ *
+ * base64, because "plain" would put the bytes through a UTF-8 round trip and
+ * corrupt every byte above 0x7f — which is most of a bitmap.
+ */
+export function rawBinaryData(bytes: Uint8Array) {
+  let binary = "";
+  for (const b of bytes) binary += String.fromCharCode(b);
+  return [{ type: "raw" as const, format: "base64" as const, data: btoa(binary) }];
 }
 
 /**
@@ -240,7 +276,17 @@ export async function probePrinter(): Promise<PrinterHealth> {
  * Print raw ZPL to the configured (or default) printer. Throws PrintError with a
  * staff-readable message if QZ Tray isn't running or the printer can't be found.
  */
+/** Print raw ZPL. Unchanged path, used by every PC42d station. */
 export async function printZpl(zpl: string): Promise<void> {
+  return printRaw(rawZplData(zpl));
+}
+
+/** Print a binary TSPL job (bitmap badge + native QR). */
+export async function printTspl(bytes: Uint8Array): Promise<void> {
+  return printRaw(rawBinaryData(bytes));
+}
+
+async function printRaw(data: ReturnType<typeof rawZplData> | ReturnType<typeof rawBinaryData>): Promise<void> {
   let qz: Qz;
   try {
     qz = await getQz();
@@ -287,7 +333,7 @@ export async function printZpl(zpl: string): Promise<void> {
       );
     }
 
-    await qz.print(config, rawZplData(zpl));
+    await qz.print(config, data);
   } catch (err) {
     // Preserve a PrintError we raised ourselves. The raw-mode checks above throw
     // "transport" from INSIDE this try, and blanket-rethrowing as "job" silently
