@@ -213,6 +213,40 @@ describe("register", () => {
     expect(data.consentSource).toBe("web_form");
   });
 
+  describe("job title — the server backstop covers every channel", () => {
+    // A review claimed the staff walk-in path skips registerInputSchema and so
+    // has no server-side guard on the job title. It does not: createWalkIn ->
+    // register(), and register() parses with the schema on its first line
+    // (service.ts:79) before touching anything. These tests make that an
+    // executable fact rather than an argument, and fail the day someone adds a
+    // path that reaches the database without parsing.
+    it("rejects the sentinel even when the caller is a staff walk-in", async () => {
+      await expect(
+        register({
+          ...base,
+          staffWalkIn: true,
+          consentSource: "staff_walkin",
+          attendee: { ...base.attendee, company: "Acme", jobTitle: "Other" },
+          tickets: [{ itemId: 7, quantity: 1 }],
+        }),
+      ).rejects.toThrow();
+      expect(prisma.attendeeOrder.create).not.toHaveBeenCalled();
+    });
+
+    it("rejects an over-length title on the walk-in path", async () => {
+      await expect(
+        register({
+          ...base,
+          staffWalkIn: true,
+          consentSource: "staff_walkin",
+          attendee: { ...base.attendee, company: "Acme", jobTitle: "x".repeat(16) },
+          tickets: [{ itemId: 7, quantity: 1 }],
+        }),
+      ).rejects.toThrow();
+      expect(prisma.attendeeOrder.create).not.toHaveBeenCalled();
+    });
+  });
+
   describe("job title", () => {
     const itemsAndOrder = (code: string) => {
       mock(pretixProducts.listItems).mockResolvedValue([

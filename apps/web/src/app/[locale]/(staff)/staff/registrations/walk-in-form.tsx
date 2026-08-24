@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useId, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -37,6 +37,16 @@ export function WalkInForm({
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<WalkInActionResult | null>(null);
   const [err, setErr] = useState<string | null>(null);
+
+  // Ids so the Labels below actually name their controls. Every other field in
+  // this form is a bare <Label> sibling with no htmlFor, so a screen reader
+  // announces them unlabelled — the public wizard was fixed for exactly this
+  // (see its `fid` map) and this form never was. Scoped to the two fields
+  // added here rather than quietly rewriting the whole form days before the
+  // event; the rest is worth a follow-up.
+  const uid = useId();
+  const jobTitleId = `${uid}-job-title`;
+  const jobTitleOtherId = `${uid}-job-title-other`;
 
   // One source of truth for whether the job title fields are on screen. Both
   // the JSX below and the validation in submit() read this, so an error can
@@ -172,8 +182,9 @@ export function WalkInForm({
           stands in for "is this person with a company". */}
       {showJobTitle && (
         <div>
-          <Label>Job title (optional)</Label>
+          <Label htmlFor={jobTitleId}>Job title (optional)</Label>
           <select
+            id={jobTitleId}
             className="h-10 w-full rounded-[var(--radius-md)] border border-input bg-transparent px-3 text-sm"
             value={a.jobTitle}
             onChange={(e) =>
@@ -196,8 +207,11 @@ export function WalkInForm({
       )}
       {showJobTitle && a.jobTitle === JOB_TITLE_OTHER && (
         <div>
-          <Label>Job title</Label>
+          <Label htmlFor={jobTitleOtherId}>Job title</Label>
           <Input
+            id={jobTitleOtherId}
+            required
+            aria-required="true"
             maxLength={JOB_TITLE_MAX}
             value={a.jobTitleOther}
             onChange={(e) => setA({ ...a, jobTitleOther: e.target.value })}
