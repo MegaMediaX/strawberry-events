@@ -20,6 +20,14 @@ interface WalkInTicket {
   priceCents: number;
 }
 
+/**
+ * The blank attendee, named once so the initial state and the post-success
+ * reset cannot drift. A field present in one literal and missing from the
+ * other is this feature's recurring bug: the desk would carry one walk-in's
+ * job title over to the next person in the queue.
+ */
+const EMPTY_ATTENDEE = { firstName: "", lastName: "", email: "", phoneCC: "+961", phone: "", company: "", jobTitle: "", jobTitleOther: "" };
+
 const ROLE_TAGS = ["visitor", "media", "partner", "speaker", "staff"] as const;
 
 export function WalkInForm({
@@ -33,7 +41,7 @@ export function WalkInForm({
 }) {
   const [itemId, setItemId] = useState<number | "">(tickets[0]?.id ?? "");
   const [roleTag, setRoleTag] = useState<(typeof ROLE_TAGS)[number]>("visitor");
-  const [a, setA] = useState({ firstName: "", lastName: "", email: "", phoneCC: "+961", phone: "", company: "", jobTitle: "", jobTitleOther: "" });
+  const [a, setA] = useState(EMPTY_ATTENDEE);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<WalkInActionResult | null>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -87,7 +95,7 @@ export function WalkInForm({
     setBusy(false);
     if (!res.ok) return setErr(res.error ?? "Registration failed.");
     setResult(res);
-    setA({ firstName: "", lastName: "", email: "", phoneCC: "+961", phone: "", company: "", jobTitle: "", jobTitleOther: "" });
+    setA(EMPTY_ATTENDEE);
   }
 
   if (result?.ok) {

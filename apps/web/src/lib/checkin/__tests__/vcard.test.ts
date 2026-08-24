@@ -88,6 +88,23 @@ describe("buildVCard", () => {
     expect(v).toContain("ORG:GPCS\\; Beirut");
   });
 
+  it("neutralises a carriage return, not just a newline", () => {
+    // vCard lines are CRLF-delimited. The escaper handled \n but not \r, and a
+    // bare CR survives Zod: .trim() only strips the ends, and "CEO\rX-EVIL:1"
+    // is 12 characters, under the 15-cap. Written into a .vcf, parsers that
+    // split on CR read the tail as a NEW PROPERTY — arbitrary fields injected
+    // into whoever saved the contact.
+    const v = buildVCard({ fullName: "X", role: "CEO\rX-EVIL:1" });
+    expect(v).not.toMatch(/TITLE:[^\r\n]*\r(?!\n)/);
+    expect(v).toContain("TITLE:CEO\\nX-EVIL:1");
+  });
+
+  it("neutralises a CRLF pair as a single break", () => {
+    const v = buildVCard({ fullName: "X", company: "A\r\nB" });
+    expect(v).toContain("ORG:A\\nB");
+    expect(v).not.toContain("ORG:A\r\nB");
+  });
+
   it("escapes a semicolon inside a job title", () => {
     // TITLE now carries the attendee's own free text (the "Other" path), so
     // this is a live input, not a hypothetical one.
