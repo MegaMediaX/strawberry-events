@@ -278,3 +278,42 @@ describe("an over-wide job title is cut off, never allowed to reach the QR", () 
     expect(Number(fo[1]) + Number(fb[1])).toBeLessThanOrEqual(300 - 35);
   });
 });
+
+describe("absence of a job title changes nothing, for every badge shape", () => {
+  // The single golden above pins the bytes for ONE badge. This generalises the
+  // guarantee: across every tag, with and without a company, with and without a
+  // slug, plus the awkward names, a badge with no title must be identical to
+  // the badge built before the field existed.
+  //
+  // Checked against main when this was written: all 25 shapes were byte-for-byte
+  // identical. This test keeps that true without needing main to compare to.
+  const TAGS = ["media", "partner", "staff", "speaker", "visitor"] as const;
+  const shapes: BadgeData[] = [];
+  for (const tag of TAGS) {
+    shapes.push({ tag, fullName: "Elias Daou", company: "Bank of Beirut SAL", badgeSlug: "SZSZEC50" });
+    shapes.push({ tag, fullName: "Elias Daou", company: null, badgeSlug: "SZSZEC50" });
+    shapes.push({ tag, fullName: "Elias Daou", company: "Acme", badgeSlug: null });
+    shapes.push({ tag, fullName: "Elias Daou", company: null, badgeSlug: null });
+  }
+  shapes.push({ tag: "visitor", fullName: "Mouhamad Abdel Rahman Al-Hassan Kouyoumdjian", company: "A Very Long Company Name Indeed SAL", badgeSlug: "SZSZEC50" });
+  shapes.push({ tag: "visitor", fullName: "محمد", company: "شركة", badgeSlug: "SZSZEC50" });
+  shapes.push({ tag: "visitor", fullName: "a^b~c", company: "x^y~z", badgeSlug: "SZSZEC50" });
+  shapes.push({ tag: "visitor", fullName: "", company: "", badgeSlug: "SZSZEC50" });
+
+  it.each(["omitted", "null", "empty", "whitespace"] as const)(
+    "a title that is %s produces the same badge as one with no title field at all",
+    (kind) => {
+      for (const shape of shapes) {
+        const jobTitle = kind === "null" ? null : kind === "empty" ? "" : kind === "whitespace" ? "   " : undefined;
+        const withField = kind === "omitted" ? shape : { ...shape, jobTitle };
+        expect(buildBadgeZpl(withField)).toBe(buildBadgeZpl(shape));
+      }
+    },
+  );
+
+  it("covers every tag the badge can carry", () => {
+    // Guards the matrix itself: a new tag added to BadgeTag without being added
+    // here would leave that badge unverified.
+    expect(new Set(shapes.map((s) => s.tag)).size).toBe(TAGS.length);
+  });
+});

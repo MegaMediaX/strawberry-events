@@ -50,6 +50,10 @@ export function BadgeTemplate({ badge }: { badge: BadgeData }) {
       </div>
       <div className="badge-name">{badge.fullName}</div>
       {badge.company && <div className="badge-company">{badge.company}</div>}
+      {/* Below the company, matching the printed layout. Without this the
+          fallback and the thermal badge disagree, and the fallback is exactly
+          when nobody can compare them. */}
+      {badge.jobTitle?.trim() && <div className="badge-job-title">{badge.jobTitle}</div>}
       <style>{`
         /* ---- What actually gets printed ----
            window.print() prints the WHOLE DOCUMENT. Setting @page alone only
@@ -97,6 +101,10 @@ export function BadgeTemplate({ badge }: { badge: BadgeData }) {
         }
         .badge-company {
           margin-top: 1.4mm; font-size: 3.2mm; line-height: 1.2; color: #555;
+          max-height: 4mm; overflow: hidden;
+        }
+        .badge-job-title {
+          margin-top: 0.8mm; font-size: 3mm; line-height: 1.2; color: #555;
           max-height: 4mm; overflow: hidden;
         }
       `}</style>
