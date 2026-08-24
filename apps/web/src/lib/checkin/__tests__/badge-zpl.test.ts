@@ -1,4 +1,8 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
+import {
+  TEXT_WIDTH as SHARED_TEXT_WIDTH,
+  TEXT_LEFT as SHARED_TEXT_LEFT,
+} from "@/lib/checkin/badge-layout";
 import type { BadgeData } from "@/components/badges/badge-template";
 import {
   buildBadgeZpl,
@@ -12,6 +16,7 @@ const badge = (overrides: Partial<BadgeData> = {}): BadgeData => ({
   tag: "speaker",
   fullName: "Mouhamad Al-Hassan",
   company: "Strawberry Agency",
+  jobTitle: null,
   ...overrides,
 });
 
@@ -202,6 +207,7 @@ describe("job title on the badge", () => {
     tag: "visitor",
     fullName: "Elias Daou",
     company: "Bank of Beirut SAL",
+    jobTitle: null,
     badgeSlug: "SZSZEC50",
   });
 
@@ -229,8 +235,11 @@ describe("job title on the badge", () => {
     // at 265. A field block wider than that is how a badge stops scanning.
     const zpl = buildBadgeZpl({ ...proven(), jobTitle: "Sales Manager" });
     const line = zpl.split("\n").find((l) => l.includes("Sales Manager"))!;
-    const [, x] = /\^FO(\d+),(\d+)/.exec(line)!.map(Number) as unknown as number[];
+    // x IS asserted below. It was previously destructured and never used, so
+    // the comment promised a check the test never made.
+    const x = Number(/\^FO(\d+),/.exec(line)![1]);
     const fb = /\^FB(\d+),(\d+)/.exec(line)!;
+    expect(x).toBe(SHARED_TEXT_LEFT);
     expect(Number(fb[1])).toBe(249);
     expect(Number(fb[2])).toBe(1); // one line only — a second would reach the QR row
   });
@@ -290,23 +299,25 @@ describe("absence of a job title changes nothing, for every badge shape", () => 
   const TAGS = ["media", "partner", "staff", "speaker", "visitor"] as const;
   const shapes: BadgeData[] = [];
   for (const tag of TAGS) {
-    shapes.push({ tag, fullName: "Elias Daou", company: "Bank of Beirut SAL", badgeSlug: "SZSZEC50" });
-    shapes.push({ tag, fullName: "Elias Daou", company: null, badgeSlug: "SZSZEC50" });
-    shapes.push({ tag, fullName: "Elias Daou", company: "Acme", badgeSlug: null });
-    shapes.push({ tag, fullName: "Elias Daou", company: null, badgeSlug: null });
+    shapes.push({ tag, fullName: "Elias Daou", company: "Bank of Beirut SAL", jobTitle: null, badgeSlug: "SZSZEC50" });
+    shapes.push({ tag, fullName: "Elias Daou", company: null, jobTitle: null, badgeSlug: "SZSZEC50" });
+    shapes.push({ tag, fullName: "Elias Daou", company: "Acme", jobTitle: null, badgeSlug: null });
+    shapes.push({ tag, fullName: "Elias Daou", company: null, jobTitle: null, badgeSlug: null });
   }
-  shapes.push({ tag: "visitor", fullName: "Mouhamad Abdel Rahman Al-Hassan Kouyoumdjian", company: "A Very Long Company Name Indeed SAL", badgeSlug: "SZSZEC50" });
-  shapes.push({ tag: "visitor", fullName: "محمد", company: "شركة", badgeSlug: "SZSZEC50" });
-  shapes.push({ tag: "visitor", fullName: "a^b~c", company: "x^y~z", badgeSlug: "SZSZEC50" });
-  shapes.push({ tag: "visitor", fullName: "", company: "", badgeSlug: "SZSZEC50" });
+  shapes.push({ tag: "visitor", fullName: "Mouhamad Abdel Rahman Al-Hassan Kouyoumdjian", company: "A Very Long Company Name Indeed SAL", jobTitle: null, badgeSlug: "SZSZEC50" });
+  shapes.push({ tag: "visitor", fullName: "محمد", company: "شركة", jobTitle: null, badgeSlug: "SZSZEC50" });
+  shapes.push({ tag: "visitor", fullName: "a^b~c", company: "x^y~z", jobTitle: null, badgeSlug: "SZSZEC50" });
+  shapes.push({ tag: "visitor", fullName: "", company: "", jobTitle: null, badgeSlug: "SZSZEC50" });
 
-  it.each(["omitted", "null", "empty", "whitespace"] as const)(
-    "a title that is %s produces the same badge as one with no title field at all",
+  // "omitted" is deliberately not a case any more: BadgeData.jobTitle is
+  // required, so a construction site that forgets it no longer compiles. The
+  // compiler covers that case better than a test could.
+  it.each(["empty", "whitespace"] as const)(
+    "a title that is %s produces the same badge as an explicit null",
     (kind) => {
       for (const shape of shapes) {
-        const jobTitle = kind === "null" ? null : kind === "empty" ? "" : kind === "whitespace" ? "   " : undefined;
-        const withField = kind === "omitted" ? shape : { ...shape, jobTitle };
-        expect(buildBadgeZpl(withField)).toBe(buildBadgeZpl(shape));
+        const jobTitle = kind === "empty" ? "" : "   ";
+        expect(buildBadgeZpl({ ...shape, jobTitle })).toBe(buildBadgeZpl(shape));
       }
     },
   );
@@ -315,5 +326,61 @@ describe("absence of a job title changes nothing, for every badge shape", () => 
     // Guards the matrix itself: a new tag added to BadgeTag without being added
     // here would leave that badge unverified.
     expect(new Set(shapes.map((s) => s.tag)).size).toBe(TAGS.length);
+  });
+});
+
+describe("a job title that cannot be printed says so", () => {
+  // The printer's fonts are Latin-only, so sanitizeZplText drops everything
+  // above U+00FF. An Arabic job title typed into the "Other" box therefore
+  // sanitises to "" and the line is omitted — producing a badge byte-identical
+  // to one where the attendee never answered.
+  //
+  // Dropping is the right OUTPUT (there is no correct way to render it on this
+  // hardware). Dropping SILENTLY is not: nothing distinguished "not given" from
+  // "given and discarded", so nobody would ever learn the field was useless for
+  // those attendees.
+  it("logs when a title is discarded by sanitisation", () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const base: BadgeData = { tag: "visitor", fullName: "Elias Daou", company: "Acme", jobTitle: null, badgeSlug: "SZSZEC50" };
+    const zpl = buildBadgeZpl({ ...base, jobTitle: "مدير المبيعات" });
+
+    // Output is unchanged — the badge is still correct and still scans.
+    expect(zpl).toBe(buildBadgeZpl(base));
+    // But it is no longer silent.
+    expect(spy).toHaveBeenCalledWith(expect.stringContaining("job title"), expect.anything());
+    spy.mockRestore();
+  });
+
+  it("says nothing for a title that was simply never given", () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    buildBadgeZpl({ tag: "visitor", fullName: "Elias Daou", company: "Acme", jobTitle: null, badgeSlug: "SZSZEC50" });
+    buildBadgeZpl({ tag: "visitor", fullName: "Elias Daou", company: "Acme", badgeSlug: "SZSZEC50", jobTitle: "   " });
+    expect(spy).not.toHaveBeenCalled();
+    spy.mockRestore();
+  });
+
+  it("says nothing for a title that prints fine", () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    buildBadgeZpl({ tag: "visitor", fullName: "Elias Daou", company: "Acme", badgeSlug: "SZSZEC50", jobTitle: "CEO" });
+    expect(spy).not.toHaveBeenCalled();
+    spy.mockRestore();
+  });
+});
+
+describe("the two copies of the text column agree", () => {
+  // badge-zpl.ts computes its own TEXT_WIDTH (QR_X - MARGIN - QR_QUIET) rather
+  // than importing the shared one, and only the job title's Y and size come
+  // from badge-layout. They are both 249 today. If someone edits MARGIN or the
+  // QR constants in either file, the job title's column would silently desync
+  // from the module it is supposed to be governed by — which is the exact
+  // "two printers disagree" failure badge-layout.ts exists to prevent.
+  it("badge-zpl's column is the same width as badge-layout's", () => {
+    const zpl = buildBadgeZpl({
+      tag: "visitor", fullName: "Elias Daou", company: "Acme",
+      badgeSlug: "SZSZEC50", jobTitle: "CEO",
+    });
+    const line = zpl.split("\n").find((l) => l.includes("^FDCEO^FS"))!;
+    expect(Number(/\^FB(\d+),/.exec(line)![1])).toBe(SHARED_TEXT_WIDTH);
+    expect(Number(/\^FO(\d+),/.exec(line)![1])).toBe(SHARED_TEXT_LEFT);
   });
 });

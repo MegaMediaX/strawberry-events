@@ -14,11 +14,19 @@ export interface BadgeData {
   fullName: string;
   company: string | null;
   /**
-   * Job title, printed under the company. Absent for every registration taken
+   * Job title, printed under the company. Null for every registration taken
    * before the field existed, and for anyone who skipped it — so the badge must
-   * be unchanged when it is missing, not merely tolerant of it.
+   * be unchanged when it is absent, not merely tolerant of it.
+   *
+   * REQUIRED and nullable, exactly like `company`, rather than optional. Both
+   * come from equally nullable columns, so "absent" is always expressible as
+   * null and the optional `?` bought nothing — it only stopped the compiler
+   * from forcing the NEXT construction site to carry the field. A badge preview
+   * or a bulk-print tool added later would have compiled clean while silently
+   * dropping the title, which is the same shape as the bug that made the
+   * walk-in Company field untypeable.
    */
-  jobTitle?: string | null;
+  jobTitle: string | null;
   /**
    * Opaque code behind the printed contact-profile QR. Optional: test badges
    * and orders predating the column have none, and must still print.

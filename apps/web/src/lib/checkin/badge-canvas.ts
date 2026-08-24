@@ -91,13 +91,21 @@ export function renderBadgeBitmap(badge: BadgeData): Uint8Array {
   //
   // Trimmed before the check so a title of spaces draws nothing at all — a badge
   // with no title must be identical to the one the lanes were verified against.
-  if (badge.jobTitle?.trim()) {
+  // Sanitised first, for the same reason as ZPL: a title with nothing printable
+  // in it must not reserve a line, and must not vanish without a word either.
+  const jobTitle = badge.jobTitle?.trim() ? sanitizeZplText(badge.jobTitle) : "";
+  if (badge.jobTitle?.trim() && !jobTitle) {
+    console.error("[badge] job title dropped — nothing printable:", {
+      length: badge.jobTitle.trim().length,
+    });
+  }
+  if (jobTitle) {
     ctx.font = `${JOB_TITLE_SIZE}px ${FONT_STACK}`;
     ctx.save();
     ctx.beginPath();
     ctx.rect(TEXT_LEFT, JOB_TITLE_Y, TEXT_WIDTH, JOB_TITLE_SIZE + 6);
     ctx.clip();
-    ctx.fillText(sanitizeZplText(badge.jobTitle), TEXT_LEFT, JOB_TITLE_Y);
+    ctx.fillText(jobTitle, TEXT_LEFT, JOB_TITLE_Y);
     ctx.restore();
   }
 

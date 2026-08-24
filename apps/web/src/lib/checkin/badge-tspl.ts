@@ -94,9 +94,14 @@ export function buildBadgeTspl(bitmap: Uint8Array, badgeSlug?: string | null): U
     try {
       // Error correction Q, mode A (auto), matching the ZPL badge exactly.
       parts.push(ascii(`QRCODE ${QR_X},${QR_Y},Q,${QR_MAG},A,0,"${badgeProfileUrl(badgeSlug)}"\r\n`));
-    } catch {
+    } catch (err) {
       // badgeProfileUrl throws when the configured host outgrows the reserved
       // box. A badge with no QR still opens the door; an exception does not.
+      //
+      // Logged, matching the ZPL path. This was a bare `catch {}`: the TSPL lane
+      // could print badges with no QR all day and leave no trace anywhere, while
+      // the same failure on a PC42d at least reached the console.
+      console.error("[badge] QR omitted:", (err as Error).message);
     }
   }
 
