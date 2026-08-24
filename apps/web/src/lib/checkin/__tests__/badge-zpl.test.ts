@@ -251,3 +251,30 @@ describe("job title on the badge", () => {
     expect(zpl).not.toContain("a^b~c");
   });
 });
+
+describe("an over-wide job title is cut off, never allowed to reach the QR", () => {
+  // Measured in Arial 24px in a real browser: "General Manager" is 187 dots and
+  // fits the 249-dot column, but 15 WIDE glyphs measure 340 and do not. The
+  // character cap therefore does not guarantee fit — only the column does.
+  //
+  // This is the same failure the name already guards against, and the reason
+  // QR_QUIET exists: a badge whose text reaches the symbol looks perfect,
+  // prints without error, and will not scan.
+  it("bounds the field block to the column regardless of how wide the text is", () => {
+    const zpl = buildBadgeZpl({
+      tag: "visitor",
+      fullName: "Elias Daou",
+      company: "Bank of Beirut SAL",
+      badgeSlug: "SZSZEC50",
+      jobTitle: "WWWWWWWWWWWWWWW",
+    });
+    const line = zpl.split("\n").find((l) => l.includes("WWWW"))!;
+    const fb = /\^FB(\d+),(\d+),/.exec(line)!;
+    // ZPL truncates at the block width, so the ink stops at x = 16 + 249 = 265,
+    // which is exactly where the QR's quiet zone begins.
+    expect(Number(fb[1])).toBe(249);
+    expect(Number(fb[2])).toBe(1);
+    const fo = /\^FO(\d+),/.exec(line)!;
+    expect(Number(fo[1]) + Number(fb[1])).toBeLessThanOrEqual(300 - 35);
+  });
+});
