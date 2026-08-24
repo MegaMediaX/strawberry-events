@@ -172,7 +172,7 @@ export function WalkInForm({
               company: e.target.value,
               // Clearing the company clears the title with it, so a held
               // selection cannot reappear against a different company.
-              ...jobTitleForCompanyChange(e.target.value, a),
+              ...jobTitleForCompanyChange(e.target.value, a.jobTitle, a.jobTitleOther),
             })
           }
         />

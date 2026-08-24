@@ -113,8 +113,6 @@ describe("resolveVisibleJobTitle — validation must track visibility", () => {
 });
 
 describe("jobTitleForCompanyChange — a cleared company clears the title", () => {
-  const held = { jobTitle: "CTO", jobTitleOther: "" };
-
   // The walk-in desk hides the title fields when the company is empty, but the
   // selection stayed in state behind them:
   //
@@ -125,22 +123,59 @@ describe("jobTitleForCompanyChange — a cleared company clears the title", () =
   //
   // On screen that is indistinguishable from a deliberate choice, so an
   // operator correcting the company name silently reattaches the old title to
-  // a different one — and it reaches the public profile and the CSV.
+  // a different one.
   it("drops the held title when the company is cleared", () => {
-    expect(jobTitleForCompanyChange("", held)).toEqual({ jobTitle: "", jobTitleOther: "" });
+    expect(jobTitleForCompanyChange("", "CTO", "")).toEqual({ jobTitle: "", jobTitleOther: "" });
   });
 
   it("drops it for a whitespace-only company too", () => {
-    expect(jobTitleForCompanyChange("   ", held)).toEqual({ jobTitle: "", jobTitleOther: "" });
+    expect(jobTitleForCompanyChange("   ", "CTO", "")).toEqual({ jobTitle: "", jobTitleOther: "" });
   });
 
   it("keeps it while the company is merely being edited", () => {
     // "Acme" -> "Acme Corp" is one company being corrected, not a new one.
-    expect(jobTitleForCompanyChange("Acme Corp", held)).toEqual(held);
+    expect(jobTitleForCompanyChange("Acme Corp", "CTO", "")).toEqual({
+      jobTitle: "CTO",
+      jobTitleOther: "",
+    });
   });
 
   it("drops free text typed behind Other as well", () => {
-    const other = { jobTitle: "Other", jobTitleOther: "Head of Ops" };
-    expect(jobTitleForCompanyChange("", other)).toEqual({ jobTitle: "", jobTitleOther: "" });
+    expect(jobTitleForCompanyChange("", JOB_TITLE_OTHER, "Head of Ops")).toEqual({
+      jobTitle: "",
+      jobTitleOther: "",
+    });
+  });
+
+  // The two below are the ones that matter. The first version of this helper
+  // took the whole form-state object and returned it unchanged when the
+  // company was non-empty. Spread after `company:` in the component, that
+  // stale object put the PREVIOUS company back — so every keystroke in the
+  // walk-in Company field was silently discarded and the field could never be
+  // filled in at all.
+  //
+  // The original tests passed a bare { jobTitle, jobTitleOther } literal, so
+  // "returns the argument" and "returns just these two keys" looked identical
+  // and the bug was invisible.
+  it("returns ONLY the two keys it owns", () => {
+    expect(Object.keys(jobTitleForCompanyChange("Acme", "CTO", "")).sort()).toEqual([
+      "jobTitle",
+      "jobTitleOther",
+    ]);
+  });
+
+  it("survives the exact merge the walk-in form performs", () => {
+    // Reproduces walk-in-form.tsx's onChange verbatim, which is the only place
+    // the defect could show itself.
+    let state = { firstName: "Jane", company: "", jobTitle: "", jobTitleOther: "" };
+    for (const typed of ["A", "Ac", "Acm", "Acme"]) {
+      state = {
+        ...state,
+        company: typed,
+        ...jobTitleForCompanyChange(typed, state.jobTitle, state.jobTitleOther),
+      };
+    }
+    expect(state.company).toBe("Acme");
+    expect(state.firstName).toBe("Jane");
   });
 });
