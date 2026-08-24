@@ -28,7 +28,10 @@ export function escapeVCardValue(value: string): string {
     .replace(/\\/g, "\\\\")
     .replace(/\n/g, "\\n")
     .replace(/,/g, "\\,")
-    .replace(/;/g, "\;");
+    // Doubled backslash, like the three above it. Written as "\;" this was a
+    // no-op: "\;" is not an escape sequence in a JS string, so it collapsed to
+    // a bare ";" and replaced a semicolon with itself.
+    .replace(/;/g, "\\;");
 }
 
 /**
