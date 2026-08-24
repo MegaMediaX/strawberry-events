@@ -10,7 +10,7 @@ import {
   JOB_TITLE_MAX,
   JOB_TITLE_OTHER,
   JOB_TITLE_PRESETS,
-  resolveJobTitleSelection,
+  resolveVisibleJobTitle,
 } from "@/lib/registration/job-title";
 
 interface WalkInTicket {
@@ -37,6 +37,11 @@ export function WalkInForm({
   const [result, setResult] = useState<WalkInActionResult | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
+  // One source of truth for whether the job title fields are on screen. Both
+  // the JSX below and the validation in submit() read this, so an error can
+  // never point at a control the operator cannot see.
+  const showJobTitle = a.company.trim() !== "";
+
   async function submit() {
     setErr(null);
     setResult(null);
@@ -45,8 +50,10 @@ export function WalkInForm({
       return setErr("First name and last name are required.");
     }
     // Resolved before the request so "Other" with nothing typed is caught at
-    // the desk, not swallowed into a badge that reads "Other".
-    const title = resolveJobTitleSelection(a.jobTitle, a.jobTitleOther);
+    // the desk, not swallowed into a badge that reads "Other" — but only while
+    // the fields are visible, or clearing the company traps the desk behind an
+    // error about a control that is no longer rendered.
+    const title = resolveVisibleJobTitle(showJobTitle, a.jobTitle, a.jobTitleOther);
     if (!title.ok) return setErr(title.error);
     setBusy(true);
     const res = await walkInAction(eventId, {
@@ -55,7 +62,7 @@ export function WalkInForm({
       locale: locale === "ar" ? "ar" : "en",
       // Listed field by field rather than spread: `a` also carries the raw
       // dropdown selection and the text behind "Other", neither of which is a
-      // job title until resolveJobTitleSelection has turned them into one.
+      // job title until resolveVisibleJobTitle has turned them into one.
       attendee: {
         firstName: a.firstName,
         lastName: a.lastName,
@@ -151,7 +158,7 @@ export function WalkInForm({
       {/* A title belongs to an employer, so it is only asked once there is one.
           The walk-in form has no attendee type, so the company name is what
           stands in for "is this person with a company". */}
-      {a.company.trim() !== "" && (
+      {showJobTitle && (
         <div>
           <Label>Job title (optional)</Label>
           <select
@@ -175,7 +182,7 @@ export function WalkInForm({
           </select>
         </div>
       )}
-      {a.company.trim() !== "" && a.jobTitle === JOB_TITLE_OTHER && (
+      {showJobTitle && a.jobTitle === JOB_TITLE_OTHER && (
         <div>
           <Label>Job title</Label>
           <Input

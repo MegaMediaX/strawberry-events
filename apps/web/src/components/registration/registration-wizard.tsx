@@ -19,7 +19,7 @@ import {
   JOB_TITLE_OTHER,
   JOB_TITLE_PRESETS,
   JOB_TITLE_MAX,
-  resolveJobTitleSelection,
+  resolveVisibleJobTitle,
 } from "@/lib/registration/job-title";
 import { gatedCategories, visibleSubEvents, pruneSelection } from "@/lib/registration/opt-in";
 
@@ -217,12 +217,16 @@ export function RegistrationWizard({
           setErr("Company name is required.");
           return;
         }
-        if (a.attendeeType === "company") {
-          const title = resolveJobTitleSelection(a.jobTitle, a.jobTitleOther);
-          if (!title.ok) {
-            setErr(title.error);
-            return;
-          }
+        // Same expression that decides whether the fields render, so the
+        // wizard can never demand a title while the control is hidden.
+        const title = resolveVisibleJobTitle(
+          a.attendeeType === "company",
+          a.jobTitle,
+          a.jobTitleOther,
+        );
+        if (!title.ok) {
+          setErr(title.error);
+          return;
         }
       }
     }
@@ -266,9 +270,12 @@ export function RegistrationWizard({
     // has already rejected the invalid cases; if resolution still fails, send
     // no title rather than the sentinel — a blank line beats a badge and a
     // public profile that both read "Other".
-    const titleResolution = resolveJobTitleSelection(a.jobTitle, a.jobTitleOther);
-    const jobTitle =
-      a.attendeeType === "company" && titleResolution.ok ? titleResolution.value : null;
+    const titleResolution = resolveVisibleJobTitle(
+      a.attendeeType === "company",
+      a.jobTitle,
+      a.jobTitleOther,
+    );
+    const jobTitle = titleResolution.ok ? titleResolution.value : null;
     const res = await registerAction(locale, slug, {
       attendee: {
         firstName: a.firstName,

@@ -6,6 +6,7 @@ import {
   JOB_TITLE_PRESETS,
   normalizeJobTitle,
   resolveJobTitleSelection,
+  resolveVisibleJobTitle,
 } from "@/lib/registration/job-title";
 
 describe("job title presets", () => {
@@ -75,5 +76,37 @@ describe("resolveJobTitleSelection", () => {
     // Guards a tampered <select>: only the presets and the sentinel are values.
     const r = resolveJobTitleSelection("Supreme Leader", "");
     expect(r.ok).toBe(false);
+  });
+});
+
+describe("resolveVisibleJobTitle — validation must track visibility", () => {
+  // The walk-in desk shows the job title fields only once a company name has
+  // been typed. Validating a HIDDEN field blocks the desk with an error about
+  // a control that is not on screen:
+  //
+  //   type "Acme" -> pick "Other" -> leave the text blank
+  //   -> clear the Company field (both title fields disappear)
+  //   -> press Register walk-in
+  //   -> "Enter your job title." and the operator cannot proceed,
+  //      with no job title field anywhere to fill in.
+  //
+  // At a door with a queue, the only escape is re-typing a company name, which
+  // nothing on screen suggests.
+  it("does not validate a field that is not on screen", () => {
+    expect(resolveVisibleJobTitle(false, JOB_TITLE_OTHER, "")).toEqual({ ok: true, value: null });
+  });
+
+  it("discards a stale selection left behind when the field was hidden", () => {
+    // Same sequence but with text already typed: the title must not be stored
+    // for someone who ended up with no company.
+    expect(resolveVisibleJobTitle(false, JOB_TITLE_OTHER, "Head of Ops")).toEqual({
+      ok: true,
+      value: null,
+    });
+  });
+
+  it("still validates normally while the field IS on screen", () => {
+    expect(resolveVisibleJobTitle(true, JOB_TITLE_OTHER, "").ok).toBe(false);
+    expect(resolveVisibleJobTitle(true, "CEO", "")).toEqual({ ok: true, value: "CEO" });
   });
 });

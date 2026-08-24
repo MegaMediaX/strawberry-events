@@ -78,3 +78,25 @@ export function resolveJobTitleSelection(
 
   return { ok: true, value: choice };
 }
+
+/**
+ * Resolve a job title only while its fields are actually on screen.
+ *
+ * Both forms reveal the title conditionally — the wizard on attendee type, the
+ * walk-in desk on the company name being non-empty — and both keep the raw
+ * selection in state when the fields hide again. Validating that leftover
+ * produces an error about a control the user cannot see: at the walk-in desk,
+ * clearing the company after picking "Other" blocked the registration with
+ * "Enter your job title." and no job title field rendered anywhere.
+ *
+ * Pass the SAME expression that decides whether the fields render, so
+ * validation and visibility cannot drift apart.
+ */
+export function resolveVisibleJobTitle(
+  isVisible: boolean,
+  selection: string | null | undefined,
+  otherText: string | null | undefined,
+): JobTitleResolution {
+  if (!isVisible) return { ok: true, value: null };
+  return resolveJobTitleSelection(selection, otherText);
+}
