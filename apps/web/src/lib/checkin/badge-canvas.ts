@@ -6,7 +6,7 @@ import { packBitmap } from "./badge-tspl";
 import {
   LABEL_W, LABEL_H, BAND_Y, BAND_H,
   TEXT_LEFT, TEXT_WIDTH, NAME_Y, NAME_SIZE, NAME_LINE_H, NAME_MAX_LINES,
-  COMPANY_Y, COMPANY_SIZE, TAG_SIZE,
+  COMPANY_Y, COMPANY_SIZE, JOB_TITLE_Y, JOB_TITLE_SIZE, TAG_SIZE,
   fitName, centreX,
 } from "./badge-layout";
 
@@ -82,6 +82,22 @@ export function renderBadgeBitmap(badge: BadgeData): Uint8Array {
     ctx.rect(TEXT_LEFT, COMPANY_Y, TEXT_WIDTH, COMPANY_SIZE + 6);
     ctx.clip();
     ctx.fillText(sanitizeZplText(badge.company), TEXT_LEFT, COMPANY_Y);
+    ctx.restore();
+  }
+
+  // Job title, on its own line under the company. Clipped to the same column
+  // for the same reason: the column stops a full quiet zone short of the QR, and
+  // ink past its right edge kills the scan without changing how the badge looks.
+  //
+  // Trimmed before the check so a title of spaces draws nothing at all — a badge
+  // with no title must be identical to the one the lanes were verified against.
+  if (badge.jobTitle?.trim()) {
+    ctx.font = `${JOB_TITLE_SIZE}px ${FONT_STACK}`;
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(TEXT_LEFT, JOB_TITLE_Y, TEXT_WIDTH, JOB_TITLE_SIZE + 6);
+    ctx.clip();
+    ctx.fillText(sanitizeZplText(badge.jobTitle), TEXT_LEFT, JOB_TITLE_Y);
     ctx.restore();
   }
 

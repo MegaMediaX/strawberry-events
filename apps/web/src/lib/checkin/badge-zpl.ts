@@ -1,5 +1,9 @@
 import type { BadgeData } from "@/components/badges/badge-template";
 import { badgeProfileUrl } from "./badge-slug";
+// Only the job-title line is taken from the shared module. The name and
+// company keep the numbers this file has always used, because the three
+// PC42d lanes were verified against them on hardware — see the note below.
+import { JOB_TITLE_Y, JOB_TITLE_SIZE } from "./badge-layout";
 
 /**
  * Generate ZPL II for a 60×40 mm (landscape) attendee badge, targeting the
@@ -10,6 +14,7 @@ import { badgeProfileUrl } from "./badge-slug";
  *     thermal is monochrome, so the on-screen tag color becomes black)
  *   - full name (large)
  *   - company (smaller, optional)
+ *   - job title (smaller still, optional)
  *   - contact-profile QR, bottom right (optional — omitted if no slug)
  *
  * 203 dpi ≈ 8 dots/mm, so 60 × 40 mm ≈ 480 × 320 dots.
@@ -145,6 +150,10 @@ function qrBlock(slug: string): string {
 export function buildBadgeZpl(badge: BadgeData): string {
   const tag = sanitizeZplText(badge.tag).toUpperCase();
   const company = badge.company ? sanitizeZplText(badge.company) : null;
+  // Trimmed before the emptiness check: a title of spaces must add no line at
+  // all, not an empty field block that shifts nothing but is not the proven
+  // badge either.
+  const jobTitle = badge.jobTitle?.trim() ? sanitizeZplText(badge.jobTitle) : null;
 
   // Tag band: a filled black box with reversed (white) centered text. The tag
   // is the most prominent element, so it gets a tall band and large font.
@@ -168,6 +177,7 @@ export function buildBadgeZpl(badge: BadgeData): string {
     band,
     textBlock(104, 40, badge.fullName, 2),
     company ? textBlock(196, 26, company, 1) : "",
+    jobTitle ? textBlock(JOB_TITLE_Y, JOB_TITLE_SIZE, jobTitle, 1) : "",
     qr,
     "^XZ",
   ]

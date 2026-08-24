@@ -14,6 +14,12 @@ export interface BadgeData {
   fullName: string;
   company: string | null;
   /**
+   * Job title, printed under the company. Absent for every registration taken
+   * before the field existed, and for anyone who skipped it — so the badge must
+   * be unchanged when it is missing, not merely tolerant of it.
+   */
+  jobTitle?: string | null;
+  /**
    * Opaque code behind the printed contact-profile QR. Optional: test badges
    * and orders predating the column have none, and must still print.
    *

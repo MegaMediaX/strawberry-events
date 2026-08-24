@@ -43,6 +43,24 @@ export const NAME_MAX_LINES = 2;
 export const NAME_MIN_SIZE = 24;
 export const COMPANY_Y = 196;
 export const COMPANY_SIZE = 26;
+/**
+ * Job title, on its own line under the company.
+ *
+ * Below rather than above deliberately: the company sits at 196 and the three
+ * PC42d lanes were verified on hardware against that exact layout. Appending a
+ * line leaves every existing element where it was, so a badge without a title
+ * is byte-identical to the proven one — which is what almost every badge on the
+ * door will be.
+ *
+ * 230 clears the company (196 + 26 = 222) and 230 + 24 = 254 stays well inside
+ * the 320-dot label. One line only: a second would run into the QR's row.
+ *
+ * The 15-character cap on the title (JOB_TITLE_MAX) is what guarantees this fits
+ * the 249-dot column at this size without shrinking.
+ */
+export const JOB_TITLE_Y = 230;
+export const JOB_TITLE_SIZE = 24;
+
 export const TAG_SIZE = 46;
 
 /**

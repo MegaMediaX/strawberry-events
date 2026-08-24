@@ -177,3 +177,77 @@ describe("the contact-profile QR", () => {
     }
   });
 });
+
+describe("job title on the badge", () => {
+  // Captured from main BEFORE the job title existed. Every one of the 1,167
+  // registrations taken so far has no title, so this is the badge the door will
+  // print for almost everyone on 28 Aug — and the three PC42d lanes were
+  // verified against exactly these bytes on hardware.
+  //
+  // If this test fails, the change is not additive and the proven badge has
+  // moved. That is a stop, not a snapshot to update.
+  const GOLDEN_NO_TITLE = [
+    "^XA",
+    "^PW480",
+    "^LL320",
+    "^LH0,0",
+    "^FO0,10^GB480,76,76,B,0^FS^FO16,23^A0N,50,50^FR^FB448,1,0,C,0^FDVISITOR^FS",
+    "^FO16,104^A0N,40,40^FB249,2,0,L,0^FDElias Daou^FS",
+    "^FO16,196^A0N,26,26^FB249,1,0,L,0^FDBank of Beirut SAL^FS",
+    "^FO300,131^BQN,2,5,Q,7^FDQA,HTTPS://REGISTER.STRAWBERRYAGENCY.COM/C/SZSZEC50^FS",
+    "^XZ",
+  ].join("\n");
+
+  const proven = (): BadgeData => ({
+    tag: "visitor",
+    fullName: "Elias Daou",
+    company: "Bank of Beirut SAL",
+    badgeSlug: "SZSZEC50",
+  });
+
+  it("a badge with no job title is byte-identical to the proven badge", () => {
+    expect(buildBadgeZpl(proven())).toBe(GOLDEN_NO_TITLE);
+  });
+
+  it("an empty or whitespace-only title changes nothing either", () => {
+    expect(buildBadgeZpl({ ...proven(), jobTitle: "" })).toBe(GOLDEN_NO_TITLE);
+    expect(buildBadgeZpl({ ...proven(), jobTitle: "   " })).toBe(GOLDEN_NO_TITLE);
+  });
+
+  it("adds exactly one line when a title is given, leaving the rest untouched", () => {
+    const withTitle = buildBadgeZpl({ ...proven(), jobTitle: "Sales Manager" });
+    const before = GOLDEN_NO_TITLE.split("\n");
+    const after = withTitle.split("\n");
+    expect(after.length).toBe(before.length + 1);
+    // Every original line survives, unmoved relative to the others.
+    expect(after.filter((l) => before.includes(l))).toEqual(before);
+    expect(withTitle).toContain("Sales Manager");
+  });
+
+  it("keeps the title inside the text column, clear of the QR quiet zone", () => {
+    // The column is 249 dots wide starting at x=16; the QR's quiet zone begins
+    // at 265. A field block wider than that is how a badge stops scanning.
+    const zpl = buildBadgeZpl({ ...proven(), jobTitle: "Sales Manager" });
+    const line = zpl.split("\n").find((l) => l.includes("Sales Manager"))!;
+    const [, x] = /\^FO(\d+),(\d+)/.exec(line)!.map(Number) as unknown as number[];
+    const fb = /\^FB(\d+),(\d+)/.exec(line)!;
+    expect(Number(fb[1])).toBe(249);
+    expect(Number(fb[2])).toBe(1); // one line only — a second would reach the QR row
+  });
+
+  it("puts the title below the company and inside the label", () => {
+    const zpl = buildBadgeZpl({ ...proven(), jobTitle: "Sales Manager" });
+    const line = zpl.split("\n").find((l) => l.includes("Sales Manager"))!;
+    const m = /\^FO(\d+),(\d+)\^A0N,(\d+)/.exec(line)!;
+    const y = Number(m[2]);
+    const size = Number(m[3]);
+    expect(y).toBeGreaterThan(196 + 26); // clears the company line
+    expect(y + size).toBeLessThanOrEqual(320); // stays on the label
+  });
+
+  it("sanitises the title like every other field", () => {
+    const zpl = buildBadgeZpl({ ...proven(), jobTitle: "a^b~c" });
+    expect(zpl).toContain("a b c");
+    expect(zpl).not.toContain("a^b~c");
+  });
+});
