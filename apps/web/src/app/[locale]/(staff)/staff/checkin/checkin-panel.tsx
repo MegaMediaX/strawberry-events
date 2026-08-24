@@ -7,9 +7,9 @@ import { Input } from "@/components/ui/input";
 import { BadgePrintDialog } from "@/components/badges/badge-print-dialog";
 import type { BadgeData } from "@/components/badges/badge-template";
 import type { CheckInResult } from "@/lib/checkin/service";
-import { buildBadgeZpl } from "@/lib/checkin/badge-zpl";
 import { createPrintOwnership } from "@/lib/checkin/print-ownership";
-import { printZpl, PrintError, isPersistentPrintFailure } from "@/lib/checkin/print-client";
+import { PrintError, isPersistentPrintFailure } from "@/lib/checkin/print-client";
+import { printBadge } from "@/lib/checkin/print-badge";
 import { QrScanner } from "./qr-scanner";
 import { PrinterSettings } from "./printer-settings";
 import { PrinterStatus } from "./printer-status";
@@ -104,7 +104,7 @@ export function CheckinPanel({
       return "Printer unavailable — use the on-screen print below.";
     }
     try {
-      await printZpl(buildBadgeZpl(b));
+      await printBadge(b);
       return null;
     } catch (err) {
       // Only a persistent failure stops us dialling. A rejected label is

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, afterEach } from "vitest";
+import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 import { rawZplData, stripToRawOptions, isRawOnly, PrintError, isPersistentPrintFailure} from "@/lib/checkin/print-client";
 
 describe("rawZplData", () => {
@@ -288,5 +288,46 @@ describe("a raw-mode failure must not be reported as a paper jam", () => {
 
     vi.doUnmock("qz-tray");
     vi.resetModules();
+  });
+});
+
+describe("printer language defaults to ZPL", () => {
+  // Three stations are proven on ZPL. Adding TSPL must not change what they do,
+  // so anything other than a deliberate "tspl" resolves to ZPL.
+  const store: Record<string, string> = {};
+  const localStorage = {
+    getItem: (k: string) => store[k] ?? null,
+    setItem: (k: string, v: string) => { store[k] = v; },
+    removeItem: (k: string) => { delete store[k]; },
+  };
+
+  beforeEach(() => {
+    for (const k of Object.keys(store)) delete store[k];
+    vi.stubGlobal("window", { localStorage });
+  });
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("is ZPL when nothing has been chosen", async () => {
+    const { getPrinterLanguage } = await import("@/lib/checkin/print-client");
+    expect(getPrinterLanguage()).toBe("zpl");
+  });
+
+  it("is ZPL for any unexpected stored value", async () => {
+    // A corrupted or stale value must never silently switch a working station
+    // to a language its printer cannot read.
+    const { getPrinterLanguage } = await import("@/lib/checkin/print-client");
+    for (const junk of ["ZPL", "tspl2", "", "epl", "null"]) {
+      store["strawberry.checkin.printerLanguage"] = junk;
+      expect(getPrinterLanguage()).toBe("zpl");
+    }
+  });
+
+  it("round-trips a deliberate TSPL choice, and clears back to ZPL", async () => {
+    const { getPrinterLanguage, setPrinterLanguage } = await import("@/lib/checkin/print-client");
+    setPrinterLanguage("tspl");
+    expect(getPrinterLanguage()).toBe("tspl");
+    setPrinterLanguage("zpl");
+    expect(getPrinterLanguage()).toBe("zpl");
+    expect(store["strawberry.checkin.printerLanguage"]).toBeUndefined();
   });
 });
