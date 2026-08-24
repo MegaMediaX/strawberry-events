@@ -88,7 +88,10 @@ export function WalkInForm({
         email: a.email,
         phoneCC: a.phoneCC,
         phone: a.phone,
-        company: a.company || null,
+        // Trimmed, like the wizard does. Untrimmed, a company of a single
+        // space is stored verbatim while `showJobTitle` (which trims) treats
+        // it as absent — the form says "no company" and the row says " ".
+        company: a.company.trim() || null,
         jobTitle: title.value,
       },
     });
@@ -180,7 +183,11 @@ export function WalkInForm({
               company: e.target.value,
               // Clearing the company clears the title with it, so a held
               // selection cannot reappear against a different company.
-              ...jobTitleForCompanyChange(e.target.value, a.jobTitle, a.jobTitleOther),
+              ...jobTitleForCompanyChange({
+                company: e.target.value,
+                jobTitle: a.jobTitle,
+                jobTitleOther: a.jobTitleOther,
+              }),
             })
           }
         />

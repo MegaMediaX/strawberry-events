@@ -119,18 +119,20 @@ export interface JobTitleState {
  * Editing a company in place ("Acme" -> "Acme Corp") keeps the title: that is
  * one company being corrected, not a new one.
  *
- * Takes the two values as SCALARS and always returns a fresh object with
- * exactly those two keys. The first version took the whole form state and
+ * Takes a NAMED object and always returns a fresh one with exactly the two
+ * keys it owns. Three positional `string` parameters would let a caller
+ * transpose jobTitle and jobTitleOther with no compiler error — the same
+ * "types give false confidence" shape as the bug below. The first version took the whole form state and
  * returned it unchanged when the company was non-empty; spread after
  * `company:` in the component, that stale object put the previous company
  * back, and every keystroke in the walk-in Company field was silently
  * discarded — the field could not be filled in at all. Passing scalars means
  * there is no other state here to hand back by accident.
  */
-export function jobTitleForCompanyChange(
-  company: string,
-  jobTitle: string,
-  jobTitleOther: string,
-): JobTitleState {
+export function jobTitleForCompanyChange({
+  company,
+  jobTitle,
+  jobTitleOther,
+}: { company: string } & JobTitleState): JobTitleState {
   return company.trim() ? { jobTitle, jobTitleOther } : { jobTitle: "", jobTitleOther: "" };
 }

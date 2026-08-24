@@ -125,23 +125,39 @@ describe("jobTitleForCompanyChange — a cleared company clears the title", () =
   // operator correcting the company name silently reattaches the old title to
   // a different one.
   it("drops the held title when the company is cleared", () => {
-    expect(jobTitleForCompanyChange("", "CTO", "")).toEqual({ jobTitle: "", jobTitleOther: "" });
+    expect(jobTitleForCompanyChange({ company: "", jobTitle: "CTO", jobTitleOther: "" })).toEqual({ jobTitle: "", jobTitleOther: "" });
   });
 
   it("drops it for a whitespace-only company too", () => {
-    expect(jobTitleForCompanyChange("   ", "CTO", "")).toEqual({ jobTitle: "", jobTitleOther: "" });
+    expect(jobTitleForCompanyChange({ company: "   ", jobTitle: "CTO", jobTitleOther: "" })).toEqual({ jobTitle: "", jobTitleOther: "" });
   });
 
   it("keeps it while the company is merely being edited", () => {
     // "Acme" -> "Acme Corp" is one company being corrected, not a new one.
-    expect(jobTitleForCompanyChange("Acme Corp", "CTO", "")).toEqual({
+    //
+    // THE INVARIANT IS "never hold a title while its field is invisible", NOT
+    // "a title belongs to a company string". A review asked for the title to
+    // be dropped on ANY company edit, including select-all-and-retype. That is
+    // deliberately not done, on both forms:
+    //
+    //   - Nothing is concealed. The dropdown stays on screen through the whole
+    //     edit, still reading "CTO". The round-2 bug was a field that HID and
+    //     came back pre-filled, so the user had no cue it was still set;
+    //     editing visible text has no such cue to lose.
+    //   - Dropping it would cost real data. Fixing a typo in an employer name
+    //     would silently wipe a title the person did choose, and most would
+    //     not notice and re-pick.
+    //
+    // Clearing therefore triggers on empty — which is exactly when the field
+    // disappears — and on nothing else.
+    expect(jobTitleForCompanyChange({ company: "Acme Corp", jobTitle: "CTO", jobTitleOther: "" })).toEqual({
       jobTitle: "CTO",
       jobTitleOther: "",
     });
   });
 
   it("drops free text typed behind Other as well", () => {
-    expect(jobTitleForCompanyChange("", JOB_TITLE_OTHER, "Head of Ops")).toEqual({
+    expect(jobTitleForCompanyChange({ company: "", jobTitle: JOB_TITLE_OTHER, jobTitleOther: "Head of Ops" })).toEqual({
       jobTitle: "",
       jobTitleOther: "",
     });
@@ -158,7 +174,7 @@ describe("jobTitleForCompanyChange — a cleared company clears the title", () =
   // "returns the argument" and "returns just these two keys" looked identical
   // and the bug was invisible.
   it("returns ONLY the two keys it owns", () => {
-    expect(Object.keys(jobTitleForCompanyChange("Acme", "CTO", "")).sort()).toEqual([
+    expect(Object.keys(jobTitleForCompanyChange({ company: "Acme", jobTitle: "CTO", jobTitleOther: "" })).sort()).toEqual([
       "jobTitle",
       "jobTitleOther",
     ]);
@@ -172,7 +188,11 @@ describe("jobTitleForCompanyChange — a cleared company clears the title", () =
       state = {
         ...state,
         company: typed,
-        ...jobTitleForCompanyChange(typed, state.jobTitle, state.jobTitleOther),
+        ...jobTitleForCompanyChange({
+          company: typed,
+          jobTitle: state.jobTitle,
+          jobTitleOther: state.jobTitleOther,
+        }),
       };
     }
     expect(state.company).toBe("Acme");
