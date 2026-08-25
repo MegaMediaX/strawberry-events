@@ -37,7 +37,9 @@ const RECENT_LIMIT = 6;
 
 /** How long a success stays on screen before the door resets itself. Failures
  *  and warnings never auto-clear — those need a human decision. */
-const OK_BANNER_MS = 4000;
+// Long enough to read the badge that just printed and press Fix. The next scan
+// replaces the banner instantly, so this only elapses when nobody is waiting.
+const OK_BANNER_MS = 10000;
 
 type RecentEntry = {
   id: number;
@@ -190,6 +192,9 @@ export function CheckinPanel({
       if (res.ok && res.badge) {
         const b = toBadge(res.badge);
         const who = res.badge.fullName;
+        // Captured here, like `who`: the narrowing does not survive into the
+        // async print callback below.
+        const orderCode = res.badge.orderCode;
         setBrowserFallback(false);
         setConfirmReprint(null);
         setResult({ kind: "working" });
@@ -235,6 +240,7 @@ export function CheckinPanel({
           setResult({
             kind: "ok",
             name: who,
+            orderCode,
             label: kind === "reprint" ? "Reprinted" : undefined,
             detail:
               kind === "reprint"
@@ -439,6 +445,71 @@ export function CheckinPanel({
 
   const busy = pending;
 
+  /**
+   * What fills the banner's space between attendees.
+   *
+   * That area used to be a dashed box reading "Scan a badge or ticket" — the
+   * biggest element on the screen, blank exactly when the operator has a second
+   * to look at it. Meanwhile the list of people just checked in, and the only
+   * route to Fix, sat at the BOTTOM of the page below the fold on a 768px
+   * laptop, so in practice a misspelt badge just got handed over.
+   *
+   * They swap: the list lives in the empty space and yields to the banner the
+   * moment something happens.
+   */
+  const idleRecent =
+    recent.length > 0 ? (
+              <section aria-label="Recent">
+                <h2 className="mb-2 text-[12px] font-semibold tracking-[0.1em] text-muted-foreground uppercase">
+                  Just now
+                </h2>
+                <ul className="flex flex-col gap-1.5">
+                  {recent.map((r) => (
+                    <li key={r.id} className="flex items-center justify-between gap-3 text-[14px]">
+                      <span className="min-w-0 truncate">
+                        <span className="text-muted-foreground tabular-nums">{r.at}</span>{" "}
+                        <span className="font-medium">{r.name}</span>{" "}
+                        <span className="text-muted-foreground">
+                          {r.kind === "reprint" ? "· reprint" : ""}
+                        </span>
+                      </span>
+                      {/* The lost-badge path: no searching again for someone who was
+                          standing here thirty seconds ago. */}
+                      {/* Confirms, like every other reprint path. A bare tap here
+                          printed a second physical badge with no confirmation and no
+                          undo — which is exactly the "handed to a friend at the door"
+                          risk the already-checked-in prompt exists to prevent. */}
+                      <span className="flex shrink-0 gap-1.5">
+                        {/* Sits beside Reprint, unlike the search rows where two
+                            similar buttons are dangerous: mis-tapping this one opens
+                            a form you can Escape, while mis-tapping Reprint puts a
+                            second physical badge in someone's hand. */}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            captureReturnFocus();
+                            openEdit(r.orderCode);
+                          }}
+                          disabled={busy || openingEdit || savingEdit}
+                          className="min-h-11 rounded-md border border-border px-4 text-[13px] font-semibold hover:bg-accent disabled:opacity-50"
+                        >
+                          Fix
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setConfirmReprint({ orderCode: r.orderCode, fullName: r.name })}
+                          disabled={busy}
+                          className="min-h-11 rounded-md border border-border px-4 text-[13px] font-semibold hover:bg-accent disabled:opacity-50"
+                        >
+                          Reprint
+                        </button>
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+    ) : null;
+
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -470,7 +541,14 @@ export function CheckinPanel({
 
       <div id="printer-settings">{showSettings && <PrinterSettings />}</div>
 
-      <ResultBanner result={result} />
+      <ResultBanner
+        result={result}
+        idle={idleRecent}
+        onFix={(orderCode) => {
+          captureReturnFocus();
+          openEdit(orderCode);
+        }}
+      />
 
       {confirmReprint && (
         <div
@@ -685,57 +763,6 @@ export function CheckinPanel({
         />
       )}
 
-      {recent.length > 0 && (
-        <section aria-label="Recent" className="rounded-xl border border-border p-3">
-          <h2 className="mb-2 text-[13px] font-semibold tracking-[0.08em] text-muted-foreground uppercase">
-            Just now
-          </h2>
-          <ul className="flex flex-col gap-1.5">
-            {recent.map((r) => (
-              <li key={r.id} className="flex items-center justify-between gap-3 text-[14px]">
-                <span className="min-w-0 truncate">
-                  <span className="text-muted-foreground tabular-nums">{r.at}</span>{" "}
-                  <span className="font-medium">{r.name}</span>{" "}
-                  <span className="text-muted-foreground">
-                    {r.kind === "reprint" ? "· reprint" : ""}
-                  </span>
-                </span>
-                {/* The lost-badge path: no searching again for someone who was
-                    standing here thirty seconds ago. */}
-                {/* Confirms, like every other reprint path. A bare tap here
-                    printed a second physical badge with no confirmation and no
-                    undo — which is exactly the "handed to a friend at the door"
-                    risk the already-checked-in prompt exists to prevent. */}
-                <span className="flex shrink-0 gap-1.5">
-                  {/* Sits beside Reprint, unlike the search rows where two
-                      similar buttons are dangerous: mis-tapping this one opens
-                      a form you can Escape, while mis-tapping Reprint puts a
-                      second physical badge in someone's hand. */}
-                  <button
-                    type="button"
-                    onClick={() => {
-                      captureReturnFocus();
-                      openEdit(r.orderCode);
-                    }}
-                    disabled={busy || openingEdit || savingEdit}
-                    className="min-h-11 rounded-md border border-border px-4 text-[13px] font-semibold hover:bg-accent disabled:opacity-50"
-                  >
-                    Fix
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setConfirmReprint({ orderCode: r.orderCode, fullName: r.name })}
-                    disabled={busy}
-                    className="min-h-11 rounded-md border border-border px-4 text-[13px] font-semibold hover:bg-accent disabled:opacity-50"
-                  >
-                    Reprint
-                  </button>
-                </span>
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
 
       {badge && browserFallback && (
         <div className="rounded-xl border border-amber-500/45 bg-amber-500/10 p-4">

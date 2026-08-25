@@ -1,8 +1,12 @@
 "use client";
 
 export type DoorResult =
-  | { kind: "ok"; name: string; detail: string; label?: string }
-  | { kind: "warn"; name: string; detail: string; label?: string }
+  // orderCode is what lets the banner offer "Fix" on the person it is naming.
+  // The moment an operator notices a misspelling is the moment they read the
+  // badge that just printed — when this banner is the only thing on screen
+  // showing that person.
+  | { kind: "ok"; name: string; detail: string; label?: string; orderCode?: string }
+  | { kind: "warn"; name: string; detail: string; label?: string; orderCode?: string }
   | { kind: "err"; name: string; detail: string }
   | { kind: "working" };
 
@@ -19,25 +23,51 @@ export type DoorResult =
  * and a distinct glyph, so it survives a colour-blind operator and a washed-out
  * screen in daylight.
  */
-export function ResultBanner({ result }: { result: DoorResult | null }) {
+export function ResultBanner({
+  result,
+  idle,
+  onFix,
+}: {
+  result: DoorResult | null;
+  /**
+   * What fills the banner's space when nothing has just happened.
+   *
+   * That area was a dashed box reading "Scan a badge or ticket" — the largest
+   * element on the screen, empty precisely when the operator has a moment to
+   * look at it, while the list of people they just checked in sat below the
+   * fold where it was never seen.
+   */
+  idle?: React.ReactNode;
+  onFix?: (orderCode: string) => void;
+}) {
   return (
     // ONE live region, always mounted. Swapping between separate live-region
     // subtrees per state makes some screen readers miss announcements entirely,
     // which matters most when a queue is moving fast and results land in quick
     // succession.
     <div role="status" aria-live="assertive" aria-atomic="true">
-      <BannerBody result={result} />
+      <BannerBody result={result} idle={idle} onFix={onFix} />
     </div>
   );
 }
 
-function BannerBody({ result }: { result: DoorResult | null }) {
+function BannerBody({
+  result,
+  idle,
+  onFix,
+}: {
+  result: DoorResult | null;
+  idle?: React.ReactNode;
+  onFix?: (orderCode: string) => void;
+}) {
   if (!result) {
     return (
-      <div className="flex min-h-[104px] items-center justify-center rounded-xl border border-dashed border-border px-6">
-        <p className="text-[15px] text-muted-foreground">
-          Scan a badge or ticket, or search by name.
-        </p>
+      <div className="min-h-[104px] rounded-xl border border-dashed border-border px-5 py-4">
+        {idle ?? (
+          <p className="flex min-h-[72px] items-center justify-center text-[15px] text-muted-foreground">
+            Scan a badge or ticket, or search by name.
+          </p>
+        )}
       </div>
     );
   }
@@ -72,6 +102,8 @@ function BannerBody({ result }: { result: DoorResult | null }) {
     },
   }[result.kind];
 
+  const fixable = "orderCode" in result && result.orderCode && onFix;
+
   return (
     <div className={`flex min-h-[104px] items-center gap-4 rounded-xl border px-6 py-4 ${style.box}`}>
       <span
@@ -92,6 +124,21 @@ function BannerBody({ result }: { result: DoorResult | null }) {
         </p>
         <p className="mt-0.5 truncate text-[14px] text-muted-foreground">{result.detail}</p>
       </div>
+
+      {/* Right here, on the person just named. An operator notices a misspelling
+          while reading the badge that just came out — at which point this
+          banner is the only thing on screen showing them. The alternative was
+          scrolling to a list below the fold, which at a busy door means the
+          misspelt badge simply gets handed over. */}
+      {fixable ? (
+        <button
+          type="button"
+          onClick={() => onFix((result as { orderCode: string }).orderCode)}
+          className="ml-auto min-h-12 shrink-0 rounded-lg border border-border bg-background/70 px-5 text-[15px] font-semibold hover:bg-accent"
+        >
+          Fix details
+        </button>
+      ) : null}
     </div>
   );
 }
