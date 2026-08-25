@@ -33,6 +33,26 @@ describe("pickCamera", () => {
     expect(pickCamera(null, [lid, other])?.id).toBe("x-1");
   });
 
+  it("recognises a laptop that names its camera after itself", () => {
+    // Observed live on a MacBook: "MacBook Air Camera (0000:0001)" matched no
+    // built-in hint, tied with an unknown external camera, and won on order —
+    // so the lid camera was chosen over the one pointed at the badges.
+    const macbook: CameraOption = { id: "mb-1", label: "MacBook Air Camera (0000:0001)" };
+    const unknown: CameraOption = { id: "u-1", label: "Marven's Camera" };
+    expect(pickCamera(null, [macbook, unknown])?.id).toBe("u-1");
+  });
+
+  it.each([
+    "Surface Camera Front",
+    "HP TrueVision HD Camera",
+    "Dell Webcam Central",
+    "Lenovo EasyCamera",
+  ])("treats %s as the machine's own", (label) => {
+    const builtIn: CameraOption = { id: "b-1", label };
+    const usb: CameraOption = { id: "u-1", label: "Some Unnamed Device" };
+    expect(pickCamera(null, [builtIn, usb])?.id).toBe("u-1");
+  });
+
   it("returns null when there is no camera at all", () => {
     expect(pickCamera(null, [])).toBeNull();
     expect(pickCamera("lid-1", [])).toBeNull();

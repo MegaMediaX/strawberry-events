@@ -26,12 +26,27 @@ export const CAMERA_KEY = "strawberry.checkin.cameraId";
  * the built-in one is there to look at the operator.
  */
 const EXTERNAL_HINTS = [
+  // "webcam c" was here for Logitech's C-series and also matched
+  // "Dell Webcam Central" — a built-in. The explicit model numbers and the
+  // vendor name cover the real cases without the collision.
   "logitech", "brio", "streamcam", "c920", "c922", "c925", "c930", "c270",
-  "usb camera", "usb video", "hd pro", "webcam c",
+  "usb camera", "usb video", "hd pro",
 ];
 
-/** Labels that are almost certainly the laptop's own lid camera. */
-const BUILT_IN_HINTS = ["integrated", "built-in", "builtin", "facetime", "internal"];
+/**
+ * Labels that are almost certainly the laptop's own lid camera.
+ *
+ * Observed live: a MacBook reports "MacBook Air Camera (0000:0001)", which
+ * matched none of these and so tied with an unknown external camera — and the
+ * built-in one won on order. Vendor and model names belong here for the same
+ * reason: a machine that names its own camera after itself is naming the one
+ * pointed at the operator.
+ */
+const BUILT_IN_HINTS = [
+  "integrated", "built-in", "builtin", "facetime", "internal",
+  "macbook", "imac", "surface camera", "hp truevision", "hp wide vision",
+  "dell webcam", "lenovo easycamera", "thinkpad",
+];
 
 function score(label: string): number {
   const l = label.toLowerCase();
