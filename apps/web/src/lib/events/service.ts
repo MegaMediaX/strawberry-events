@@ -14,6 +14,7 @@ import { sha256 } from "@/lib/crypto";
 import { signInvite } from "@/lib/tokens/invite";
 import { sendEmail } from "@/lib/email/service";
 import { inviteEmail } from "@/lib/email/templates";
+import type { BadgeTagValue } from "@/lib/badges/tags";
 
 /**
  * Event/ticket/quota configuration is restricted to organizer admins and super
@@ -732,7 +733,7 @@ export async function generateInviteLink(
   itemId: number,
   options: {
     locale: string;
-    tag?: "media" | "partner" | "speaker" | "staff" | "visitor";
+    tag?: BadgeTagValue;
     expiresInSeconds?: number;
   },
 ): Promise<string> {

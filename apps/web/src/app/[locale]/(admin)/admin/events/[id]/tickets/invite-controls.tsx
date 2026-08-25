@@ -7,9 +7,10 @@ import {
   setTicketInviteOnlyAction,
   generateInviteLinkAction,
 } from "../../actions";
+import { BADGE_TAGS, type BadgeTagValue } from "@/lib/badges/tags";
 
-type Tag = "media" | "partner" | "speaker" | "staff" | "visitor";
-const TAGS: Tag[] = ["visitor", "media", "partner", "speaker", "staff"];
+type Tag = BadgeTagValue;
+const TAGS: readonly Tag[] = BADGE_TAGS;
 const EXPIRY_OPTIONS: { label: string; seconds: number | undefined }[] = [
   { label: "No expiry", seconds: undefined },
   { label: "24 hours", seconds: 86_400 },

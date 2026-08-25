@@ -5,9 +5,10 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { createEmailInvitesAction, listInvitesAction } from "../../actions";
 import type { Invite } from "@prisma/client";
+import { BADGE_TAGS, type BadgeTagValue } from "@/lib/badges/tags";
 
-type Tag = "media" | "partner" | "speaker" | "staff" | "visitor";
-const TAGS: Tag[] = ["visitor", "media", "partner", "speaker", "staff"];
+type Tag = BadgeTagValue;
+const TAGS: readonly Tag[] = BADGE_TAGS;
 
 function inviteStatus(inv: Invite): string {
   if (inv.redeemedAt) return "redeemed";

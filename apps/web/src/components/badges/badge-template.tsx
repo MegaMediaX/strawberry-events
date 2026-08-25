@@ -1,12 +1,19 @@
 
-export type BadgeTag = "media" | "partner" | "staff" | "speaker" | "visitor";
+import { badgeBandText, type BadgeTagValue } from "@/lib/badges/tags";
 
+export type BadgeTag = BadgeTagValue;
+
+// Screen only: the thermal badge is monochrome and prints the band solid black.
 const TAG_COLOR: Record<BadgeTag, string> = {
   media: "#7c3aed",
   partner: "#0891b2",
   staff: "#16a34a",
   speaker: "#e8375a",
   visitor: "#475569",
+  exhibitor: "#ea580c",
+  organising_committee: "#4338ca",
+  organiser: "#0d9488",
+  cofounder: "#9333ea",
 };
 
 export interface BadgeData {
@@ -54,7 +61,7 @@ export function BadgeTemplate({ badge }: { badge: BadgeData }) {
   return (
     <div className="badge-sheet">
       <div className="badge-tag" style={{ background: TAG_COLOR[badge.tag] }}>
-        {badge.tag.toUpperCase()}
+        {badgeBandText(badge.tag)}
       </div>
       <div className="badge-name">{badge.fullName}</div>
       {badge.company && <div className="badge-company">{badge.company}</div>}

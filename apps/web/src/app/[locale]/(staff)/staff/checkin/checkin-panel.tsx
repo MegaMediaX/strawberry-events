@@ -14,11 +14,16 @@ import { QrScanner } from "./qr-scanner";
 import { PrinterSettings } from "./printer-settings";
 import { PrinterStatus } from "./printer-status";
 import { ResultBanner, type DoorResult } from "./result-banner";
+import { AttendeeEditDialog, type EditTarget } from "./attendee-edit";
+import { DoorWalkInForm, type DoorTicket } from "./door-walk-in";
 import {
   searchAction,
   checkInAction,
   scanAction,
   reprintAction,
+  correctAttendeeAction,
+  attendeeForEditAction,
+  walkInAndCheckInAction,
   type AttendeeRow,
 } from "./actions";
 
@@ -55,9 +60,11 @@ function toBadge(b: NonNullable<CheckInResult["badge"]>): BadgeData {
 export function CheckinPanel({
   eventId,
   listId,
+  tickets,
 }: {
   eventId: string;
   listId: number;
+  tickets: DoorTicket[];
 }) {
   const [q, setQ] = useState("");
   const [rows, setRows] = useState<AttendeeRow[]>([]);
@@ -71,6 +78,15 @@ export function CheckinPanel({
     { orderCode: string; fullName: string } | null
   >(null);
   const [showSettings, setShowSettings] = useState(false);
+  const [editing, setEditing] = useState<EditTarget | null>(null);
+  // Three unrelated async operations, three flags. Sharing one meant a fast
+  // lookup resolving could re-enable a slow submit that was still on the wire —
+  // and the walk-in submit creates a real pretix order, so a second click
+  // registered the same person twice.
+  const [openingEdit, setOpeningEdit] = useState(false);
+  const [savingEdit, setSavingEdit] = useState(false);
+  const [submittingWalkIn, setSubmittingWalkIn] = useState(false);
+  const [walkIn, setWalkIn] = useState(false);
 
   const searchRef = useRef<HTMLInputElement>(null);
   // Once QZ Tray has proved unreachable, stop dialling it. qz-tray probes
@@ -82,6 +98,27 @@ export function CheckinPanel({
   const printOwner = useRef(createPrintOwnership());
   // Mirrors confirmReprint for the window key handler, which is bound once.
   const confirmReprintRef = useRef<typeof confirmReprint>(null);
+  // Same reason as confirmReprintRef: the window key handler is bound once, so
+  // it cannot see current state without a ref.
+  const editingRef = useRef<EditTarget | null>(null);
+  const walkInRef = useRef(false);
+  // Read by openEdit's re-entrancy guard. A ref rather than the state value so
+  // the callback keeps a stable identity.
+  const openingEditRef = useRef(false);
+  /**
+   * Where focus goes when the Fix or walk-in form closes.
+   *
+   * Captured at the CLICK, not in an effect. React runs a child's mount effect
+   * before its parent's, so both forms have already focused their own first
+   * field by the time a panel effect could read document.activeElement — it
+   * would capture an element inside the dialog, and focusing that after unmount
+   * is a silent no-op. Which looks exactly like the bug it was meant to fix.
+   */
+  const formReturnFocusRef = useRef<HTMLElement | null>(null);
+  const captureReturnFocus = useCallback(() => {
+    formReturnFocusRef.current =
+      document.activeElement instanceof HTMLElement ? document.activeElement : null;
+  }, []);
   const confirmBoxRef = useRef<HTMLDivElement>(null);
   // Where focus came from, so closing the dialog returns it.
   const returnFocusRef = useRef<HTMLElement | null>(null);
@@ -127,6 +164,24 @@ export function CheckinPanel({
     };
     setRecent((prev) => [entry, ...prev].slice(0, RECENT_LIMIT));
   }, []);
+
+  /* -------------------------------------------------------------- corrections */
+
+  const openEdit = useCallback(
+    (orderCode: string) => {
+      if (openingEditRef.current) return;
+      openingEditRef.current = true;
+      setEditing(null);
+      setOpeningEdit(true);
+      void attendeeForEditAction(eventId, orderCode).then((res) => {
+        openingEditRef.current = false;
+        setOpeningEdit(false);
+        if (res.ok) setEditing(res.attendee);
+        else setResult({ kind: "err", name: orderCode, detail: res.reason });
+      });
+    },
+    [eventId],
+  );
 
   /* ----------------------------------------------------------------- results */
 
@@ -267,6 +322,12 @@ export function CheckinPanel({
     const query = q.trim();
     let cancelled = false;
 
+    // Frozen while the walk-in form is open. The form holds its own state, so a
+    // late result arriving behind it and unmounting it would discard whatever
+    // the operator had typed — and results appearing under a filled walk-in
+    // form is how one person gets registered twice.
+    if (walkIn) return;
+
     // Every setState is inside the timeout, never synchronous in the effect
     // body — a synchronous one cascades renders on every keystroke.
     const id = setTimeout(async () => {
@@ -291,7 +352,7 @@ export function CheckinPanel({
       cancelled = true;
       clearTimeout(id);
     };
-  }, [q, eventId]);
+  }, [q, eventId, walkIn]);
 
   /* ------------------------------------------- confirm dialog focus */
 
@@ -313,6 +374,22 @@ export function CheckinPanel({
     }
   }, [confirmReprint]);
 
+  /* ------------------------------------------ inline form focus + refs */
+
+  useEffect(() => {
+    editingRef.current = editing;
+    walkInRef.current = walkIn;
+
+    const open = Boolean(editing) || walkIn;
+    if (!open && formReturnFocusRef.current) {
+      // Only if it is still in the document — the captured trigger may itself
+      // have been unmounted (a Recent row rolling off the list, say).
+      const el = formReturnFocusRef.current;
+      formReturnFocusRef.current = null;
+      if (el.isConnected) el.focus();
+    }
+  }, [editing, walkIn]);
+
   /* --------------------------------------------------- success auto-clear */
 
   useEffect(() => {
@@ -327,7 +404,10 @@ export function CheckinPanel({
     function onKey(e: KeyboardEvent) {
       const typing =
         e.target instanceof HTMLElement &&
-        (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA");
+        (e.target.tagName === "INPUT" ||
+        e.target.tagName === "TEXTAREA" ||
+        // Both new forms use native selects for role, title and ticket.
+        e.target.tagName === "SELECT");
 
       if (e.key === "/" && !typing) {
         e.preventDefault();
@@ -335,6 +415,10 @@ export function CheckinPanel({
         return;
       }
       if (e.key === "Escape") {
+        // A form owns Escape while it is open. Without this the panel's own
+        // handler ALSO ran and silently wiped the search box the operator had
+        // typed for the next person.
+        if (editingRef.current || walkInRef.current) return;
         // The reprint confirm owns Escape while it is open. Otherwise a stray
         // Escape — someone starting to retype a search — silently dismisses a
         // decision they had not made yet.
@@ -422,7 +506,12 @@ export function CheckinPanel({
             >
               Print replacement
             </Button>
-            <Button variant="outline" disabled={busy} onClick={() => setConfirmReprint(null)}>
+            <Button
+              variant="outline"
+              className="min-h-12 px-5 text-[15px]"
+              disabled={busy}
+              onClick={() => setConfirmReprint(null)}
+            >
               Cancel
             </Button>
           </div>
@@ -450,17 +539,74 @@ export function CheckinPanel({
             onChange={(e) => setQ(e.target.value)}
             placeholder="Name, email, phone or order code  ( / to focus )"
             aria-label="Search attendees"
-            className="h-12 text-[16px]"
+            // Disabled, not merely ignored, while the walk-in form is open: a
+            // box that accepts typing and does nothing reads as broken.
+            disabled={walkIn}
+            className="h-12 text-[16px] disabled:opacity-60"
           />
 
           <div className="mt-3">
             {q.trim() && searching && (
               <p className="text-[14px] text-muted-foreground">Searching…</p>
             )}
-            {q.trim() && !searching && rows.length === 0 && (
-              <p className="text-[14px] text-muted-foreground">
-                No one matches “{q.trim()}”. Check the spelling, or try their order code.
-              </p>
+            {q.trim() && !searching && rows.length === 0 && !walkIn && (
+              <div className="rounded-lg border border-border p-3">
+                <p className="text-[14px] text-muted-foreground">
+                  No one matches “{q.trim()}”. Check the spelling, or try their order code.
+                </p>
+                {/* The other reason nobody matches: they never registered. That
+                    used to mean leaving this screen for the walk-in desk, then
+                    coming back and searching for the person already standing
+                    here. The name they typed carries over. */}
+                <Button
+                  variant="outline"
+                  className="mt-3 min-h-12 px-5 text-[15px]"
+                  onClick={() => {
+                    captureReturnFocus();
+                    setWalkIn(true);
+                  }}
+                  disabled={busy}
+                >
+                  Register “{q.trim()}” as a walk-in
+                </Button>
+              </div>
+            )}
+
+            {/* The search is frozen while this is open (see the search effect
+                and the disabled input above), so results cannot appear behind a
+                half-filled form. Gating this on `rows.length === 0` instead
+                looked equivalent and was worse: a late search response would
+                UNMOUNT the form mid-fill and silently discard everything the
+                operator had typed. */}
+            {walkIn && (
+              <DoorWalkInForm
+                prefill={q}
+                tickets={tickets}
+                busy={submittingWalkIn}
+                onCancel={() => setWalkIn(false)}
+                onSubmit={(input) => {
+                  // Without this a double-tap creates TWO pretix orders for one
+                  // person — one checked in, one dangling. register() has no
+                  // idempotency key to fall back on.
+                  if (submittingWalkIn) return;
+                  setSubmittingWalkIn(true);
+                  void walkInAndCheckInAction(eventId, input, listId).then((res) => {
+                    setSubmittingWalkIn(false);
+                    if (!res.ok) {
+                      setResult({
+                        kind: "err",
+                        name: `${input.firstName} ${input.lastName}`.trim(),
+                        detail: res.reason ?? "Could not register.",
+                      });
+                      return;
+                    }
+                    setWalkIn(false);
+                    // Same result path as any other check-in, so the badge
+                    // prints under the same ownership and fallback rules.
+                    handleResult(res, "in");
+                  });
+                }}
+              />
             )}
 
             <ul className="flex flex-col gap-2">
@@ -494,6 +640,51 @@ export function CheckinPanel({
         </section>
       </div>
 
+      {editing && (
+        <AttendeeEditDialog
+          target={editing}
+          busy={savingEdit}
+          onCancel={() => setEditing(null)}
+          onSave={(patch) => {
+            // Double-tap guard, like doCheckIn and doReprint. Without it a
+            // second tap before React commits `disabled` saves twice.
+            if (savingEdit) return;
+            setSavingEdit(true);
+            const orderCode = editing.orderCode;
+            void correctAttendeeAction(eventId, orderCode, patch)
+              .then((res) => {
+                if (!res.ok) {
+                  setSavingEdit(false);
+                  setResult({ kind: "err", name: patch.fullName, detail: res.reason ?? "Could not save." });
+                  return;
+                }
+                // The correction saves; the PRINT goes through the ordinary
+                // reprint path. That path already refuses a badge for a
+                // cancelled or unpaid order and records the print in
+                // badgePrintLog — neither of which a correction should be
+                // reimplementing on its own.
+                // Only close the dialog if it is still the one this save was
+                // started from. Closing unconditionally shut whichever dialog
+                // happened to be open by then — discarding an unrelated edit.
+                setEditing((cur) => (cur?.orderCode === orderCode ? null : cur));
+                return reprintAction(eventId, orderCode).then((printed) => {
+                  setSavingEdit(false);
+                  if (!printed.ok) {
+                    setResult({
+                      kind: "warn",
+                      name: patch.fullName,
+                      label: "Saved",
+                      detail: `Details saved, but no badge printed — ${printed.reason ?? "not eligible"}`,
+                    });
+                    return;
+                  }
+                  handleResult(printed, "reprint");
+                });
+              });
+          }}
+        />
+      )}
+
       {recent.length > 0 && (
         <section aria-label="Recent" className="rounded-xl border border-border p-3">
           <h2 className="mb-2 text-[13px] font-semibold tracking-[0.08em] text-muted-foreground uppercase">
@@ -515,14 +706,31 @@ export function CheckinPanel({
                     printed a second physical badge with no confirmation and no
                     undo — which is exactly the "handed to a friend at the door"
                     risk the already-checked-in prompt exists to prevent. */}
-                <button
-                  type="button"
-                  onClick={() => setConfirmReprint({ orderCode: r.orderCode, fullName: r.name })}
-                  disabled={busy}
-                  className="min-h-11 shrink-0 rounded-md border border-border px-4 text-[13px] font-semibold hover:bg-accent disabled:opacity-50"
-                >
-                  Reprint
-                </button>
+                <span className="flex shrink-0 gap-1.5">
+                  {/* Sits beside Reprint, unlike the search rows where two
+                      similar buttons are dangerous: mis-tapping this one opens
+                      a form you can Escape, while mis-tapping Reprint puts a
+                      second physical badge in someone's hand. */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      captureReturnFocus();
+                      openEdit(r.orderCode);
+                    }}
+                    disabled={busy || openingEdit || savingEdit}
+                    className="min-h-11 rounded-md border border-border px-4 text-[13px] font-semibold hover:bg-accent disabled:opacity-50"
+                  >
+                    Fix
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setConfirmReprint({ orderCode: r.orderCode, fullName: r.name })}
+                    disabled={busy}
+                    className="min-h-11 rounded-md border border-border px-4 text-[13px] font-semibold hover:bg-accent disabled:opacity-50"
+                  >
+                    Reprint
+                  </button>
+                </span>
               </li>
             ))}
           </ul>
@@ -536,7 +744,14 @@ export function CheckinPanel({
             Use the browser print dialog below, then fix the printer when the queue allows.
           </p>
           <div className="mt-3">
-            <BadgePrintDialog badge={badge} auto />
+            {/* Deliberately NOT `auto`. Once qzUnreachable latches, every
+                subsequent attendee re-renders this block — and `auto` fired
+                window.print() on each mount, opening a modal OS print dialog
+                for every person in the queue, stealing focus from the scanner
+                and the search box. A jam turned into a stopped lane instead of
+                a degraded one. The operator presses this once, deliberately,
+                for the person in front of them. */}
+            <BadgePrintDialog badge={badge} />
           </div>
           <button
             type="button"

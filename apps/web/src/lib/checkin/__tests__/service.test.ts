@@ -9,6 +9,7 @@ vi.mock("@/lib/db/client", () => ({
       findMany: vi.fn(),
       findUnique: vi.fn(),
       updateMany: vi.fn(),
+      update: vi.fn(),
     },
     organization: { findUnique: vi.fn() },
     badgePrintLog: { create: vi.fn() },
@@ -27,6 +28,7 @@ import {
   checkInOrder,
   checkInBySecret,
   reprintBadge,
+  updateAttendeeDetails,
   searchAttendees,
   liveCounters,
   NAME_SIMILARITY_THRESHOLD,
@@ -461,5 +463,178 @@ describe("already checked in", () => {
     expect(pretixCheckin.redeemCheckin).not.toHaveBeenCalled();
     const log = mock(prisma.badgePrintLog.create).mock.calls[0][0];
     expect(log.data).toMatchObject({ reprint: true });
+  });
+});
+
+describe("updateAttendeeDetails — correcting someone at the door", () => {
+  beforeEach(() => {
+    mock(prisma.attendeeOrder.findFirst).mockResolvedValue(
+      order({ attendeeName: "Elias Dao", company: "Bank of Beirut", jobTitle: null, badgeSlug: "SZSZEC50" }),
+    );
+    mock(prisma.attendeeOrder.update).mockImplementation(async ({ data }: { data: Record<string, unknown> }) =>
+      order({ attendeeName: "Elias Daou", company: "Bank of Beirut SAL", jobTitle: "CEO", badgeSlug: "SZSZEC50", ...data }),
+    );
+  });
+
+  it("saves the correction", async () => {
+    const res = await updateAttendeeDetails(staff, "e1", "ABC12", {
+      fullName: "Elias Daou", company: "Bank of Beirut SAL", jobTitle: "CEO",
+    });
+    expect(res.ok).toBe(true);
+    const arg = mock(prisma.attendeeOrder.update).mock.calls[0][0];
+    expect(arg.data).toEqual({ attendeeName: "Elias Daou", company: "Bank of Beirut SAL", jobTitle: "CEO" });
+  });
+
+  it("hands back NO badge — the print goes through reprintBadge instead", async () => {
+    // reprintBadge refuses a badge for a cancelled, rejected or unpaid order
+    // and records the print in badgePrintLog. This returned a printable badge
+    // with neither check, so a directly-invoked correction could produce a
+    // badge for someone not entitled to one, uncounted. Returning nothing
+    // forces the caller through the path that already gets both right.
+    const res = await updateAttendeeDetails(staff, "e1", "ABC12", { fullName: "Elias Daou" });
+    expect(res.ok).toBe(true);
+    expect(res.badge).toBeUndefined();
+  });
+
+  it("writes an audit row carrying what changed, before and after", async () => {
+    // A door operator editing an attendee's details is exactly the action that
+    // must be reconstructable afterwards — including who did it.
+    await updateAttendeeDetails(staff, "e1", "ABC12", { fullName: "Elias Daou" });
+    const arg = mock(prisma.auditLog.create).mock.calls[0][0];
+    expect(arg.data.action).toBe("attendee.details_corrected");
+    expect(arg.data.actorUserId).toBe("s1");
+    expect(arg.data.before).toMatchObject({ attendeeName: "Elias Dao" });
+    expect(arg.data.after).toMatchObject({ attendeeName: "Elias Daou" });
+  });
+
+  it("never lets ticketing state through, however it is sent", () => {
+    // Everything an operator can see is editable. Order status, approval,
+    // tickets, seats and the pretix secret are NOT — those live in pretix, and
+    // changing them here would leave this database and pretix holding two
+    // different opinions about the same order in the middle of an event.
+    return updateAttendeeDetails(staff, "e1", "ABC12", {
+      fullName: "X", company: "Y", jobTitle: "CEO", email: "a@b.com", roleTag: "exhibitor",
+      // @ts-expect-error — deliberately smuggling fields the type forbids
+      status: "paid", approvalStatus: "not_required", pretixSecret: "SNEAK", badgeSlug: "AAAAAAAA",
+    }).then(() => {
+      const arg = mock(prisma.attendeeOrder.update).mock.calls[0][0];
+      expect(Object.keys(arg.data).sort()).toEqual(
+        ["attendeeName", "company", "email", "jobTitle", "roleTag"],
+      );
+    });
+  });
+
+  it("changes the badge role, including the new ones", async () => {
+    for (const roleTag of ["exhibitor", "organising_committee"] as const) {
+      mock(prisma.attendeeOrder.update).mockClear();
+      const res = await updateAttendeeDetails(staff, "e1", "ABC12", { roleTag });
+      expect(res.ok).toBe(true);
+      expect(mock(prisma.attendeeOrder.update).mock.calls[0][0].data).toEqual({ roleTag });
+    }
+  });
+
+  it("refuses a role that is not a badge role", async () => {
+    // @ts-expect-error — a tampered <select> is the realistic source
+    const res = await updateAttendeeDetails(staff, "e1", "ABC12", { roleTag: "superuser" });
+    expect(res.ok).toBe(false);
+    expect(prisma.attendeeOrder.update).not.toHaveBeenCalled();
+  });
+
+  it("corrects contact details, and refuses a malformed email", async () => {
+    const ok = await updateAttendeeDetails(staff, "e1", "ABC12", {
+      email: "elias@bob.com.lb", phone: "70123456", phoneCC: "+961",
+    });
+    expect(ok.ok).toBe(true);
+    expect(mock(prisma.attendeeOrder.update).mock.calls[0][0].data).toEqual({
+      email: "elias@bob.com.lb", phone: "70123456", phoneCC: "+961",
+    });
+    mock(prisma.attendeeOrder.update).mockClear();
+    const bad = await updateAttendeeDetails(staff, "e1", "ABC12", { email: "not-an-email" });
+    expect(bad.ok).toBe(false);
+    expect(prisma.attendeeOrder.update).not.toHaveBeenCalled();
+  });
+
+  it("leaves a field alone when it is not supplied", async () => {
+    await updateAttendeeDetails(staff, "e1", "ABC12", { jobTitle: "CEO" });
+    const arg = mock(prisma.attendeeOrder.update).mock.calls[0][0];
+    expect(arg.data).toEqual({ jobTitle: "CEO" });
+  });
+
+  it("clears a job title when explicitly blanked", async () => {
+    await updateAttendeeDetails(staff, "e1", "ABC12", { jobTitle: "" });
+    expect(mock(prisma.attendeeOrder.update).mock.calls[0][0].data).toEqual({ jobTitle: null });
+  });
+
+  it("refuses a title over the cap", async () => {
+    const res = await updateAttendeeDetails(staff, "e1", "ABC12", { jobTitle: "x".repeat(16) });
+    expect(res.ok).toBe(false);
+    expect(prisma.attendeeOrder.update).not.toHaveBeenCalled();
+  });
+
+  it("refuses the sentinel", async () => {
+    const res = await updateAttendeeDetails(staff, "e1", "ABC12", { jobTitle: "Other" });
+    expect(res.ok).toBe(false);
+    expect(prisma.attendeeOrder.update).not.toHaveBeenCalled();
+  });
+
+  it("refuses an empty name — a badge with no name is worse than a misspelt one", async () => {
+    const res = await updateAttendeeDetails(staff, "e1", "ABC12", { fullName: "   " });
+    expect(res.ok).toBe(false);
+    expect(prisma.attendeeOrder.update).not.toHaveBeenCalled();
+  });
+
+  it("bounds the free text a door can enter", async () => {
+    // Nothing here can be injected — sanitizeZplText strips ZPL control
+    // prefixes and non-Latin-1 before printing — but the columns are unbounded
+    // TEXT, so a pasted blob would land in the database, the CSV and the
+    // printed roster. Flagged by the security review as cheap hardening.
+    for (const patch of [
+      { fullName: "x".repeat(121) },
+      { company: "x".repeat(121) },
+      { email: `${"x".repeat(115)}@b.com` },
+      { phone: "1".repeat(33) },
+      { phoneCC: "+".repeat(9) },
+    ]) {
+      mock(prisma.attendeeOrder.update).mockClear();
+      const res = await updateAttendeeDetails(staff, "e1", "ABC12", patch);
+      expect(res.ok).toBe(false);
+      expect(prisma.attendeeOrder.update).not.toHaveBeenCalled();
+    }
+  });
+
+  it("still accepts a long real name", async () => {
+    // The cap must not reject anyone genuine. This is 44 characters.
+    const res = await updateAttendeeDetails(staff, "e1", "ABC12", {
+      fullName: "Mouhamad Abdel Rahman Al-Hassan Kouyoumdjian",
+    });
+    expect(res.ok).toBe(true);
+  });
+
+  it("still corrects a CANCELLED attendee — the save is not gated on eligibility", async () => {
+    // Deliberate: a cancelled or unpaid attendee's misspelt name should still
+    // be correctable. Only the BADGE is gated, and that gate lives in
+    // reprintBadge, which the caller chains afterwards. Nothing pinned this, so
+    // reintroducing an eligibility check here would have failed nothing.
+    mock(prisma.attendeeOrder.findFirst).mockResolvedValue(
+      order({ status: "canceled", approvalStatus: "rejected", attendeeName: "Elias Dao" }),
+    );
+    const res = await updateAttendeeDetails(staff, "e1", "ABC12", { fullName: "Elias Daou" });
+    expect(res.ok).toBe(true);
+    expect(prisma.attendeeOrder.update).toHaveBeenCalled();
+    // And the correction is still attributable.
+    expect(prisma.auditLog.create).toHaveBeenCalled();
+  });
+
+  it("is refused to roles that cannot check in", async () => {
+    await expect(
+      updateAttendeeDetails(finance, "e1", "ABC12", { fullName: "X" }),
+    ).rejects.toThrow();
+    expect(prisma.attendeeOrder.update).not.toHaveBeenCalled();
+  });
+
+  it("does not check anyone in, and does not touch pretix", async () => {
+    await updateAttendeeDetails(staff, "e1", "ABC12", { fullName: "Elias Daou" });
+    expect(pretixCheckin.redeemCheckin).not.toHaveBeenCalled();
+    expect(prisma.badgePrintLog.create).not.toHaveBeenCalled();
   });
 });

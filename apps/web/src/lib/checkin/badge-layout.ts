@@ -71,6 +71,42 @@ export const JOB_TITLE_SIZE = 24;
 
 export const TAG_SIZE = 46;
 
+/** Room the role band has for text, between the same margins as everything else. */
+export const BAND_TEXT_WIDTH = LABEL_W - TEXT_LEFT * 2; // 448
+
+/**
+ * Rough advance width of one upper-case bold glyph, as a fraction of font size.
+ *
+ * A fraction rather than a measurement because ZPL cannot measure anything: the
+ * printer renders `^A0N` itself and the host only names a height. The canvas
+ * renderer COULD measure exactly, and deliberately does not — if the two used
+ * different rules they would choose different sizes for the same badge, which
+ * is precisely the "two printers disagree" failure this module exists to stop.
+ *
+ * 0.62 is deliberately generous for a Helvetica-class face; erring wide costs a
+ * slightly smaller band and erring narrow costs a truncated role.
+ */
+export const BAND_ADVANCE = 0.62;
+
+/** However long the role, the band never becomes unreadable across a room. */
+export const BAND_MIN_SIZE = 28;
+
+/**
+ * The font size for a role band, shrunk only as far as the text demands.
+ *
+ * Roles that already fit are returned at `max` untouched, so every badge
+ * printed before long roles existed is byte-for-byte unchanged. Only
+ * "ORGANISING COMMITTEE" — 20 characters — actually shrinks; without this both
+ * renderers would silently cut it off, ZPL at its field-block width and canvas
+ * at its clip, and someone would wear "ORGANISING COMMITT" for three days.
+ */
+export function bandFontSize(text: string, max: number): number {
+  const n = text.trim().length;
+  if (n === 0) return max;
+  const fitted = Math.floor(BAND_TEXT_WIDTH / (BAND_ADVANCE * n));
+  return Math.max(BAND_MIN_SIZE, Math.min(max, fitted));
+}
+
 /**
  * Break `text` into at most `maxLines` lines that each fit `maxWidth`.
  *

@@ -13,6 +13,7 @@ import {
   resolveVisibleJobTitle,
   jobTitleForCompanyChange,
 } from "@/lib/registration/job-title";
+import { BADGE_TAGS, BADGE_TAG_LABEL, type BadgeTagValue } from "@/lib/badges/tags";
 
 interface WalkInTicket {
   id: number;
@@ -28,7 +29,6 @@ interface WalkInTicket {
  */
 const EMPTY_ATTENDEE = { firstName: "", lastName: "", email: "", phoneCC: "+961", phone: "", company: "", jobTitle: "", jobTitleOther: "" };
 
-const ROLE_TAGS = ["visitor", "media", "partner", "speaker", "staff"] as const;
 
 export function WalkInForm({
   locale,
@@ -40,7 +40,7 @@ export function WalkInForm({
   tickets: WalkInTicket[];
 }) {
   const [itemId, setItemId] = useState<number | "">(tickets[0]?.id ?? "");
-  const [roleTag, setRoleTag] = useState<(typeof ROLE_TAGS)[number]>("visitor");
+  const [roleTag, setRoleTag] = useState<BadgeTagValue>("visitor");
   const [a, setA] = useState(EMPTY_ATTENDEE);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<WalkInActionResult | null>(null);
@@ -142,10 +142,12 @@ export function WalkInForm({
         <select
           className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
           value={roleTag}
-          onChange={(e) => setRoleTag(e.target.value as (typeof ROLE_TAGS)[number])}
+          onChange={(e) => setRoleTag(e.target.value as BadgeTagValue)}
         >
-          {ROLE_TAGS.map((r) => (
-            <option key={r} value={r}>{r}</option>
+          {BADGE_TAGS.map((r) => (
+            <option key={r} value={r}>
+              {BADGE_TAG_LABEL[r]}
+            </option>
           ))}
         </select>
       </div>

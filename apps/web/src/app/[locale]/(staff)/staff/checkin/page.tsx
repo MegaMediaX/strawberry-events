@@ -5,6 +5,7 @@ import { getSessionContext } from "@/lib/auth/session";
 import { prisma } from "@/lib/db/client";
 import { canAccessEvent } from "@/lib/auth/org-scope";
 import { resolvePretixContext } from "@/lib/pretix/context";
+import { listTickets } from "@/lib/events/service";
 import { listCheckinLists, checkinCounters } from "@/lib/pretix/checkin";
 import { selectListIdForDate, venueToday } from "@/lib/checkin/select-list";
 import { VENUE_IANA_ZONE } from "@/lib/datetime/uk";
@@ -58,6 +59,18 @@ export default async function CheckinPage({
   // — no list name, "0 / 0" counters from a swallowed error — while every
   // scan fails against pretix with a message the door has no context for.
   const unknownList = Boolean(sp.list) && lists.length > 0 && !activeList;
+
+  // Ticket types for the door's walk-in form. Swallowed like the check-in lists
+  // above: pretix being unreachable must not take the check-in screen down, it
+  // just means walk-ins have to be registered from the desk page instead.
+  let tickets: { id: number; title: string }[] = [];
+  try {
+    tickets = (await listTickets(session, mapping.id))
+      .filter((i) => i.active)
+      .map((i) => ({ id: i.id, title: locale === "ar" && i.titleAr ? i.titleAr : i.titleEn }));
+  } catch {
+    tickets = [];
+  }
   // Only call a list "today" when today is actually an event day.
   // selectListIdForDate deliberately clamps outside the window (day one for
   // rehearsal, the last day for reconciliation), and labelling that "today"
@@ -157,7 +170,7 @@ export default async function CheckinPage({
         </nav>
       )}
       <div className="mt-4">
-        <CheckinPanel eventId={mapping.id} listId={listId} />
+        <CheckinPanel eventId={mapping.id} listId={listId} tickets={tickets} />
       </div>
     </div>
   );

@@ -3,7 +3,8 @@ import { badgeProfileUrl } from "./badge-slug";
 // Only the job-title line is taken from the shared module. The name and
 // company keep the numbers this file has always used, because the three
 // PC42d lanes were verified against them on hardware — see the note below.
-import { JOB_TITLE_Y, JOB_TITLE_SIZE } from "./badge-layout";
+import { JOB_TITLE_Y, JOB_TITLE_SIZE, bandFontSize } from "./badge-layout";
+import { badgeBandText } from "@/lib/badges/tags";
 
 /**
  * Generate ZPL II for a 60×40 mm (landscape) attendee badge, targeting the
@@ -169,7 +170,9 @@ function printableJobTitle(raw: string | null | undefined): string | null {
 }
 
 export function buildBadgeZpl(badge: BadgeData): string {
-  const tag = sanitizeZplText(badge.tag).toUpperCase();
+  // The role's human label, not the raw enum value: `organising_committee`
+  // across someone's chest reads as a bug, not a role.
+  const tag = sanitizeZplText(badgeBandText(badge.tag));
   const company = badge.company ? sanitizeZplText(badge.company) : null;
   // Gate on the SANITISED value, not the raw one. The printer's fonts are
   // Latin-only, so an Arabic job title sanitises to "" — the line is dropped
@@ -184,7 +187,9 @@ export function buildBadgeZpl(badge: BadgeData): string {
   // is the most prominent element, so it gets a tall band and large font.
   const bandY = BAND_Y;
   const bandHeight = BAND_HEIGHT;
-  const tagFont = 50;
+  // Shrinks only when the role is too long for the band. Every role that fitted
+  // before still returns 50, so those badges are unchanged.
+  const tagFont = bandFontSize(tag, 50);
   const band =
     `^FO0,${bandY}^GB${LABEL_WIDTH},${bandHeight},${bandHeight},B,0^FS` +
     `^FO${MARGIN},${bandY + Math.round((bandHeight - tagFont) / 2)}^A0N,${tagFont},${tagFont}^FR^FB${LABEL_WIDTH - MARGIN * 2},1,0,C,0^FD${tag}^FS`;

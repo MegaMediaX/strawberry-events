@@ -8,6 +8,8 @@ import { resolvePretixContext } from "@/lib/pretix/context";
 import * as pretixCheckin from "@/lib/pretix/checkin";
 import { emit } from "@/lib/webhooks/service";
 import { generateBadgeSlug, resolveBadgeSlug } from "./badge-slug";
+import { JOB_TITLE_MAX, JOB_TITLE_OTHER } from "@/lib/registration/job-title";
+import { BADGE_TAGS, type BadgeTagValue } from "@/lib/badges/tags";
 import { checkinEligibility } from "./eligibility";
 
 export interface CheckInResult {
@@ -415,4 +417,204 @@ export async function liveCounters(
   if (!org) throw new Error("Organization not found");
   const ctx = resolvePretixContext(org);
   return pretixCheckin.checkinCounters(ctx.organizerSlug, mapping.pretixEventSlug, listId, ctx.token);
+}
+
+/**
+ * Everything a door operator may correct on someone standing in front of them:
+ * their name, how to reach them, who they are with, and which badge they get.
+ *
+ * An absent key means "leave it alone". An empty string means "clear it" —
+ * which is why company, jobTitle and phone are clearable and fullName is not:
+ * a badge with no name is worse than a badge with a misspelt one.
+ *
+ * NOT here, and not an oversight: order status, approval, tickets, seats,
+ * pretixSecret and badgeSlug. Those live in pretix or are the credentials the
+ * badge is built from — changing them locally would put this database and
+ * pretix into two different opinions about the same order, mid-event, with no
+ * way to tell which is right.
+ */
+/** Ceiling for door-entered free text. Generous for a real name, far under a paste. */
+const FREE_TEXT_MAX = 120;
+
+export interface AttendeeCorrection {
+  fullName?: string;
+  email?: string;
+  phone?: string;
+  phoneCC?: string;
+  company?: string;
+  jobTitle?: string;
+  roleTag?: BadgeTagValue;
+}
+
+/**
+ * Correct an attendee's printed details at the door, and hand back a badge
+ * ready to reprint.
+ *
+ * Deliberately NOT a check-in and NOT a print: it redeems nothing in pretix and
+ * returns no badge. Staff use it when someone's name was mistyped or they never
+ * gave a job title; the caller then goes through the normal reprint path.
+ *
+ * Returning a badge here was a real gap. reprintBadge refuses to hand back a
+ * printable badge for a cancelled, rejected or unpaid order — this did not, so
+ * a directly-invoked correction could produce a badge for someone not entitled
+ * to one, and the print would never reach badgePrintLog either. Routing the
+ * print through reprintBadge instead gets both the eligibility gate and the
+ * print log for free, rather than reimplementing them here and drifting.
+ */
+export async function updateAttendeeDetails(
+  session: SessionContext,
+  eventId: string,
+  orderCode: string,
+  patch: AttendeeCorrection,
+): Promise<CheckInResult> {
+  assertCanCheckin(session);
+  const mapping = await resolveEvent(session, eventId);
+
+  const order = await prisma.attendeeOrder.findFirst({
+    where: { eventMappingId: mapping.id, orderCode },
+  });
+  if (!order) throw new ForbiddenError("Registration not found");
+
+  // Built key by key rather than spread, so a field the caller was never
+  // allowed to send cannot reach Prisma by riding along on the object.
+  const data: {
+    attendeeName?: string;
+    email?: string;
+    phone?: string | null;
+    phoneCC?: string | null;
+    company?: string | null;
+    jobTitle?: string | null;
+    roleTag?: BadgeTagValue;
+  } = {};
+
+  // Free text from a door has no natural ceiling, and these columns are
+  // unbounded TEXT. Nothing downstream can be injected — sanitizeZplText
+  // strips ZPL control prefixes and non-Latin-1 before anything prints — but a
+  // pasted blob would still land in the database, the CSV and the roster.
+  const tooLong = (v: string, max: number) => v.length > max;
+
+  if (patch.fullName !== undefined) {
+    const name = patch.fullName.trim();
+    if (!name) return { ok: false, reason: "A name is required." };
+    if (tooLong(name, FREE_TEXT_MAX)) return { ok: false, reason: "That name is too long." };
+    data.attendeeName = name;
+  }
+  if (patch.email !== undefined) {
+    const email = patch.email.trim();
+    // A blank email is allowed (walk-ins get a synthesised one), but a
+    // malformed one is not: it flows to the ticket mail and to pretix.
+    if (tooLong(email, FREE_TEXT_MAX)) return { ok: false, reason: "That email address is too long." };
+    if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      return { ok: false, reason: "That email address is not valid." };
+    }
+    if (email) data.email = email;
+  }
+  if (patch.phone !== undefined) {
+    const phone = patch.phone.trim();
+    if (tooLong(phone, 32)) return { ok: false, reason: "That phone number is too long." };
+    data.phone = phone || null;
+  }
+  if (patch.phoneCC !== undefined) {
+    const cc = patch.phoneCC.trim();
+    if (tooLong(cc, 8)) return { ok: false, reason: "That country code is too long." };
+    data.phoneCC = cc || null;
+  }
+  if (patch.roleTag !== undefined) {
+    if (!(BADGE_TAGS as readonly string[]).includes(patch.roleTag)) {
+      return { ok: false, reason: "That is not a badge role." };
+    }
+    data.roleTag = patch.roleTag;
+  }
+  if (patch.company !== undefined) {
+    const company = patch.company.trim();
+    if (tooLong(company, FREE_TEXT_MAX)) return { ok: false, reason: "That company name is too long." };
+    data.company = company || null;
+  }
+  if (patch.jobTitle !== undefined) {
+    const title = patch.jobTitle.trim();
+    if (title === JOB_TITLE_OTHER) {
+      return { ok: false, reason: "Enter the job title, not \"Other\"." };
+    }
+    if (title.length > JOB_TITLE_MAX) {
+      return { ok: false, reason: `Job title must be ${JOB_TITLE_MAX} characters or fewer.` };
+    }
+    data.jobTitle = title || null;
+  }
+
+  if (Object.keys(data).length === 0) return { ok: false, reason: "Nothing to change." };
+
+  const updated = await prisma.attendeeOrder.update({ where: { id: order.id }, data });
+
+  // before/after carry only the fields this action can touch, so the row reads
+  // as "what an operator corrected" rather than a dump of the attendee.
+  const pick = (o: AttendeeOrder) => ({
+    attendeeName: o.attendeeName,
+    email: o.email,
+    phone: o.phone,
+    phoneCC: o.phoneCC,
+    company: o.company,
+    jobTitle: o.jobTitle,
+    roleTag: o.roleTag,
+  });
+  await prisma.auditLog.create({
+    data: {
+      organizationId: mapping.organizationId,
+      eventMappingId: mapping.id,
+      actorUserId: session.userId,
+      action: "attendee.details_corrected",
+      entityType: "order",
+      entityId: order.id,
+      before: pick(order),
+      after: pick(updated),
+    },
+  });
+
+  return { ok: true };
+}
+
+/** Everything the door's correction form needs to open pre-filled. */
+export interface AttendeeForEdit {
+  orderCode: string;
+  fullName: string;
+  email: string;
+  phone: string | null;
+  phoneCC: string | null;
+  company: string | null;
+  jobTitle: string | null;
+  roleTag: BadgeTagValue;
+}
+
+/**
+ * Read the correctable details for one order.
+ *
+ * Separate from the badge payload on purpose: a badge carries what is PRINTED,
+ * and email and phone are not. Widening the badge to prefill a form would put
+ * contact details into every check-in response, the recent list and the print
+ * fallback — places that have no use for them.
+ */
+export async function getAttendeeForEdit(
+  session: SessionContext,
+  eventId: string,
+  orderCode: string,
+): Promise<AttendeeForEdit> {
+  assertCanCheckin(session);
+  const mapping = await resolveEvent(session, eventId);
+  const order = await prisma.attendeeOrder.findFirst({
+    where: { eventMappingId: mapping.id, orderCode },
+    select: {
+      orderCode: true, attendeeName: true, email: true, phone: true,
+      phoneCC: true, company: true, jobTitle: true, roleTag: true,
+    },
+  });
+  if (!order) throw new ForbiddenError("Registration not found");
+  return {
+    orderCode: order.orderCode,
+    fullName: order.attendeeName ?? order.email,
+    email: order.email,
+    phone: order.phone,
+    phoneCC: order.phoneCC,
+    company: order.company,
+    jobTitle: order.jobTitle,
+    roleTag: order.roleTag as BadgeTagValue,
+  };
 }

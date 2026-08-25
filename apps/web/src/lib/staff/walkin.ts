@@ -1,16 +1,16 @@
-import type { AttendeeTag } from "@prisma/client";
 import { prisma } from "@/lib/db/client";
 import { canAccessEvent } from "@/lib/auth/org-scope";
 import { hasAnyRole, ForbiddenError } from "@/lib/auth/guards";
 import type { SessionContext } from "@/lib/auth/types";
 import { register, type RegisterResult } from "@/lib/registration/service";
+import type { BadgeTagValue } from "@/lib/badges/tags";
 
 export interface WalkInInput {
   /** EventMapping id (local), as selected by staff. */
   eventId: string;
   /** pretix item id for the chosen ticket type. */
   itemId: number;
-  roleTag: Extract<AttendeeTag, "media" | "partner" | "staff" | "speaker" | "visitor">;
+  roleTag: BadgeTagValue;
   locale?: "en" | "ar";
   attendee: {
     firstName: string;
