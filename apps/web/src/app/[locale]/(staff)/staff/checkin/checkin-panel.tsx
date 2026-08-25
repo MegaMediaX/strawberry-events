@@ -784,6 +784,27 @@ export function CheckinPanel({
                 </li>
               ))}
             </ul>
+
+            {/* Always here, so registering someone never requires searching for
+                them and failing first. Deliberately quiet, and deliberately
+                BELOW the results: the most common reason a name does not appear
+                is a spelling or transliteration miss, not an unregistered
+                person, and a loud button above the list is how a Mohamad who is
+                already in the system gets registered a second time. Whatever is
+                typed carries over, so nothing is retyped either way. */}
+            {!walkIn && (
+              <button
+                type="button"
+                onClick={() => {
+                  captureReturnFocus();
+                  setWalkIn(true);
+                }}
+                disabled={busy}
+                className="mt-3 min-h-12 w-full rounded-lg border border-dashed border-border px-5 text-[15px] font-semibold text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-50"
+              >
+                + Register a walk-in
+              </button>
+            )}
           </div>
         </section>
       </div>
