@@ -98,7 +98,8 @@ export async function reprintAction(
  * Correct an attendee's printed details at the door.
  *
  * Not a check-in: nothing is redeemed and no badge print is logged. It returns
- * the corrected badge so the panel can offer an immediate reprint.
+ * NO badge either — the caller goes through the ordinary reprint path, which
+ * already refuses a badge for a cancelled or unpaid order and records the print.
  */
 export async function correctAttendeeAction(
   eventId: string,
@@ -158,7 +159,15 @@ export async function walkInAndCheckInAction(
   input: DoorWalkIn,
   listId: number,
 ): Promise<CheckInResult> {
-  const session = await getSessionContext();
+  // Wrapped like every sibling action. An uncaught throw here never reaches the
+  // caller's .then(), so the form's busy flag is never cleared and the walk-in
+  // form stays dead until the page is reloaded — mid-event, mid-queue.
+  let session;
+  try {
+    session = await getSessionContext();
+  } catch (err) {
+    return { ok: false, reason: (err as Error).message };
+  }
   if (!session) return { ok: false, reason: "Not authenticated" };
 
   let orderCode: string;

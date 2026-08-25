@@ -105,8 +105,20 @@ export function CheckinPanel({
   // Read by openEdit's re-entrancy guard. A ref rather than the state value so
   // the callback keeps a stable identity.
   const openingEditRef = useRef(false);
-  /** Where focus goes when the Fix or walk-in form closes. */
+  /**
+   * Where focus goes when the Fix or walk-in form closes.
+   *
+   * Captured at the CLICK, not in an effect. React runs a child's mount effect
+   * before its parent's, so both forms have already focused their own first
+   * field by the time a panel effect could read document.activeElement — it
+   * would capture an element inside the dialog, and focusing that after unmount
+   * is a silent no-op. Which looks exactly like the bug it was meant to fix.
+   */
   const formReturnFocusRef = useRef<HTMLElement | null>(null);
+  const captureReturnFocus = useCallback(() => {
+    formReturnFocusRef.current =
+      document.activeElement instanceof HTMLElement ? document.activeElement : null;
+  }, []);
   const confirmBoxRef = useRef<HTMLDivElement>(null);
   // Where focus came from, so closing the dialog returns it.
   const returnFocusRef = useRef<HTMLElement | null>(null);
@@ -310,6 +322,12 @@ export function CheckinPanel({
     const query = q.trim();
     let cancelled = false;
 
+    // Frozen while the walk-in form is open. The form holds its own state, so a
+    // late result arriving behind it and unmounting it would discard whatever
+    // the operator had typed — and results appearing under a filled walk-in
+    // form is how one person gets registered twice.
+    if (walkIn) return;
+
     // Every setState is inside the timeout, never synchronous in the effect
     // body — a synchronous one cascades renders on every keystroke.
     const id = setTimeout(async () => {
@@ -334,7 +352,7 @@ export function CheckinPanel({
       cancelled = true;
       clearTimeout(id);
     };
-  }, [q, eventId]);
+  }, [q, eventId, walkIn]);
 
   /* ------------------------------------------- confirm dialog focus */
 
@@ -363,18 +381,12 @@ export function CheckinPanel({
     walkInRef.current = walkIn;
 
     const open = Boolean(editing) || walkIn;
-    if (open) {
-      // Where to send focus back to when the form closes. Both forms move focus
-      // into themselves on open; without this, closing dropped it on <body> and
-      // the next Tab restarted from the top of the page — dozens of times a day
-      // over three days.
-      if (!formReturnFocusRef.current) {
-        formReturnFocusRef.current =
-          document.activeElement instanceof HTMLElement ? document.activeElement : null;
-      }
-    } else if (formReturnFocusRef.current) {
-      formReturnFocusRef.current.focus();
+    if (!open && formReturnFocusRef.current) {
+      // Only if it is still in the document — the captured trigger may itself
+      // have been unmounted (a Recent row rolling off the list, say).
+      const el = formReturnFocusRef.current;
       formReturnFocusRef.current = null;
+      if (el.isConnected) el.focus();
     }
   }, [editing, walkIn]);
 
@@ -527,7 +539,10 @@ export function CheckinPanel({
             onChange={(e) => setQ(e.target.value)}
             placeholder="Name, email, phone or order code  ( / to focus )"
             aria-label="Search attendees"
-            className="h-12 text-[16px]"
+            // Disabled, not merely ignored, while the walk-in form is open: a
+            // box that accepts typing and does nothing reads as broken.
+            disabled={walkIn}
+            className="h-12 text-[16px] disabled:opacity-60"
           />
 
           <div className="mt-3">
@@ -546,7 +561,10 @@ export function CheckinPanel({
                 <Button
                   variant="outline"
                   className="mt-3 min-h-12 px-5 text-[15px]"
-                  onClick={() => setWalkIn(true)}
+                  onClick={() => {
+                    captureReturnFocus();
+                    setWalkIn(true);
+                  }}
                   disabled={busy}
                 >
                   Register “{q.trim()}” as a walk-in
@@ -554,11 +572,13 @@ export function CheckinPanel({
               </div>
             )}
 
-            {/* Strictly exclusive with the results list. The search box stays
-                live while this is open, so a corrected spelling can match a
-                real attendee — and a filled walk-in form sitting above their
-                row is how one person gets registered twice. */}
-            {walkIn && rows.length === 0 && (
+            {/* The search is frozen while this is open (see the search effect
+                and the disabled input above), so results cannot appear behind a
+                half-filled form. Gating this on `rows.length === 0` instead
+                looked equivalent and was worse: a late search response would
+                UNMOUNT the form mid-fill and silently discard everything the
+                operator had typed. */}
+            {walkIn && (
               <DoorWalkInForm
                 prefill={q}
                 tickets={tickets}
@@ -643,7 +663,10 @@ export function CheckinPanel({
                 // cancelled or unpaid order and records the print in
                 // badgePrintLog — neither of which a correction should be
                 // reimplementing on its own.
-                setEditing(null);
+                // Only close the dialog if it is still the one this save was
+                // started from. Closing unconditionally shut whichever dialog
+                // happened to be open by then — discarding an unrelated edit.
+                setEditing((cur) => (cur?.orderCode === orderCode ? null : cur));
                 return reprintAction(eventId, orderCode).then((printed) => {
                   setSavingEdit(false);
                   if (!printed.ok) {
@@ -690,8 +713,11 @@ export function CheckinPanel({
                       second physical badge in someone's hand. */}
                   <button
                     type="button"
-                    onClick={() => openEdit(r.orderCode)}
-                    disabled={busy || openingEdit}
+                    onClick={() => {
+                      captureReturnFocus();
+                      openEdit(r.orderCode);
+                    }}
+                    disabled={busy || openingEdit || savingEdit}
                     className="min-h-11 rounded-md border border-border px-4 text-[13px] font-semibold hover:bg-accent disabled:opacity-50"
                   >
                     Fix

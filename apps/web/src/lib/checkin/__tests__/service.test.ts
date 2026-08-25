@@ -610,6 +610,21 @@ describe("updateAttendeeDetails — correcting someone at the door", () => {
     expect(res.ok).toBe(true);
   });
 
+  it("still corrects a CANCELLED attendee — the save is not gated on eligibility", async () => {
+    // Deliberate: a cancelled or unpaid attendee's misspelt name should still
+    // be correctable. Only the BADGE is gated, and that gate lives in
+    // reprintBadge, which the caller chains afterwards. Nothing pinned this, so
+    // reintroducing an eligibility check here would have failed nothing.
+    mock(prisma.attendeeOrder.findFirst).mockResolvedValue(
+      order({ status: "canceled", approvalStatus: "rejected", attendeeName: "Elias Dao" }),
+    );
+    const res = await updateAttendeeDetails(staff, "e1", "ABC12", { fullName: "Elias Daou" });
+    expect(res.ok).toBe(true);
+    expect(prisma.attendeeOrder.update).toHaveBeenCalled();
+    // And the correction is still attributable.
+    expect(prisma.auditLog.create).toHaveBeenCalled();
+  });
+
   it("is refused to roles that cannot check in", async () => {
     await expect(
       updateAttendeeDetails(finance, "e1", "ABC12", { fullName: "X" }),
