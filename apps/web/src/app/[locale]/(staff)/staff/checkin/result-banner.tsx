@@ -1,12 +1,8 @@
 "use client";
 
 export type DoorResult =
-  // orderCode is what lets the banner offer "Fix" on the person it is naming.
-  // The moment an operator notices a misspelling is the moment they read the
-  // badge that just printed — when this banner is the only thing on screen
-  // showing that person.
-  | { kind: "ok"; name: string; detail: string; label?: string; orderCode?: string }
-  | { kind: "warn"; name: string; detail: string; label?: string; orderCode?: string }
+  | { kind: "ok"; name: string; detail: string; label?: string }
+  | { kind: "warn"; name: string; detail: string; label?: string }
   | { kind: "err"; name: string; detail: string }
   | { kind: "working" };
 
@@ -43,7 +39,7 @@ export function ResultBanner({
   // recent list — once per attendee, interrupting whatever was being said.
   if (!result) {
     return (
-      <div className="flex h-[104px] flex-col overflow-hidden rounded-xl border border-border px-5 py-3">
+      <div className="flex h-[140px] flex-col justify-center rounded-xl border border-border px-5 py-2">
         {idle ?? (
           <p className="flex flex-1 items-center justify-center text-[15px] text-muted-foreground">
             Scan a badge or ticket, or search by name.
@@ -67,7 +63,7 @@ export function ResultBanner({
 function BannerBody({ result }: { result: DoorResult }) {
   if (result.kind === "working") {
     return (
-      <div className="flex min-h-[104px] items-center gap-4 rounded-xl border border-border bg-muted/40 px-6">
+      <div className="flex h-[140px] items-center gap-4 rounded-xl border border-border bg-muted/40 px-6">
         <span className="size-5 animate-spin rounded-full border-2 border-muted-foreground border-t-transparent" aria-hidden />
         <p className="text-[19px] font-semibold">Checking in…</p>
       </div>
@@ -106,7 +102,7 @@ function BannerBody({ result }: { result: DoorResult }) {
   }[result.kind];
 
   return (
-    <div className={`flex min-h-[104px] items-center gap-4 rounded-xl border px-6 py-4 ${style.box}`}>
+    <div className={`flex h-[140px] items-center gap-4 rounded-xl border px-6 py-4 ${style.box}`}>
       <span
         aria-hidden
         className={`flex size-11 shrink-0 items-center justify-center rounded-full border-2 text-[22px] font-bold ${style.word}`}

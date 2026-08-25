@@ -44,3 +44,45 @@ export function looksScannable(value: string): boolean {
   // the real extraction server-side; this only decides where to send it.
   return /^https?:\/\//i.test(t) || /\/c\/[^/?#\s]+/i.test(t);
 }
+
+/** What pressing Enter in the door's search box should do. */
+export type EnterAction =
+  | { kind: "scan"; text: string }
+  | { kind: "checkIn"; orderCode: string }
+  | { kind: "none" };
+
+/**
+ * Decide what Enter does, as a pure function of what is on screen.
+ *
+ * Extracted deliberately. This is the most dangerous branch on the check-in
+ * screen — it can admit a person and print a badge, and neither is undoable —
+ * and there is no component-testing library in this repo, so left inside the
+ * component it had no coverage at all. Here it is exhaustively testable.
+ *
+ * `rowsQuery` is the query the rows actually answer. It is NOT decoration:
+ * results are written only when the 220ms search debounce resolves, so for a
+ * moment after every keystroke `rows` still holds the previous query's answer.
+ * Without this check, typing "Elias", waiting for one match, then typing
+ * "Elias D" to disambiguate a second Elias and pressing Enter checks in the
+ * FIRST one.
+ */
+export function decideEnter(
+  text: string,
+  rowsQuery: string,
+  rows: readonly { orderCode: string }[],
+): EnterAction {
+  const t = text.trim();
+  if (!t) return { kind: "none" };
+
+  // A code is never a query. Route it exactly where the camera's output goes.
+  if (looksScannable(t)) return { kind: "scan", text: t };
+
+  // Exactly one match FOR WHAT IS CURRENTLY TYPED.
+  if (rowsQuery.trim() === t && rows.length === 1) {
+    return { kind: "checkIn", orderCode: rows[0].orderCode };
+  }
+
+  // Several, none, or results that answer a different question. Never guess:
+  // Enter has to be safe to lean on all day.
+  return { kind: "none" };
+}

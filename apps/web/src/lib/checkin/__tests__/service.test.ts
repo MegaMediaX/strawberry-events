@@ -668,6 +668,26 @@ describe("phoneDigitsForQuery — a query is only a phone when it looks like one
     expect(phoneDigitsForQuery("03-123456")).toBe("03123456");
   });
 
+  it("accepts the shapes people actually write a number in", () => {
+    // Anchoring on the first character rejected a leading bracket, and since
+    // the raw text matches no name or order code either, the search came back
+    // empty rather than wrong — a dead end an operator cannot diagnose.
+    expect(phoneDigitsForQuery("(03) 123456")).toBe("03123456");
+    expect(phoneDigitsForQuery("(+961) 3 123456")).toBe("9613123456");
+    expect(phoneDigitsForQuery("+961-3-123456")).toBe("9613123456");
+    expect(phoneDigitsForQuery("70 12 34 56")).toBe("70123456");
+  });
+
+  it("still refuses anything with a letter in it", () => {
+    expect(phoneDigitsForQuery("SZSZEC50")).toBe("");
+    expect(phoneDigitsForQuery("Elias")).toBe("");
+    expect(phoneDigitsForQuery("+961 ext 4")).toBe("");
+  });
+
+  it("refuses punctuation carrying no number", () => {
+    expect(phoneDigitsForQuery("()-./")).toBe("");
+  });
+
   it("refuses a fragment too short to identify anyone", () => {
     // "123" matched 10 real attendees in production.
     expect(phoneDigitsForQuery("123")).toBe("");

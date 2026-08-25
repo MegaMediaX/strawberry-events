@@ -116,7 +116,11 @@ export const NAME_SIMILARITY_THRESHOLD = 0.3;
  */
 export function phoneDigitsForQuery(query: string): string {
   const q = query.trim();
-  if (!/^[+\d][\d\s()./-]*$/.test(q)) return "";
+  // Only the characters a phone number is written with — no anchor on the
+  // FIRST one. Requiring it to be "+" or a digit rejected "(03) 123456" and
+  // "(+961) 3 123456" outright, and because the raw text matches no name or
+  // order code either, those searches returned nothing at all.
+  if (!/^[+()\d\s./-]+$/.test(q)) return "";
   const digits = q.replace(/\D/g, "");
   // Four digits across ~1,200 attendees still returns strangers; six does not.
   return digits.length >= 6 ? digits : "";

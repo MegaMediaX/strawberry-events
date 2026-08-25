@@ -16,7 +16,7 @@ import { PrinterStatus } from "./printer-status";
 import { ResultBanner, type DoorResult } from "./result-banner";
 import { AttendeeEditDialog, type EditTarget } from "./attendee-edit";
 import { DoorWalkInForm, type DoorTicket } from "./door-walk-in";
-import { looksScannable } from "@/lib/checkin/scan-shape";
+import { decideEnter, looksScannable } from "@/lib/checkin/scan-shape";
 import {
   searchAction,
   checkInAction,
@@ -77,6 +77,17 @@ export function CheckinPanel({
 }) {
   const [q, setQ] = useState("");
   const [rows, setRows] = useState<AttendeeRow[]>([]);
+  /**
+   * The query these rows actually answer.
+   *
+   * `rows` is only written inside the search debounce, so for 220ms after a
+   * keystroke it still holds the PREVIOUS query's results. Enter trusted
+   * `rows.length === 1`, which meant: type "Elias", one match lands, keep
+   * typing "Elias D" to disambiguate a second Elias, press Enter inside the
+   * debounce window — and the FIRST Elias is checked in and his badge printed.
+   * A check-in cannot be undone at a door.
+   */
+  const [rowsQuery, setRowsQuery] = useState("");
   const [searching, setSearching] = useState(false);
   const [pending, start] = useTransition();
   const [result, setResult] = useState<DoorResult | null>(null);
@@ -199,9 +210,6 @@ export function CheckinPanel({
       if (res.ok && res.badge) {
         const b = toBadge(res.badge);
         const who = res.badge.fullName;
-        // Captured here, like `who`: the narrowing does not survive into the
-        // async print callback below.
-        const orderCode = res.badge.orderCode;
         setBrowserFallback(false);
         setConfirmReprint(null);
         setResult({ kind: "working" });
@@ -247,7 +255,6 @@ export function CheckinPanel({
           setResult({
             kind: "ok",
             name: who,
-            orderCode,
             label: kind === "reprint" ? "Reprinted" : undefined,
             detail:
               kind === "reprint"
@@ -354,6 +361,7 @@ export function CheckinPanel({
       // match strangers by phone.
       if (!query || looksScannable(query)) {
         setRows([]);
+        setRowsQuery(query);
         setSearching(false);
         return;
       }
@@ -361,7 +369,10 @@ export function CheckinPanel({
       try {
         const found = await searchAction(eventId, query);
         // A slow response for an older query must not overwrite a newer one.
-        if (!cancelled) setRows(found);
+        if (!cancelled) {
+          setRows(found);
+          setRowsQuery(query);
+        }
       } finally {
         // finally, not the happy path: without this any transient failure
         // leaves "Searching…" on screen forever, with no error and no recovery.
@@ -430,12 +441,33 @@ export function CheckinPanel({
         // Both new forms use native selects for role, title and ticket.
         e.target.tagName === "SELECT");
 
-      // Focus the box WITHOUT swallowing the key. A wedge scanner is a
-      // keyboard: its payload starts "HTTPS://", and preventDefault here ate
-      // both slashes, leaving a string resolveBadgeSlug can no longer parse —
-      // a scan silently degraded into a junk search. "/" still focuses; it
-      // just also types, which is harmless in an empty box.
+      // "/" is a pure hotkey and MUST swallow itself. Without preventDefault
+      // the character lands in the box it just focused, so the operator's next
+      // keystrokes build "/Elias" — which matches nobody and offers to register
+      // a walk-in instead. That was a regression, not a trade-off.
       if (e.key === "/" && !typing) {
+        e.preventDefault();
+        searchRef.current?.focus();
+        return;
+      }
+
+      // Any OTHER single character with focus adrift goes into the box, itself
+      // included — deliberately WITHOUT preventDefault. A keyboard-wedge
+      // scanner is a keyboard: its payload starts "HTTPS://", and if focus has
+      // drifted the leading characters are simply lost, leaving a string
+      // resolveBadgeSlug cannot parse. Gated on the dialogs so a scan arriving
+      // over an open confirmation cannot pull focus out from under a decision
+      // the operator has not made yet.
+      if (
+        e.key.length === 1 &&
+        !typing &&
+        !e.ctrlKey &&
+        !e.metaKey &&
+        !e.altKey &&
+        !confirmReprintRef.current &&
+        !editingRef.current &&
+        !walkInRef.current
+      ) {
         searchRef.current?.focus();
         return;
       }
@@ -472,28 +504,21 @@ export function CheckinPanel({
     (e: React.KeyboardEvent<HTMLInputElement>) => {
       if (e.key !== "Enter") return;
       e.preventDefault();
-      const text = q.trim();
-      if (!text || busy) return;
+      if (busy) return;
 
-      // 1. A code. Route it to the scan path, exactly as the camera does.
-      if (looksScannable(text)) {
+      // The decision is a pure function so it can be tested; this only
+      // dispatches it.
+      const action = decideEnter(q, rowsQuery, rows);
+      if (action.kind === "scan") {
         setQ("");
         setRows([]);
-        doScan(text);
+        setRowsQuery("");
+        doScan(action.text);
         return;
       }
-      // 2. Exactly one match — check them in without touching the trackpad.
-      //    This is the saving: a hand leaving the keyboard and coming back
-      //    costs about two seconds, on every single search, all day.
-      if (rows.length === 1) {
-        doCheckIn(rows[0].orderCode);
-        return;
-      }
-      // 3. Several, or none. NEVER guess: a check-in cannot be undone at a
-      //    door, and registering a walk-in creates a real pretix order. Enter
-      //    must not be able to reach either.
+      if (action.kind === "checkIn") doCheckIn(action.orderCode);
     },
-    [q, rows, busy, doScan, doCheckIn],
+    [q, rows, rowsQuery, busy, doScan, doCheckIn],
   );
 
   /**

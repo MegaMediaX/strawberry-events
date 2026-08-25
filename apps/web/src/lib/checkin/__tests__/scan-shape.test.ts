@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 
-import { looksScannable, SLUG_RE } from "@/lib/checkin/scan-shape";
+import { decideEnter, looksScannable, SLUG_RE } from "@/lib/checkin/scan-shape";
 import { resolveBadgeSlug } from "@/lib/checkin/badge-slug";
 
 describe("looksScannable — is this a code, or something someone typed?", () => {
@@ -73,5 +73,63 @@ describe("anything looksScannable accepts, the server can actually resolve", () 
     expect(SLUG_RE.test("SZSZEC50")).toBe(true);
     expect(SLUG_RE.test("SZSZEC5")).toBe(false);   // too short
     expect(SLUG_RE.test("SZSZECIO")).toBe(false);  // I and O are excluded
+  });
+});
+
+describe("decideEnter — the branch that can admit the wrong person", () => {
+  const row = (orderCode: string) => ({ orderCode });
+
+  it("checks in the single match for what is currently typed", () => {
+    expect(decideEnter("Elias", "Elias", [row("EH-001")])).toEqual({
+      kind: "checkIn",
+      orderCode: "EH-001",
+    });
+  });
+
+  it("REFUSES to act on results that answer an earlier query", () => {
+    // The race this exists for. Results are only written when the 220ms
+    // debounce resolves, so just after a keystroke `rows` still holds the
+    // previous answer:
+    //   type "Elias"      -> one match, Elias Haddad
+    //   type "Elias D"    -> to disambiguate a second Elias
+    //   press Enter       -> inside the debounce window
+    // Without this check, Elias HADDAD is checked in and his badge printed.
+    // A check-in cannot be undone at a door.
+    expect(decideEnter("Elias D", "Elias", [row("EH-001")])).toEqual({ kind: "none" });
+  });
+
+  it("refuses when several people match", () => {
+    expect(decideEnter("Elias", "Elias", [row("A"), row("B")])).toEqual({ kind: "none" });
+  });
+
+  it("refuses when nobody matches", () => {
+    // Registering a walk-in creates a real pretix order. Enter must not reach it.
+    expect(decideEnter("Nobody", "Nobody", [])).toEqual({ kind: "none" });
+  });
+
+  it("refuses an empty box", () => {
+    expect(decideEnter("", "", [])).toEqual({ kind: "none" });
+    expect(decideEnter("   ", "", [])).toEqual({ kind: "none" });
+  });
+
+  it("sends a scanned payload to the scan path, whatever the rows say", () => {
+    expect(
+      decideEnter("HTTPS://REGISTER.STRAWBERRYAGENCY.COM/C/SZSZEC50", "Elias", [row("EH-001")]),
+    ).toEqual({ kind: "scan", text: "HTTPS://REGISTER.STRAWBERRYAGENCY.COM/C/SZSZEC50" });
+  });
+
+  it("treats a phone number as a query, not a scan", () => {
+    // 8 digits is also a shape-valid slug; the phone reading is the right one.
+    expect(decideEnter("70123456", "70123456", [row("EH-001")])).toEqual({
+      kind: "checkIn",
+      orderCode: "EH-001",
+    });
+  });
+
+  it("ignores whitespace differences between the query and its results", () => {
+    expect(decideEnter("  Elias  ", "Elias", [row("EH-001")])).toEqual({
+      kind: "checkIn",
+      orderCode: "EH-001",
+    });
   });
 });

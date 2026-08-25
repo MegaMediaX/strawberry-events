@@ -37,20 +37,28 @@ export function QrScanner({ onScan }: { onScan: (text: string) => void }) {
 
   const [error, setError] = useState<string | null>(null);
   const [cameras, setCameras] = useState<CameraOption[]>([]);
-  const [cameraId, setCameraId] = useState<string | null>(null);
-
-  useEffect(() => {
-    // Read the lane's saved camera after hydration — it lives in localStorage,
-    // so it cannot seed useState (that initializer also runs on the server).
-    // External-store read, not derived state; useSyncExternalStore is the
-    // idiomatic fix and is deferred, matching printer-settings.
+  const [retryTick, setRetryTick] = useState(0);
+  /**
+   * Seeded synchronously rather than in an effect.
+   *
+   * Reading it in an effect meant the scanner effect ran ONCE with null and
+   * again with the saved id: two getCameras() calls and two overlapping
+   * start() attempts on every mount of a lane that had chosen a camera. On a
+   * slow USB webcam the loser of that race can end up holding the device — and
+   * on Windows many webcam drivers are exclusive-access, so the camera the
+   * operator actually picked then cannot open at all.
+   *
+   * Safe to read here despite SSR: the initializer is guarded, and nothing
+   * rendered before the async enumeration depends on it.
+   */
+  const [cameraId, setCameraId] = useState<string | null>(() => {
+    if (typeof window === "undefined") return null;
     try {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setCameraId(window.localStorage.getItem(CAMERA_KEY));
+      return window.localStorage.getItem(CAMERA_KEY);
     } catch {
-      // Private mode or a locked-down profile: fall back to auto-selection.
+      return null;
     }
-  }, []);
+  });
 
   const choose = useCallback((id: string) => {
     setCameraId(id);
@@ -85,6 +93,11 @@ export function QrScanner({ onScan }: { onScan: (text: string) => void }) {
           return;
         }
 
+        // Checked again HERE, not just after getCameras(). Permission and
+        // device-open are slow; if cleanup ran during them, assigning and
+        // starting now creates a stream whose owning effect is already gone.
+        if (stopped) return;
+
         scanner = new Html5Qrcode(CONTAINER_ID, false);
         await scanner.start(
           chosen.id,
@@ -99,7 +112,16 @@ export function QrScanner({ onScan }: { onScan: (text: string) => void }) {
             // per-frame decode failures are normal; ignore.
           },
         );
-        if (!stopped) setError(null);
+        if (stopped) {
+          // Cleanup ran while start() was in flight. Nothing else will ever
+          // reach this instance, so it has to stop itself or the device stays
+          // held open — the failure is silent, and on Windows it locks out the
+          // next attempt entirely.
+          scanner.stop().catch(() => {}).finally(() => scanner?.clear?.());
+          scanner = null;
+          return;
+        }
+        setError(null);
       } catch {
         if (!stopped) setError("Camera unavailable — check browser permissions.");
       }
@@ -116,7 +138,19 @@ export function QrScanner({ onScan }: { onScan: (text: string) => void }) {
     };
     // Restarts when the operator picks a different camera — stopping the old
     // stream is what the cleanup above is for.
-  }, [cameraId]);
+  }, [cameraId, retryTick]);
+
+  // A webcam unplugged mid-shift produced no error at all — the per-frame
+  // decode callback cannot tell "no QR in this frame" from "no frames". The
+  // preview simply froze, and a lane with one camera had no control to recover
+  // with short of reloading the page.
+  useEffect(() => {
+    const md = typeof navigator !== "undefined" ? navigator.mediaDevices : undefined;
+    if (!md?.addEventListener) return;
+    const onChange = () => setRetryTick((n) => n + 1);
+    md.addEventListener("devicechange", onChange);
+    return () => md.removeEventListener("devicechange", onChange);
+  }, []);
 
   return (
     <div>
@@ -146,7 +180,18 @@ export function QrScanner({ onScan }: { onScan: (text: string) => void }) {
         </label>
       )}
 
-      {error && <p className="mt-2 text-sm text-destructive">{error}</p>}
+      {error && (
+        <div className="mt-2">
+          <p className="text-sm text-destructive">{error}</p>
+          <button
+            type="button"
+            onClick={() => setRetryTick((n) => n + 1)}
+            className="mt-2 min-h-11 rounded-md border border-border px-4 text-[14px] font-semibold hover:bg-accent"
+          >
+            Retry camera
+          </button>
+        </div>
+      )}
     </div>
   );
 }
