@@ -1,6 +1,6 @@
 import type { AttendeeApprovalStatus, AttendeeOrderStatus, AttendeeTag } from "@prisma/client";
 import { registrationState } from "@/lib/approval/state";
-import { BADGE_TAGS, type BadgeTagValue } from "@/lib/badges/tags";
+import { BADGE_TAGS } from "@/lib/badges/tags";
 
 export interface Eligibility {
   ok: boolean;

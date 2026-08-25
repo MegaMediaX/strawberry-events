@@ -1,12 +1,16 @@
 "use server";
 
 import { getSessionContext } from "@/lib/auth/session";
+import { createWalkIn } from "@/lib/staff/walkin";
+import type { BadgeTagValue } from "@/lib/badges/tags";
 import {
   searchAttendees,
   checkInOrder,
   checkInBySecret,
   reprintBadge,
   updateAttendeeDetails,
+  getAttendeeForEdit,
+  type AttendeeForEdit,
   type AttendeeCorrection,
   type CheckInResult,
 } from "@/lib/checkin/service";
@@ -107,5 +111,90 @@ export async function correctAttendeeAction(
     return await updateAttendeeDetails(session, eventId, orderCode, patch);
   } catch (err) {
     return { ok: false, reason: (err as Error).message };
+  }
+}
+
+/** Load one attendee's correctable details, for the door's Fix form. */
+export async function attendeeForEditAction(
+  eventId: string,
+  orderCode: string,
+): Promise<{ ok: true; attendee: AttendeeForEdit } | { ok: false; reason: string }> {
+  try {
+    const session = await getSessionContext();
+    if (!session) return { ok: false, reason: "Not authenticated" };
+    return { ok: true, attendee: await getAttendeeForEdit(session, eventId, orderCode) };
+  } catch (err) {
+    return { ok: false, reason: (err as Error).message };
+  }
+}
+
+export interface DoorWalkIn {
+  firstName: string;
+  lastName: string;
+  email?: string;
+  phoneCC?: string;
+  phone?: string;
+  company?: string | null;
+  jobTitle?: string | null;
+  roleTag: BadgeTagValue;
+  itemId: number;
+}
+
+/**
+ * Register someone at the door and check them in, in one action.
+ *
+ * The walk-in desk was a separate page: register there, then come back to
+ * check-in, find them, and check them in. Two screens and a search for a person
+ * already standing in front of you. This is the same two operations, in the
+ * order a door actually performs them.
+ *
+ * They are deliberately NOT wrapped in a transaction — pretix has already
+ * created a real order by the time the check-in runs, and there is nothing to
+ * roll back to. If the check-in half fails the registration still stands, and
+ * the message says so: the person exists and can be found by name.
+ */
+export async function walkInAndCheckInAction(
+  eventId: string,
+  input: DoorWalkIn,
+  listId: number,
+): Promise<CheckInResult> {
+  const session = await getSessionContext();
+  if (!session) return { ok: false, reason: "Not authenticated" };
+
+  let orderCode: string;
+  try {
+    const created = await createWalkIn(session, {
+      eventId,
+      itemId: input.itemId,
+      roleTag: input.roleTag,
+      attendee: {
+        firstName: input.firstName,
+        lastName: input.lastName,
+        email: input.email,
+        phoneCC: input.phoneCC,
+        phone: input.phone,
+        company: input.company ?? null,
+        jobTitle: input.jobTitle ?? null,
+      },
+    });
+    orderCode = created.orderCode;
+  } catch (err) {
+    return { ok: false, reason: (err as Error).message };
+  }
+
+  try {
+    const res = await checkInOrder(session, eventId, orderCode, listId);
+    if (!res.ok) {
+      return {
+        ok: false,
+        reason: `Registered as ${orderCode}, but check-in failed: ${res.reason ?? "unknown"}. Find them by name to retry.`,
+      };
+    }
+    return res;
+  } catch (err) {
+    return {
+      ok: false,
+      reason: `Registered as ${orderCode}, but check-in failed: ${(err as Error).message}. Find them by name to retry.`,
+    };
   }
 }

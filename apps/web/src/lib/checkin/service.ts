@@ -543,3 +543,50 @@ export async function updateAttendeeDetails(
 
   return { ok: true, badge: badgeOf(updated) };
 }
+
+/** Everything the door's correction form needs to open pre-filled. */
+export interface AttendeeForEdit {
+  orderCode: string;
+  fullName: string;
+  email: string;
+  phone: string | null;
+  phoneCC: string | null;
+  company: string | null;
+  jobTitle: string | null;
+  roleTag: BadgeTagValue;
+}
+
+/**
+ * Read the correctable details for one order.
+ *
+ * Separate from the badge payload on purpose: a badge carries what is PRINTED,
+ * and email and phone are not. Widening the badge to prefill a form would put
+ * contact details into every check-in response, the recent list and the print
+ * fallback — places that have no use for them.
+ */
+export async function getAttendeeForEdit(
+  session: SessionContext,
+  eventId: string,
+  orderCode: string,
+): Promise<AttendeeForEdit> {
+  assertCanCheckin(session);
+  const mapping = await resolveEvent(session, eventId);
+  const order = await prisma.attendeeOrder.findFirst({
+    where: { eventMappingId: mapping.id, orderCode },
+    select: {
+      orderCode: true, attendeeName: true, email: true, phone: true,
+      phoneCC: true, company: true, jobTitle: true, roleTag: true,
+    },
+  });
+  if (!order) throw new ForbiddenError("Registration not found");
+  return {
+    orderCode: order.orderCode,
+    fullName: order.attendeeName ?? order.email,
+    email: order.email,
+    phone: order.phone,
+    phoneCC: order.phoneCC,
+    company: order.company,
+    jobTitle: order.jobTitle,
+    roleTag: order.roleTag as BadgeTagValue,
+  };
+}

@@ -15,11 +15,15 @@ import { PrinterSettings } from "./printer-settings";
 import { PrinterStatus } from "./printer-status";
 import { ResultBanner, type DoorResult } from "./result-banner";
 import { AttendeeEditDialog, type EditTarget } from "./attendee-edit";
+import { DoorWalkInForm, type DoorTicket } from "./door-walk-in";
 import {
   searchAction,
   checkInAction,
   scanAction,
   reprintAction,
+  correctAttendeeAction,
+  attendeeForEditAction,
+  walkInAndCheckInAction,
   type AttendeeRow,
 } from "./actions";
 
@@ -41,11 +45,6 @@ type RecentEntry = {
   name: string;
   kind: "in" | "reprint";
   at: string;
-  // Carried so "Fix" can open pre-filled without another round trip. A door
-  // operator noticing a misspelt name is reading the label they just handed
-  // over — the person is still standing there.
-  company: string | null;
-  jobTitle: string | null;
 };
 
 function toBadge(b: NonNullable<CheckInResult["badge"]>): BadgeData {
@@ -61,9 +60,11 @@ function toBadge(b: NonNullable<CheckInResult["badge"]>): BadgeData {
 export function CheckinPanel({
   eventId,
   listId,
+  tickets,
 }: {
   eventId: string;
   listId: number;
+  tickets: DoorTicket[];
 }) {
   const [q, setQ] = useState("");
   const [rows, setRows] = useState<AttendeeRow[]>([]);
@@ -79,6 +80,7 @@ export function CheckinPanel({
   const [showSettings, setShowSettings] = useState(false);
   const [editing, setEditing] = useState<EditTarget | null>(null);
   const [savingEdit, setSavingEdit] = useState(false);
+  const [walkIn, setWalkIn] = useState(false);
 
   const searchRef = useRef<HTMLInputElement>(null);
   // Once QZ Tray has proved unreachable, stop dialling it. qz-tray probes
@@ -124,24 +126,32 @@ export function CheckinPanel({
     }
   }, []);
 
-  const remember = useCallback((
-    orderCode: string,
-    name: string,
-    kind: RecentEntry["kind"],
-    details: { company: string | null; jobTitle: string | null },
-  ) => {
+  const remember = useCallback((orderCode: string, name: string, kind: RecentEntry["kind"]) => {
     recentId.current += 1;
     const entry: RecentEntry = {
       id: recentId.current,
       orderCode,
       name,
       kind,
-      company: details.company,
-      jobTitle: details.jobTitle,
       at: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
     };
     setRecent((prev) => [entry, ...prev].slice(0, RECENT_LIMIT));
   }, []);
+
+  /* -------------------------------------------------------------- corrections */
+
+  const openEdit = useCallback(
+    (orderCode: string) => {
+      setEditing(null);
+      setSavingEdit(true);
+      void attendeeForEditAction(eventId, orderCode).then((res) => {
+        setSavingEdit(false);
+        if (res.ok) setEditing(res.attendee);
+        else setResult({ kind: "err", name: orderCode, detail: res.reason });
+      });
+    },
+    [eventId],
+  );
 
   /* ----------------------------------------------------------------- results */
 
@@ -153,10 +163,7 @@ export function CheckinPanel({
         setBrowserFallback(false);
         setConfirmReprint(null);
         setResult({ kind: "working" });
-        remember(res.badge.orderCode, who, kind, {
-          company: res.badge.company,
-          jobTitle: res.badge.jobTitle,
-        });
+        remember(res.badge.orderCode, who, kind);
         // Clear the search so the next person starts from an empty field rather
         // than the previous attendee's results.
         setQ("");
@@ -475,10 +482,51 @@ export function CheckinPanel({
             {q.trim() && searching && (
               <p className="text-[14px] text-muted-foreground">Searching…</p>
             )}
-            {q.trim() && !searching && rows.length === 0 && (
-              <p className="text-[14px] text-muted-foreground">
-                No one matches “{q.trim()}”. Check the spelling, or try their order code.
-              </p>
+            {q.trim() && !searching && rows.length === 0 && !walkIn && (
+              <div className="rounded-lg border border-border p-3">
+                <p className="text-[14px] text-muted-foreground">
+                  No one matches “{q.trim()}”. Check the spelling, or try their order code.
+                </p>
+                {/* The other reason nobody matches: they never registered. That
+                    used to mean leaving this screen for the walk-in desk, then
+                    coming back and searching for the person already standing
+                    here. The name they typed carries over. */}
+                <Button
+                  variant="outline"
+                  className="mt-3 min-h-12 px-5 text-[15px]"
+                  onClick={() => setWalkIn(true)}
+                  disabled={busy}
+                >
+                  Register “{q.trim()}” as a walk-in
+                </Button>
+              </div>
+            )}
+
+            {walkIn && (
+              <DoorWalkInForm
+                prefill={q}
+                tickets={tickets}
+                busy={savingEdit}
+                onCancel={() => setWalkIn(false)}
+                onSubmit={(input) => {
+                  setSavingEdit(true);
+                  void walkInAndCheckInAction(eventId, input, listId).then((res) => {
+                    setSavingEdit(false);
+                    if (!res.ok) {
+                      setResult({
+                        kind: "err",
+                        name: `${input.firstName} ${input.lastName}`.trim(),
+                        detail: res.reason ?? "Could not register.",
+                      });
+                      return;
+                    }
+                    setWalkIn(false);
+                    // Same result path as any other check-in, so the badge
+                    // prints under the same ownership and fallback rules.
+                    handleResult(res, "in");
+                  });
+                }}
+              />
             )}
 
             <ul className="flex flex-col gap-2">
@@ -512,6 +560,30 @@ export function CheckinPanel({
         </section>
       </div>
 
+      {editing && (
+        <AttendeeEditDialog
+          target={editing}
+          busy={savingEdit}
+          onCancel={() => setEditing(null)}
+          onSave={(patch) => {
+            setSavingEdit(true);
+            const orderCode = editing.orderCode;
+            void correctAttendeeAction(eventId, orderCode, patch).then((res) => {
+              setSavingEdit(false);
+              if (!res.ok) {
+                setResult({ kind: "err", name: patch.fullName, detail: res.reason ?? "Could not save." });
+                return;
+              }
+              setEditing(null);
+              // Reuses the normal result path, so the corrected badge prints
+              // under the same print-ownership and fallback rules as every
+              // other badge. Recorded as a reprint because that is what it is.
+              handleResult(res, "reprint");
+            });
+          }}
+        />
+      )}
+
       {recent.length > 0 && (
         <section aria-label="Recent" className="rounded-xl border border-border p-3">
           <h2 className="mb-2 text-[13px] font-semibold tracking-[0.08em] text-muted-foreground uppercase">
@@ -533,14 +605,28 @@ export function CheckinPanel({
                     printed a second physical badge with no confirmation and no
                     undo — which is exactly the "handed to a friend at the door"
                     risk the already-checked-in prompt exists to prevent. */}
-                <button
-                  type="button"
-                  onClick={() => setConfirmReprint({ orderCode: r.orderCode, fullName: r.name })}
-                  disabled={busy}
-                  className="min-h-11 shrink-0 rounded-md border border-border px-4 text-[13px] font-semibold hover:bg-accent disabled:opacity-50"
-                >
-                  Reprint
-                </button>
+                <span className="flex shrink-0 gap-1.5">
+                  {/* Sits beside Reprint, unlike the search rows where two
+                      similar buttons are dangerous: mis-tapping this one opens
+                      a form you can Escape, while mis-tapping Reprint puts a
+                      second physical badge in someone's hand. */}
+                  <button
+                    type="button"
+                    onClick={() => openEdit(r.orderCode)}
+                    disabled={busy || savingEdit}
+                    className="min-h-11 rounded-md border border-border px-4 text-[13px] font-semibold hover:bg-accent disabled:opacity-50"
+                  >
+                    Fix
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setConfirmReprint({ orderCode: r.orderCode, fullName: r.name })}
+                    disabled={busy}
+                    className="min-h-11 rounded-md border border-border px-4 text-[13px] font-semibold hover:bg-accent disabled:opacity-50"
+                  >
+                    Reprint
+                  </button>
+                </span>
               </li>
             ))}
           </ul>

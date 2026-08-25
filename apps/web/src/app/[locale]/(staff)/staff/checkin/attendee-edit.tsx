@@ -5,6 +5,7 @@ import { useEffect, useId, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { BADGE_TAGS, BADGE_TAG_LABEL, type BadgeTagValue } from "@/lib/badges/tags";
 import {
   JOB_TITLE_MAX,
   JOB_TITLE_OTHER,
@@ -15,8 +16,12 @@ import {
 export interface EditTarget {
   orderCode: string;
   fullName: string;
+  email: string;
+  phone: string | null;
+  phoneCC: string | null;
   company: string | null;
   jobTitle: string | null;
+  roleTag: BadgeTagValue;
 }
 
 /**
@@ -26,9 +31,12 @@ export interface EditTarget {
  * misspelt name is when they read the label. Putting this in the path to
  * checking someone in would slow down the 95% of people whose details are fine.
  *
- * Only the three fields that appear on the badge are here. Email, phone, role
- * and tickets decide who someone is and what they are entitled to; those are an
- * admin's job, not a correction made with a queue waiting.
+ * Everything the operator can see is editable, including the badge role — a
+ * visitor who turns out to be an exhibitor gets the right band without an admin.
+ *
+ * Ticketing state is not here: order status, approval, seats and the pretix
+ * secret live in pretix, and changing them from a door would leave the two
+ * systems disagreeing about one order mid-event.
  */
 export function AttendeeEditDialog({
   target,
@@ -39,14 +47,26 @@ export function AttendeeEditDialog({
   target: EditTarget;
   busy: boolean;
   onCancel: () => void;
-  onSave: (patch: { fullName: string; company: string; jobTitle: string }) => void;
+  onSave: (patch: {
+    fullName: string;
+    email: string;
+    phone: string;
+    phoneCC: string;
+    company: string;
+    jobTitle: string;
+    roleTag: BadgeTagValue;
+  }) => void;
 }) {
   const uid = useId();
   const fid = {
     name: `${uid}-name`,
+    email: `${uid}-email`,
+    cc: `${uid}-cc`,
+    phone: `${uid}-phone`,
     company: `${uid}-company`,
     title: `${uid}-title`,
     other: `${uid}-other`,
+    role: `${uid}-role`,
   };
 
   // A title already on the row is either a preset or free text someone typed.
@@ -54,6 +74,10 @@ export function AttendeeEditDialog({
   // touching the field would silently wipe it.
   const known = (JOB_TITLE_PRESETS as readonly string[]).includes(target.jobTitle ?? "");
   const [name, setName] = useState(target.fullName);
+  const [email, setEmail] = useState(target.email ?? "");
+  const [cc, setCc] = useState(target.phoneCC ?? "");
+  const [phone, setPhone] = useState(target.phone ?? "");
+  const [role, setRole] = useState<BadgeTagValue>(target.roleTag);
   const [company, setCompany] = useState(target.company ?? "");
   const [title, setTitle] = useState(known ? (target.jobTitle as string) : target.jobTitle ? JOB_TITLE_OTHER : "");
   const [other, setOther] = useState(known ? "" : (target.jobTitle ?? ""));
@@ -82,7 +106,15 @@ export function AttendeeEditDialog({
     if (!name.trim()) return setErr("A name is required.");
     const resolved = resolveJobTitleSelection(title, other);
     if (!resolved.ok) return setErr(resolved.error);
-    onSave({ fullName: name.trim(), company: company.trim(), jobTitle: resolved.value ?? "" });
+    onSave({
+      fullName: name.trim(),
+      email: email.trim(),
+      phone: phone.trim(),
+      phoneCC: cc.trim(),
+      company: company.trim(),
+      jobTitle: resolved.value ?? "",
+      roleTag: role,
+    });
   }
 
   const showOther = title === JOB_TITLE_OTHER;
@@ -105,6 +137,54 @@ export function AttendeeEditDialog({
             onChange={(e) => setName(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && submit()}
           />
+        </div>
+
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor={fid.role}>Badge role</Label>
+          <select
+            id={fid.role}
+            className="h-12 w-full rounded-lg border border-input bg-transparent px-3 text-[16px]"
+            value={role}
+            onChange={(e) => setRole(e.target.value as BadgeTagValue)}
+          >
+            {BADGE_TAGS.map((t) => (
+              <option key={t} value={t}>
+                {BADGE_TAG_LABEL[t]}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor={fid.email}>Email</Label>
+          <Input
+            id={fid.email}
+            type="email"
+            className="h-12 text-[16px]"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && submit()}
+          />
+        </div>
+
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor={fid.phone}>Phone</Label>
+          <div className="flex gap-2">
+            <Input
+              id={fid.cc}
+              aria-label="Country code"
+              className="h-12 w-24 text-[16px]"
+              value={cc}
+              onChange={(e) => setCc(e.target.value)}
+            />
+            <Input
+              id={fid.phone}
+              className="h-12 flex-1 text-[16px]"
+              value={phone}
+              onChange={(e) => setPhone(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && submit()}
+            />
+          </div>
         </div>
 
         <div className="flex flex-col gap-1.5">

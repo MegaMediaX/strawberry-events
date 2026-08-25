@@ -471,7 +471,7 @@ describe("updateAttendeeDetails — correcting someone at the door", () => {
     mock(prisma.attendeeOrder.findFirst).mockResolvedValue(
       order({ attendeeName: "Elias Dao", company: "Bank of Beirut", jobTitle: null, badgeSlug: "SZSZEC50" }),
     );
-    mock(prisma.attendeeOrder.update).mockImplementation(async ({ data }: any) =>
+    mock(prisma.attendeeOrder.update).mockImplementation(async ({ data }: { data: Record<string, unknown> }) =>
       order({ attendeeName: "Elias Daou", company: "Bank of Beirut SAL", jobTitle: "CEO", badgeSlug: "SZSZEC50", ...data }),
     );
   });
