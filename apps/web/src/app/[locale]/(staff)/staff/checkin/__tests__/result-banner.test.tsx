@@ -33,46 +33,43 @@ describe("the banner's idle space", () => {
   });
 });
 
-describe("Fix on the person the banner names", () => {
-  it("offers Fix when the result carries an order code", () => {
-    const html = renderToStaticMarkup(
-      <ResultBanner
-        result={{ kind: "ok", name: "Elias Daou", detail: "Badge printed", orderCode: "B7TLU" }}
-        onFix={() => {}}
-      />,
-    );
-    expect(html).toContain("Fix details");
+describe("what the outcome says, and how loudly", () => {
+  const render = (r: Parameters<typeof ResultBanner>[0]["result"]) =>
+    renderToStaticMarkup(<ResultBanner result={r} />);
+
+  it("uses words that do not rhyme with each other", () => {
+    // "Checked in" / "Already in" / "Not checked in" all end in the same
+    // morpheme, and the only thing separating the refusal from the admission
+    // was the word "Not", in the smallest type on the screen. A tired
+    // second-language reader at arm's length reads word SHAPE, not letters.
+    const ok = render({ kind: "ok", name: "X", detail: "d" });
+    const err = render({ kind: "err", name: "X", detail: "d" });
+    expect(ok).toContain("ENTER");
+    expect(err).toContain("STOP");
+    expect(err).not.toContain("ENTER");
   });
 
-  it("offers nothing when there is no order code to act on", () => {
-    // e.g. the test badge, or a failure that never resolved to an order.
-    const html = renderToStaticMarkup(
-      <ResultBanner result={{ kind: "ok", name: "Test Badge", detail: "Badge printed" }} onFix={() => {}} />,
-    );
-    expect(html).not.toContain("Fix details");
+  it("fills the banner with solid colour, not a tint that vanishes in glare", () => {
+    expect(render({ kind: "ok", name: "X", detail: "d" })).toContain("bg-green-700");
+    expect(render({ kind: "err", name: "X", detail: "d" })).toContain("bg-destructive");
+    for (const kind of ["ok", "warn", "err"] as const) {
+      expect(render({ kind, name: "X", detail: "d" })).not.toMatch(/bg-[a-z-]+\/12/);
+    }
   });
 
-  it("offers nothing when the screen has no handler wired", () => {
-    const html = renderToStaticMarkup(
-      <ResultBanner result={{ kind: "ok", name: "X", detail: "d", orderCode: "B7TLU" }} />,
-    );
-    expect(html).not.toContain("Fix details");
+  it("still lets a reprint say so, rather than reading as a fresh admission", () => {
+    expect(render({ kind: "ok", name: "X", detail: "d", label: "Reprinted" })).toContain("Reprinted");
   });
 
-  it("is offered on a warning too — a reprint is exactly when you reread a badge", () => {
-    const html = renderToStaticMarkup(
-      <ResultBanner
-        result={{ kind: "warn", name: "X", detail: "d", orderCode: "B7TLU" }}
-        onFix={() => {}}
-      />,
-    );
-    expect(html).toContain("Fix details");
+  it("keeps the idle content out of the assertive live region", () => {
+    // Inside it, with aria-atomic, every return to idle re-announced the whole
+    // recent list — once per attendee, interrupting whatever was being read.
+    const html = renderToStaticMarkup(<ResultBanner result={null} idle={<p>Just now</p>} />);
+    expect(html).not.toContain("aria-live");
+    expect(html).toContain("Just now");
   });
 
-  it("never offers it on an error — there is no confirmed person to correct", () => {
-    const html = renderToStaticMarkup(
-      <ResultBanner result={{ kind: "err", name: "X", detail: "d" }} onFix={() => {}} />,
-    );
-    expect(html).not.toContain("Fix details");
+  it("announces a real outcome assertively", () => {
+    expect(render({ kind: "ok", name: "X", detail: "d" })).toContain('aria-live="assertive"');
   });
 });

@@ -29,6 +29,7 @@ import {
   checkInBySecret,
   reprintBadge,
   updateAttendeeDetails,
+  phoneDigitsForQuery,
   searchAttendees,
   liveCounters,
   NAME_SIMILARITY_THRESHOLD,
@@ -636,5 +637,40 @@ describe("updateAttendeeDetails — correcting someone at the door", () => {
     await updateAttendeeDetails(staff, "e1", "ABC12", { fullName: "Elias Daou" });
     expect(pretixCheckin.redeemCheckin).not.toHaveBeenCalled();
     expect(prisma.badgePrintLog.create).not.toHaveBeenCalled();
+  });
+});
+
+describe("phoneDigitsForQuery — a query is only a phone when it looks like one", () => {
+  // Measured on production: of 844 real badge slugs, 410 contain 3+ digits and
+  // 303 — 36% of ALL scans — matched at least one WRONG attendee by phone,
+  // 6 on average and 36 at worst, each rendered with a live "Check in & print".
+  it("ignores a scanned badge payload", () => {
+    expect(phoneDigitsForQuery("HTTPS://REGISTER.STRAWBERRYAGENCY.COM/C/SZSZEC50")).toBe("");
+  });
+
+  it("ignores a badge slug on its own", () => {
+    expect(phoneDigitsForQuery("SZSZEC50")).toBe("");
+    expect(phoneDigitsForQuery("9F3K2M10")).toBe("");
+  });
+
+  it("ignores an order code, however many digits it carries", () => {
+    expect(phoneDigitsForQuery("B7TLU")).toBe("");
+    expect(phoneDigitsForQuery("A1234")).toBe("");
+  });
+
+  it("ignores a name", () => {
+    expect(phoneDigitsForQuery("Elias Daou")).toBe("");
+  });
+
+  it("still finds someone by their phone number", () => {
+    expect(phoneDigitsForQuery("70123456")).toBe("70123456");
+    expect(phoneDigitsForQuery("+961 70 123 456")).toBe("96170123456");
+    expect(phoneDigitsForQuery("03-123456")).toBe("03123456");
+  });
+
+  it("refuses a fragment too short to identify anyone", () => {
+    // "123" matched 10 real attendees in production.
+    expect(phoneDigitsForQuery("123")).toBe("");
+    expect(phoneDigitsForQuery("12345")).toBe("");
   });
 });

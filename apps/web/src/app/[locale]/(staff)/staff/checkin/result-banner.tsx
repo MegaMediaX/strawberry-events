@@ -26,7 +26,6 @@ export type DoorResult =
 export function ResultBanner({
   result,
   idle,
-  onFix,
 }: {
   result: DoorResult | null;
   /**
@@ -38,33 +37,15 @@ export function ResultBanner({
    * fold where it was never seen.
    */
   idle?: React.ReactNode;
-  onFix?: (orderCode: string) => void;
 }) {
-  return (
-    // ONE live region, always mounted. Swapping between separate live-region
-    // subtrees per state makes some screen readers miss announcements entirely,
-    // which matters most when a queue is moving fast and results land in quick
-    // succession.
-    <div role="status" aria-live="assertive" aria-atomic="true">
-      <BannerBody result={result} idle={idle} onFix={onFix} />
-    </div>
-  );
-}
-
-function BannerBody({
-  result,
-  idle,
-  onFix,
-}: {
-  result: DoorResult | null;
-  idle?: React.ReactNode;
-  onFix?: (orderCode: string) => void;
-}) {
+  // The idle content sits OUTSIDE the live region. Inside it, with
+  // aria-atomic, every return to idle assertively re-announced the entire
+  // recent list — once per attendee, interrupting whatever was being said.
   if (!result) {
     return (
-      <div className="min-h-[104px] rounded-xl border border-dashed border-border px-5 py-4">
+      <div className="flex h-[104px] flex-col overflow-hidden rounded-xl border border-border px-5 py-3">
         {idle ?? (
-          <p className="flex min-h-[72px] items-center justify-center text-[15px] text-muted-foreground">
+          <p className="flex flex-1 items-center justify-center text-[15px] text-muted-foreground">
             Scan a badge or ticket, or search by name.
           </p>
         )}
@@ -72,6 +53,18 @@ function BannerBody({
     );
   }
 
+  return (
+    // ONE live region, always mounted for as long as there IS a result.
+    // Swapping between separate live-region subtrees per state makes some
+    // screen readers miss announcements entirely, which matters most when a
+    // queue is moving fast and results land in quick succession.
+    <div role="status" aria-live="assertive" aria-atomic="true">
+      <BannerBody result={result} />
+    </div>
+  );
+}
+
+function BannerBody({ result }: { result: DoorResult }) {
   if (result.kind === "working") {
     return (
       <div className="flex min-h-[104px] items-center gap-4 rounded-xl border border-border bg-muted/40 px-6">
@@ -82,27 +75,35 @@ function BannerBody({
   }
 
   const style = {
+    // Solid fills, not 12% tints. A tint that low is functionally white on an
+    // uncalibrated laptop panel viewed off-axis under venue glare — the one
+    // element meant to be read pre-attentively was the least visible thing on
+    // the screen.
+    //
+    // The words no longer rhyme either. "Checked in" / "Already in" / "Not
+    // checked in" all end in the same morpheme, and the only thing separating
+    // the refusal from the admission was the word "Not" — set in the smallest
+    // type on screen, letter-spaced, which is precisely what destroys word
+    // shape for a tired second-language reader.
     ok: {
-      box: "border-green-600/40 bg-green-600/12",
-      word: "text-green-700 dark:text-green-400",
+      box: "border-green-700 bg-green-700",
+      word: "text-white",
       glyph: "✓",
-      label: "Checked in",
+      label: "ENTER",
     },
     warn: {
-      box: "border-amber-500/45 bg-amber-500/12",
-      word: "text-amber-700 dark:text-amber-400",
+      box: "border-amber-500 bg-amber-400",
+      word: "text-amber-950",
       glyph: "!",
-      label: "Already in",
+      label: "ALREADY IN",
     },
     err: {
-      box: "border-destructive/45 bg-destructive/12",
-      word: "text-destructive",
+      box: "border-destructive bg-destructive",
+      word: "text-white",
       glyph: "✕",
-      label: "Not checked in",
+      label: "STOP",
     },
   }[result.kind];
-
-  const fixable = "orderCode" in result && result.orderCode && onFix;
 
   return (
     <div className={`flex min-h-[104px] items-center gap-4 rounded-xl border px-6 py-4 ${style.box}`}>
@@ -116,29 +117,15 @@ function BannerBody({
         {/* A reprint must not read identically to a fresh admission: the
             headline band is what gets read at a glance, and "CHECKED IN" over a
             replacement badge misstates what just happened. */}
-        <p className={`text-[13px] font-bold tracking-[0.1em] uppercase ${style.word}`}>
+        <p className={`text-[20px] leading-none font-bold ${style.word}`}>
           {("label" in result && result.label) || style.label}
         </p>
-        <p className="truncate text-[26px] leading-tight font-semibold text-foreground">
+        <p className={`truncate text-[26px] leading-tight font-semibold ${style.word}`}>
           {result.name}
         </p>
-        <p className="mt-0.5 truncate text-[14px] text-muted-foreground">{result.detail}</p>
+        <p className={`mt-0.5 truncate text-[15px] ${style.word} opacity-90`}>{result.detail}</p>
       </div>
 
-      {/* Right here, on the person just named. An operator notices a misspelling
-          while reading the badge that just came out — at which point this
-          banner is the only thing on screen showing them. The alternative was
-          scrolling to a list below the fold, which at a busy door means the
-          misspelt badge simply gets handed over. */}
-      {fixable ? (
-        <button
-          type="button"
-          onClick={() => onFix((result as { orderCode: string }).orderCode)}
-          className="ml-auto min-h-12 shrink-0 rounded-lg border border-border bg-background/70 px-5 text-[15px] font-semibold hover:bg-accent"
-        >
-          Fix details
-        </button>
-      ) : null}
     </div>
   );
 }

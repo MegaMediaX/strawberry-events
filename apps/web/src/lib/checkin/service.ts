@@ -96,17 +96,42 @@ export const NAME_SIMILARITY_THRESHOLD = 0.3;
  * Never call it from a server action or route handler directly — that would hand
  * out attendee PII to any authenticated session, finance included.
  */
+/**
+ * The digits to match against phone numbers, or "" when the query is not a
+ * phone number at all.
+ *
+ * This used to strip the digits out of ANY query and run a 3-digit substring
+ * against every phone in the event. Measured against the 844 real badge slugs
+ * in production: 410 contain three or more digits, and 303 of them — 36% of ALL
+ * scans — matched at least one WRONG attendee, six on average, thirty-six at
+ * worst. Each one rendered as a search result with a live "Check in & print"
+ * button beside a stranger's name, and a check-in is not undoable at a door.
+ *
+ * Reachable today through an order code, and the COMMON case the moment a
+ * keyboard-wedge scanner is used, because a scanned badge payload arrives in
+ * the search box as ordinary text.
+ *
+ * So: only match phones when the query IS one. Phone search is unaffected — an
+ * operator typing "70123456" still finds them.
+ */
+export function phoneDigitsForQuery(query: string): string {
+  const q = query.trim();
+  if (!/^[+\d][\d\s()./-]*$/.test(q)) return "";
+  const digits = q.replace(/\D/g, "");
+  // Four digits across ~1,200 attendees still returns strangers; six does not.
+  return digits.length >= 6 ? digits : "";
+}
+
 export function searchAttendeeOrders(
   eventMappingId: string,
   query: string,
 ): Promise<AttendeeOrder[]> {
   const q = query.trim();
   const like = `%${q}%`;
-  const digits = q.replace(/\D/g, "");
-  const phoneClause =
-    digits.length >= 3
-      ? Prisma.sql`OR regexp_replace(coalesce("phone", ''), '\D', '', 'g') LIKE ${`%${digits}%`}`
-      : Prisma.empty;
+  const digits = phoneDigitsForQuery(q);
+  const phoneClause = digits
+    ? Prisma.sql`OR regexp_replace(coalesce("phone", ''), '\D', '', 'g') LIKE ${`%${digits}%`}`
+    : Prisma.empty;
 
   return prisma.$queryRaw<AttendeeOrder[]>`
     SELECT *

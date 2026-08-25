@@ -33,13 +33,19 @@ const SEARCH_DEBOUNCE_MS = 220;
 
 /** Enough history to recover a misprint without searching again; short enough
  *  to stay glanceable. */
-const RECENT_LIMIT = 6;
+// The realistic correction window: the badge in your hand and the two before
+// it. Beyond that the person is in the hall and you search by name. Six rows
+// also made the idle box 350px against the banner's 104 — a 246px jump under
+// the operator's cursor, twice per attendee.
+const RECENT_LIMIT = 3;
 
 /** How long a success stays on screen before the door resets itself. Failures
  *  and warnings never auto-clear — those need a human decision. */
-// Long enough to read the badge that just printed and press Fix. The next scan
-// replaces the banner instantly, so this only elapses when nobody is waiting.
-const OK_BANNER_MS = 10000;
+// A badge takes 2-4s to eject, so this puts the recent list — with Fix on row
+// one — back on screen just as the operator picks it up. It was briefly 10s to
+// give a Fix button on the banner time to be pressed; that button is gone, and
+// the longer timer was half of what made the strip resize under the cursor.
+const OK_BANNER_MS = 5000;
 
 type RecentEntry = {
   id: number;
@@ -491,7 +497,7 @@ export function CheckinPanel({
                             openEdit(r.orderCode);
                           }}
                           disabled={busy || openingEdit || savingEdit}
-                          className="min-h-11 rounded-md border border-border px-4 text-[13px] font-semibold hover:bg-accent disabled:opacity-50"
+                          className="min-h-9 rounded-md border border-border px-3 text-[13px] font-semibold hover:bg-accent disabled:opacity-50"
                         >
                           Fix
                         </button>
@@ -499,7 +505,7 @@ export function CheckinPanel({
                           type="button"
                           onClick={() => setConfirmReprint({ orderCode: r.orderCode, fullName: r.name })}
                           disabled={busy}
-                          className="min-h-11 rounded-md border border-border px-4 text-[13px] font-semibold hover:bg-accent disabled:opacity-50"
+                          className="min-h-9 rounded-md border border-border px-3 text-[13px] font-semibold hover:bg-accent disabled:opacity-50"
                         >
                           Reprint
                         </button>
@@ -541,14 +547,7 @@ export function CheckinPanel({
 
       <div id="printer-settings">{showSettings && <PrinterSettings />}</div>
 
-      <ResultBanner
-        result={result}
-        idle={idleRecent}
-        onFix={(orderCode) => {
-          captureReturnFocus();
-          openEdit(orderCode);
-        }}
-      />
+      <ResultBanner result={result} idle={idleRecent} />
 
       {confirmReprint && (
         <div
