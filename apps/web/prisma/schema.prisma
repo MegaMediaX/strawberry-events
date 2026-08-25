@@ -87,6 +87,8 @@ enum AttendeeTag {
   visitor
   exhibitor
   organising_committee
+  organiser
+  cofounder
 }
 
 enum SeatState {

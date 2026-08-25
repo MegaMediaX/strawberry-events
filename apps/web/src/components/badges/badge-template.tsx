@@ -12,6 +12,8 @@ const TAG_COLOR: Record<BadgeTag, string> = {
   visitor: "#475569",
   exhibitor: "#ea580c",
   organising_committee: "#4338ca",
+  organiser: "#0d9488",
+  cofounder: "#9333ea",
 };
 
 export interface BadgeData {
