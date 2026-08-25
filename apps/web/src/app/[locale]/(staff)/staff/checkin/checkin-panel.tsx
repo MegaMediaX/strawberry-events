@@ -34,12 +34,16 @@ import {
  *  with no error boundary anywhere in this route React tears the panel down to
  *  Next's default error screen — a reload, mid-queue. Shaping the rejection as
  *  an ordinary refusal routes it through the red banner every other failure
- *  already uses. */
+ *  already uses.
+ *
+ *  The advice comes FIRST and the browser's own message does not appear at all.
+ *  The banner's detail line is `truncate` — one line, clipped — so leading with
+ *  "Failed to fetch" spends the visible half of it on the one part of the
+ *  sentence an operator cannot act on, and clips the half they can. The real
+ *  error still goes to the console, where whoever is debugging will look. */
 function connectionLost(err: unknown, advice: string): CheckInResult {
-  return {
-    ok: false,
-    reason: `Connection lost — ${(err as Error)?.message ?? "unknown"}. ${advice}`,
-  };
+  console.error("[door] server action call rejected", err);
+  return { ok: false, reason: `Connection lost — ${advice}` };
 }
 
 /** Typing settles before we query. Long enough to avoid a request per keystroke,
@@ -216,11 +220,10 @@ export function CheckinPanel({
         // connection drops mid-request — and then this guard would stay latched
         // and silently block every future Fix for the rest of the shift.
         .catch((err: unknown) => {
-          setResult({
-            kind: "err",
-            name: orderCode,
-            detail: `Could not open — ${(err as Error)?.message ?? "connection lost"}. Try again.`,
-          });
+          // Action first, browser message to the console: the banner's detail
+          // line is one truncated line (see connectionLost above).
+          console.error("[door] attendeeForEditAction rejected", err);
+          setResult({ kind: "err", name: orderCode, detail: "Connection lost — try Fix again." });
         })
         .finally(() => {
           openingEditRef.current = false;
@@ -339,7 +342,7 @@ export function CheckinPanel({
       start(async () =>
         handleResult(
           await checkInAction(eventId, orderCode, listId).catch((err: unknown) =>
-            connectionLost(err, "Scan or search again — checking the same person in twice is harmless."),
+            connectionLost(err, "try again. ALREADY IN means they got in — print the badge there."),
           ),
           "in",
         ),
@@ -359,7 +362,7 @@ export function CheckinPanel({
       start(async () =>
         handleResult(
           await reprintAction(eventId, orderCode).catch((err: unknown) =>
-            connectionLost(err, "Check whether a badge came out before trying again."),
+            connectionLost(err, "check whether a badge came out before trying again."),
           ),
           "reprint",
         ),
@@ -375,7 +378,7 @@ export function CheckinPanel({
       start(async () =>
         handleResult(
           await scanAction(eventId, text, listId).catch((err: unknown) =>
-            connectionLost(err, "Scan again — checking the same person in twice is harmless."),
+            connectionLost(err, "scan again. ALREADY IN means they got in — print the badge there."),
           ),
           "in",
         ),
@@ -817,10 +820,11 @@ export function CheckinPanel({
                     // about the ambiguity: pretix may well have created the
                     // order before the connection went.
                     .catch((err: unknown) => {
+                      console.error("[door] walkInAndCheckInAction rejected", err);
                       setResult({
                         kind: "err",
                         name: who,
-                        detail: `Connection lost — ${(err as Error)?.message ?? "unknown"}. They may already be registered: search their name before trying again.`,
+                        detail: "Connection lost — search their name before retrying; they may be registered.",
                       });
                     })
                     .finally(() => setSubmittingWalkIn(false));
@@ -935,10 +939,11 @@ export function CheckinPanel({
               // the recent list, so no correction is possible for the rest of the
               // shift, with nothing on screen saying why.
               .catch((err: unknown) => {
+                console.error("[door] correctAttendeeAction rejected", err);
                 setResult({
                   kind: "err",
                   name: patch.fullName,
-                  detail: `Connection lost — ${(err as Error)?.message ?? "unknown"}. The change may not have saved; check the details before trying again.`,
+                  detail: "Connection lost — check their details before trying again; it may not have saved.",
                 });
               })
               .finally(() => setSavingEdit(false));
