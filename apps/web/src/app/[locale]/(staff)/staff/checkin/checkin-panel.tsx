@@ -16,6 +16,7 @@ import { PrinterStatus } from "./printer-status";
 import { ResultBanner, type DoorResult } from "./result-banner";
 import { AttendeeEditDialog, type EditTarget } from "./attendee-edit";
 import { DoorWalkInForm, type DoorTicket } from "./door-walk-in";
+import { decideEnter, looksScannable } from "@/lib/checkin/scan-shape";
 import {
   searchAction,
   checkInAction,
@@ -33,11 +34,19 @@ const SEARCH_DEBOUNCE_MS = 220;
 
 /** Enough history to recover a misprint without searching again; short enough
  *  to stay glanceable. */
-const RECENT_LIMIT = 6;
+// The realistic correction window: the badge in your hand and the two before
+// it. Beyond that the person is in the hall and you search by name. Six rows
+// also made the idle box 350px against the banner's 104 — a 246px jump under
+// the operator's cursor, twice per attendee.
+const RECENT_LIMIT = 3;
 
 /** How long a success stays on screen before the door resets itself. Failures
  *  and warnings never auto-clear — those need a human decision. */
-const OK_BANNER_MS = 4000;
+// A badge takes 2-4s to eject, so this puts the recent list — with Fix on row
+// one — back on screen just as the operator picks it up. It was briefly 10s to
+// give a Fix button on the banner time to be pressed; that button is gone, and
+// the longer timer was half of what made the strip resize under the cursor.
+const OK_BANNER_MS = 5000;
 
 type RecentEntry = {
   id: number;
@@ -68,6 +77,17 @@ export function CheckinPanel({
 }) {
   const [q, setQ] = useState("");
   const [rows, setRows] = useState<AttendeeRow[]>([]);
+  /**
+   * The query these rows actually answer.
+   *
+   * `rows` is only written inside the search debounce, so for 220ms after a
+   * keystroke it still holds the PREVIOUS query's results. Enter trusted
+   * `rows.length === 1`, which meant: type "Elias", one match lands, keep
+   * typing "Elias D" to disambiguate a second Elias, press Enter inside the
+   * debounce window — and the FIRST Elias is checked in and his badge printed.
+   * A check-in cannot be undone at a door.
+   */
+  const [rowsQuery, setRowsQuery] = useState("");
   const [searching, setSearching] = useState(false);
   const [pending, start] = useTransition();
   const [result, setResult] = useState<DoorResult | null>(null);
@@ -322,6 +342,7 @@ export function CheckinPanel({
     const query = q.trim();
     let cancelled = false;
 
+
     // Frozen while the walk-in form is open. The form holds its own state, so a
     // late result arriving behind it and unmounting it would discard whatever
     // the operator had typed — and results appearing under a filled walk-in
@@ -331,8 +352,16 @@ export function CheckinPanel({
     // Every setState is inside the timeout, never synchronous in the effect
     // body — a synchronous one cascades renders on every keystroke.
     const id = setTimeout(async () => {
-      if (!query) {
+      // Same treatment as an empty box, and for the same reason as every other
+      // setState here — inside the timeout, never synchronous in the effect
+      // body, which cascades renders on each keystroke.
+      //
+      // A scanned payload is a code, not a name. Searching for it is a wasted
+      // round trip in front of a queue, and it is how a badge slug used to
+      // match strangers by phone.
+      if (!query || looksScannable(query)) {
         setRows([]);
+        setRowsQuery(query);
         setSearching(false);
         return;
       }
@@ -340,7 +369,10 @@ export function CheckinPanel({
       try {
         const found = await searchAction(eventId, query);
         // A slow response for an older query must not overwrite a newer one.
-        if (!cancelled) setRows(found);
+        if (!cancelled) {
+          setRows(found);
+          setRowsQuery(query);
+        }
       } finally {
         // finally, not the happy path: without this any transient failure
         // leaves "Searching…" on screen forever, with no error and no recovery.
@@ -409,8 +441,33 @@ export function CheckinPanel({
         // Both new forms use native selects for role, title and ticket.
         e.target.tagName === "SELECT");
 
+      // "/" is a pure hotkey and MUST swallow itself. Without preventDefault
+      // the character lands in the box it just focused, so the operator's next
+      // keystrokes build "/Elias" — which matches nobody and offers to register
+      // a walk-in instead. That was a regression, not a trade-off.
       if (e.key === "/" && !typing) {
         e.preventDefault();
+        searchRef.current?.focus();
+        return;
+      }
+
+      // Any OTHER single character with focus adrift goes into the box, itself
+      // included — deliberately WITHOUT preventDefault. A keyboard-wedge
+      // scanner is a keyboard: its payload starts "HTTPS://", and if focus has
+      // drifted the leading characters are simply lost, leaving a string
+      // resolveBadgeSlug cannot parse. Gated on the dialogs so a scan arriving
+      // over an open confirmation cannot pull focus out from under a decision
+      // the operator has not made yet.
+      if (
+        e.key.length === 1 &&
+        !typing &&
+        !e.ctrlKey &&
+        !e.metaKey &&
+        !e.altKey &&
+        !confirmReprintRef.current &&
+        !editingRef.current &&
+        !walkInRef.current
+      ) {
         searchRef.current?.focus();
         return;
       }
@@ -438,6 +495,96 @@ export function CheckinPanel({
   /* ----------------------------------------------------------------- render */
 
   const busy = pending;
+
+  /**
+   * Enter in the search box, which is also where a wedge scanner's payload
+   * lands. Four outcomes, and one of them is deliberately "do nothing".
+   */
+  const onSearchKeyDown = useCallback(
+    (e: React.KeyboardEvent<HTMLInputElement>) => {
+      if (e.key !== "Enter") return;
+      e.preventDefault();
+      if (busy) return;
+
+      // The decision is a pure function so it can be tested; this only
+      // dispatches it.
+      const action = decideEnter(q, rowsQuery, rows);
+      if (action.kind === "scan") {
+        setQ("");
+        setRows([]);
+        setRowsQuery("");
+        doScan(action.text);
+        return;
+      }
+      if (action.kind === "checkIn") doCheckIn(action.orderCode);
+    },
+    [q, rows, rowsQuery, busy, doScan, doCheckIn],
+  );
+
+  /**
+   * What fills the banner's space between attendees.
+   *
+   * That area used to be a dashed box reading "Scan a badge or ticket" — the
+   * biggest element on the screen, blank exactly when the operator has a second
+   * to look at it. Meanwhile the list of people just checked in, and the only
+   * route to Fix, sat at the BOTTOM of the page below the fold on a 768px
+   * laptop, so in practice a misspelt badge just got handed over.
+   *
+   * They swap: the list lives in the empty space and yields to the banner the
+   * moment something happens.
+   */
+  const idleRecent =
+    recent.length > 0 ? (
+              <section aria-label="Recent">
+                <h2 className="mb-2 text-[12px] font-semibold tracking-[0.1em] text-muted-foreground uppercase">
+                  Just now
+                </h2>
+                <ul className="flex flex-col gap-1.5">
+                  {recent.map((r) => (
+                    <li key={r.id} className="flex items-center justify-between gap-3 text-[14px]">
+                      <span className="min-w-0 truncate">
+                        <span className="text-muted-foreground tabular-nums">{r.at}</span>{" "}
+                        <span className="font-medium">{r.name}</span>{" "}
+                        <span className="text-muted-foreground">
+                          {r.kind === "reprint" ? "· reprint" : ""}
+                        </span>
+                      </span>
+                      {/* The lost-badge path: no searching again for someone who was
+                          standing here thirty seconds ago. */}
+                      {/* Confirms, like every other reprint path. A bare tap here
+                          printed a second physical badge with no confirmation and no
+                          undo — which is exactly the "handed to a friend at the door"
+                          risk the already-checked-in prompt exists to prevent. */}
+                      <span className="flex shrink-0 gap-1.5">
+                        {/* Sits beside Reprint, unlike the search rows where two
+                            similar buttons are dangerous: mis-tapping this one opens
+                            a form you can Escape, while mis-tapping Reprint puts a
+                            second physical badge in someone's hand. */}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            captureReturnFocus();
+                            openEdit(r.orderCode);
+                          }}
+                          disabled={busy || openingEdit || savingEdit}
+                          className="min-h-9 rounded-md border border-border px-3 text-[13px] font-semibold hover:bg-accent disabled:opacity-50"
+                        >
+                          Fix
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setConfirmReprint({ orderCode: r.orderCode, fullName: r.name })}
+                          disabled={busy}
+                          className="min-h-9 rounded-md border border-border px-3 text-[13px] font-semibold hover:bg-accent disabled:opacity-50"
+                        >
+                          Reprint
+                        </button>
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+    ) : null;
 
   return (
     <div className="flex flex-col gap-4">
@@ -470,7 +617,7 @@ export function CheckinPanel({
 
       <div id="printer-settings">{showSettings && <PrinterSettings />}</div>
 
-      <ResultBanner result={result} />
+      <ResultBanner result={result} idle={idleRecent} />
 
       {confirmReprint && (
         <div
@@ -537,6 +684,7 @@ export function CheckinPanel({
             autoFocus
             value={q}
             onChange={(e) => setQ(e.target.value)}
+            onKeyDown={onSearchKeyDown}
             placeholder="Name, email, phone or order code  ( / to focus )"
             aria-label="Search attendees"
             // Disabled, not merely ignored, while the walk-in form is open: a
@@ -685,57 +833,6 @@ export function CheckinPanel({
         />
       )}
 
-      {recent.length > 0 && (
-        <section aria-label="Recent" className="rounded-xl border border-border p-3">
-          <h2 className="mb-2 text-[13px] font-semibold tracking-[0.08em] text-muted-foreground uppercase">
-            Just now
-          </h2>
-          <ul className="flex flex-col gap-1.5">
-            {recent.map((r) => (
-              <li key={r.id} className="flex items-center justify-between gap-3 text-[14px]">
-                <span className="min-w-0 truncate">
-                  <span className="text-muted-foreground tabular-nums">{r.at}</span>{" "}
-                  <span className="font-medium">{r.name}</span>{" "}
-                  <span className="text-muted-foreground">
-                    {r.kind === "reprint" ? "· reprint" : ""}
-                  </span>
-                </span>
-                {/* The lost-badge path: no searching again for someone who was
-                    standing here thirty seconds ago. */}
-                {/* Confirms, like every other reprint path. A bare tap here
-                    printed a second physical badge with no confirmation and no
-                    undo — which is exactly the "handed to a friend at the door"
-                    risk the already-checked-in prompt exists to prevent. */}
-                <span className="flex shrink-0 gap-1.5">
-                  {/* Sits beside Reprint, unlike the search rows where two
-                      similar buttons are dangerous: mis-tapping this one opens
-                      a form you can Escape, while mis-tapping Reprint puts a
-                      second physical badge in someone's hand. */}
-                  <button
-                    type="button"
-                    onClick={() => {
-                      captureReturnFocus();
-                      openEdit(r.orderCode);
-                    }}
-                    disabled={busy || openingEdit || savingEdit}
-                    className="min-h-11 rounded-md border border-border px-4 text-[13px] font-semibold hover:bg-accent disabled:opacity-50"
-                  >
-                    Fix
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setConfirmReprint({ orderCode: r.orderCode, fullName: r.name })}
-                    disabled={busy}
-                    className="min-h-11 rounded-md border border-border px-4 text-[13px] font-semibold hover:bg-accent disabled:opacity-50"
-                  >
-                    Reprint
-                  </button>
-                </span>
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
 
       {badge && browserFallback && (
         <div className="rounded-xl border border-amber-500/45 bg-amber-500/10 p-4">

@@ -1,5 +1,7 @@
 import { randomInt } from "node:crypto";
 
+import { SLUG_ALPHABET, SLUG_LENGTH, SLUG_RE } from "./scan-shape";
+
 /**
  * The opaque code carried in the badge QR, and the URL built around it.
  *
@@ -23,11 +25,8 @@ import { randomInt } from "node:crypto";
  * other on a thermal badge — this is a fallback someone may end up typing — and
  * U is dropped so the generator cannot spell an unfortunate word.
  */
-const ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
-const SLUG_LENGTH = 8;
 
 /** Matches a stored slug. Anchored: a partial match must not resolve. */
-const SLUG_RE = new RegExp(`^[${ALPHABET}]{${SLUG_LENGTH}}$`);
 
 export function isBadgeSlug(value: string): boolean {
   return SLUG_RE.test(value);
@@ -53,7 +52,7 @@ export function generateBadgeSlug(
 ): string {
   let out = "";
   for (let i = 0; i < SLUG_LENGTH; i += 1) {
-    out += ALPHABET[randomIndex(ALPHABET.length)];
+    out += SLUG_ALPHABET[randomIndex(SLUG_ALPHABET.length)];
   }
   return out;
 }

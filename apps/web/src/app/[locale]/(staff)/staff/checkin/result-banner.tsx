@@ -19,32 +19,51 @@ export type DoorResult =
  * and a distinct glyph, so it survives a colour-blind operator and a washed-out
  * screen in daylight.
  */
-export function ResultBanner({ result }: { result: DoorResult | null }) {
+export function ResultBanner({
+  result,
+  idle,
+}: {
+  result: DoorResult | null;
+  /**
+   * What fills the banner's space when nothing has just happened.
+   *
+   * That area was a dashed box reading "Scan a badge or ticket" — the largest
+   * element on the screen, empty precisely when the operator has a moment to
+   * look at it, while the list of people they just checked in sat below the
+   * fold where it was never seen.
+   */
+  idle?: React.ReactNode;
+}) {
+  // The idle content sits OUTSIDE the live region. Inside it, with
+  // aria-atomic, every return to idle assertively re-announced the entire
+  // recent list — once per attendee, interrupting whatever was being said.
+  if (!result) {
+    return (
+      <div className="flex h-[140px] flex-col justify-center rounded-xl border border-border px-5 py-2">
+        {idle ?? (
+          <p className="flex flex-1 items-center justify-center text-[15px] text-muted-foreground">
+            Scan a badge or ticket, or search by name.
+          </p>
+        )}
+      </div>
+    );
+  }
+
   return (
-    // ONE live region, always mounted. Swapping between separate live-region
-    // subtrees per state makes some screen readers miss announcements entirely,
-    // which matters most when a queue is moving fast and results land in quick
-    // succession.
+    // ONE live region, always mounted for as long as there IS a result.
+    // Swapping between separate live-region subtrees per state makes some
+    // screen readers miss announcements entirely, which matters most when a
+    // queue is moving fast and results land in quick succession.
     <div role="status" aria-live="assertive" aria-atomic="true">
       <BannerBody result={result} />
     </div>
   );
 }
 
-function BannerBody({ result }: { result: DoorResult | null }) {
-  if (!result) {
-    return (
-      <div className="flex min-h-[104px] items-center justify-center rounded-xl border border-dashed border-border px-6">
-        <p className="text-[15px] text-muted-foreground">
-          Scan a badge or ticket, or search by name.
-        </p>
-      </div>
-    );
-  }
-
+function BannerBody({ result }: { result: DoorResult }) {
   if (result.kind === "working") {
     return (
-      <div className="flex min-h-[104px] items-center gap-4 rounded-xl border border-border bg-muted/40 px-6">
+      <div className="flex h-[140px] items-center gap-4 rounded-xl border border-border bg-muted/40 px-6">
         <span className="size-5 animate-spin rounded-full border-2 border-muted-foreground border-t-transparent" aria-hidden />
         <p className="text-[19px] font-semibold">Checking in…</p>
       </div>
@@ -52,28 +71,38 @@ function BannerBody({ result }: { result: DoorResult | null }) {
   }
 
   const style = {
+    // Solid fills, not 12% tints. A tint that low is functionally white on an
+    // uncalibrated laptop panel viewed off-axis under venue glare — the one
+    // element meant to be read pre-attentively was the least visible thing on
+    // the screen.
+    //
+    // The words no longer rhyme either. "Checked in" / "Already in" / "Not
+    // checked in" all end in the same morpheme, and the only thing separating
+    // the refusal from the admission was the word "Not" — set in the smallest
+    // type on screen, letter-spaced, which is precisely what destroys word
+    // shape for a tired second-language reader.
     ok: {
-      box: "border-green-600/40 bg-green-600/12",
-      word: "text-green-700 dark:text-green-400",
+      box: "border-green-700 bg-green-700",
+      word: "text-white",
       glyph: "✓",
-      label: "Checked in",
+      label: "ENTER",
     },
     warn: {
-      box: "border-amber-500/45 bg-amber-500/12",
-      word: "text-amber-700 dark:text-amber-400",
+      box: "border-amber-500 bg-amber-400",
+      word: "text-amber-950",
       glyph: "!",
-      label: "Already in",
+      label: "ALREADY IN",
     },
     err: {
-      box: "border-destructive/45 bg-destructive/12",
-      word: "text-destructive",
+      box: "border-destructive bg-destructive",
+      word: "text-white",
       glyph: "✕",
-      label: "Not checked in",
+      label: "STOP",
     },
   }[result.kind];
 
   return (
-    <div className={`flex min-h-[104px] items-center gap-4 rounded-xl border px-6 py-4 ${style.box}`}>
+    <div className={`flex h-[140px] items-center gap-4 rounded-xl border px-6 py-4 ${style.box}`}>
       <span
         aria-hidden
         className={`flex size-11 shrink-0 items-center justify-center rounded-full border-2 text-[22px] font-bold ${style.word}`}
@@ -84,14 +113,15 @@ function BannerBody({ result }: { result: DoorResult | null }) {
         {/* A reprint must not read identically to a fresh admission: the
             headline band is what gets read at a glance, and "CHECKED IN" over a
             replacement badge misstates what just happened. */}
-        <p className={`text-[13px] font-bold tracking-[0.1em] uppercase ${style.word}`}>
+        <p className={`text-[20px] leading-none font-bold ${style.word}`}>
           {("label" in result && result.label) || style.label}
         </p>
-        <p className="truncate text-[26px] leading-tight font-semibold text-foreground">
+        <p className={`truncate text-[26px] leading-tight font-semibold ${style.word}`}>
           {result.name}
         </p>
-        <p className="mt-0.5 truncate text-[14px] text-muted-foreground">{result.detail}</p>
+        <p className={`mt-0.5 truncate text-[15px] ${style.word} opacity-90`}>{result.detail}</p>
       </div>
+
     </div>
   );
 }
