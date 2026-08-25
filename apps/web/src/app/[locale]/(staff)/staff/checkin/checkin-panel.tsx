@@ -16,6 +16,7 @@ import { PrinterStatus } from "./printer-status";
 import { ResultBanner, type DoorResult } from "./result-banner";
 import { AttendeeEditDialog, type EditTarget } from "./attendee-edit";
 import { DoorWalkInForm, type DoorTicket } from "./door-walk-in";
+import { looksScannable } from "@/lib/checkin/scan-shape";
 import {
   searchAction,
   checkInAction,
@@ -334,6 +335,15 @@ export function CheckinPanel({
     const query = q.trim();
     let cancelled = false;
 
+    // A scanned payload is a code, not a name. Searching for it is a wasted
+    // round trip in front of a queue, and it is how a badge slug used to match
+    // strangers by phone.
+    if (looksScannable(query)) {
+      setRows([]);
+      setSearching(false);
+      return;
+    }
+
     // Frozen while the walk-in form is open. The form holds its own state, so a
     // late result arriving behind it and unmounting it would discard whatever
     // the operator had typed — and results appearing under a filled walk-in
@@ -421,8 +431,12 @@ export function CheckinPanel({
         // Both new forms use native selects for role, title and ticket.
         e.target.tagName === "SELECT");
 
+      // Focus the box WITHOUT swallowing the key. A wedge scanner is a
+      // keyboard: its payload starts "HTTPS://", and preventDefault here ate
+      // both slashes, leaving a string resolveBadgeSlug can no longer parse —
+      // a scan silently degraded into a junk search. "/" still focuses; it
+      // just also types, which is harmless in an empty box.
       if (e.key === "/" && !typing) {
-        e.preventDefault();
         searchRef.current?.focus();
         return;
       }
@@ -450,6 +464,38 @@ export function CheckinPanel({
   /* ----------------------------------------------------------------- render */
 
   const busy = pending;
+
+  /**
+   * Enter in the search box, which is also where a wedge scanner's payload
+   * lands. Four outcomes, and one of them is deliberately "do nothing".
+   */
+  const onSearchKeyDown = useCallback(
+    (e: React.KeyboardEvent<HTMLInputElement>) => {
+      if (e.key !== "Enter") return;
+      e.preventDefault();
+      const text = q.trim();
+      if (!text || busy) return;
+
+      // 1. A code. Route it to the scan path, exactly as the camera does.
+      if (looksScannable(text)) {
+        setQ("");
+        setRows([]);
+        doScan(text);
+        return;
+      }
+      // 2. Exactly one match — check them in without touching the trackpad.
+      //    This is the saving: a hand leaving the keyboard and coming back
+      //    costs about two seconds, on every single search, all day.
+      if (rows.length === 1) {
+        doCheckIn(rows[0].orderCode);
+        return;
+      }
+      // 3. Several, or none. NEVER guess: a check-in cannot be undone at a
+      //    door, and registering a walk-in creates a real pretix order. Enter
+      //    must not be able to reach either.
+    },
+    [q, rows, busy, doScan, doCheckIn],
+  );
 
   /**
    * What fills the banner's space between attendees.
@@ -614,6 +660,7 @@ export function CheckinPanel({
             autoFocus
             value={q}
             onChange={(e) => setQ(e.target.value)}
+            onKeyDown={onSearchKeyDown}
             placeholder="Name, email, phone or order code  ( / to focus )"
             aria-label="Search attendees"
             // Disabled, not merely ignored, while the walk-in form is open: a
