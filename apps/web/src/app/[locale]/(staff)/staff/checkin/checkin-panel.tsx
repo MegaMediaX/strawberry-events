@@ -28,6 +28,20 @@ import {
   type AttendeeRow,
 } from "./actions";
 
+/** A dropped connection rejects the server-action CALL itself. The action's own
+ *  try/catch never sees that, so the await throws inside the transition: the
+ *  banner stays on "Checking in…" for someone who may or may not be inside, and
+ *  with no error boundary anywhere in this route React tears the panel down to
+ *  Next's default error screen — a reload, mid-queue. Shaping the rejection as
+ *  an ordinary refusal routes it through the red banner every other failure
+ *  already uses. */
+function connectionLost(err: unknown, advice: string): CheckInResult {
+  return {
+    ok: false,
+    reason: `Connection lost — ${(err as Error)?.message ?? "unknown"}. ${advice}`,
+  };
+}
+
 /** Typing settles before we query. Long enough to avoid a request per keystroke,
  *  short enough that results feel immediate to someone mid-conversation. */
 const SEARCH_DEBOUNCE_MS = 220;
@@ -322,7 +336,14 @@ export function CheckinPanel({
       // for.
       if (pending) return;
       setResult({ kind: "working" });
-      start(async () => handleResult(await checkInAction(eventId, orderCode, listId), "in"));
+      start(async () =>
+        handleResult(
+          await checkInAction(eventId, orderCode, listId).catch((err: unknown) =>
+            connectionLost(err, "Scan or search again — checking the same person in twice is harmless."),
+          ),
+          "in",
+        ),
+      );
     },
     [eventId, listId, pending, handleResult],
   );
@@ -335,7 +356,14 @@ export function CheckinPanel({
       // the confirm dialog exists to prevent.
       if (pending) return;
       setResult({ kind: "working" });
-      start(async () => handleResult(await reprintAction(eventId, orderCode), "reprint"));
+      start(async () =>
+        handleResult(
+          await reprintAction(eventId, orderCode).catch((err: unknown) =>
+            connectionLost(err, "Check whether a badge came out before trying again."),
+          ),
+          "reprint",
+        ),
+      );
     },
     [eventId, pending, handleResult],
   );
@@ -344,7 +372,14 @@ export function CheckinPanel({
     (text: string) => {
       if (pending) return;
       setResult({ kind: "working" });
-      start(async () => handleResult(await scanAction(eventId, text, listId), "in"));
+      start(async () =>
+        handleResult(
+          await scanAction(eventId, text, listId).catch((err: unknown) =>
+            connectionLost(err, "Scan again — checking the same person in twice is harmless."),
+          ),
+          "in",
+        ),
+      );
     },
     [eventId, listId, pending, handleResult],
   );

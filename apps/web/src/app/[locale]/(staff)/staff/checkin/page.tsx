@@ -37,7 +37,12 @@ export default async function CheckinPage({
   let counters = { total: 0, checkedIn: 0 };
   try {
     lists = await listCheckinLists(ctx.organizerSlug, mapping.pretixEventSlug, ctx.token);
-  } catch {
+  } catch (err) {
+    // Swallowed on purpose — pretix being unreachable must not take the door
+    // screen down. But an unlogged swallow renders exactly like a genuine
+    // config gap ("no check-in list configured in pretix"), and nobody
+    // debugging a bad morning would find a trace of the real cause.
+    console.error("[checkin] listCheckinLists failed", err);
     lists = [];
   }
   // Pick the list for whatever day it is at the venue. An explicit ?list= still
@@ -68,7 +73,11 @@ export default async function CheckinPage({
     tickets = (await listTickets(session, mapping.id))
       .filter((i) => i.active)
       .map((i) => ({ id: i.id, title: locale === "ar" && i.titleAr ? i.titleAr : i.titleEn }));
-  } catch {
+  } catch (err) {
+    // Same reasoning as the lists above. The visible symptom here is the
+    // walk-in form's ticket picker reading "— none available —", which is
+    // indistinguishable from an event that genuinely sells nothing.
+    console.error("[checkin] listTickets failed", err);
     tickets = [];
   }
   // Only call a list "today" when today is actually an event day.
@@ -83,8 +92,11 @@ export default async function CheckinPage({
   if (listId) {
     try {
       counters = await checkinCounters(ctx.organizerSlug, mapping.pretixEventSlug, listId, ctx.token);
-    } catch {
-      // counters best-effort
+    } catch (err) {
+      // Best-effort: the header falls back to "0 / 0", which on day two reads
+      // as "the event has not started" rather than "this number failed to
+      // load". Logging is what makes the difference findable afterwards.
+      console.error("[checkin] checkinCounters failed", err);
     }
   }
 
