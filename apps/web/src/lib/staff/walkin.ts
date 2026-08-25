@@ -1,4 +1,3 @@
-import type { AttendeeTag } from "@prisma/client";
 import { prisma } from "@/lib/db/client";
 import { canAccessEvent } from "@/lib/auth/org-scope";
 import { hasAnyRole, ForbiddenError } from "@/lib/auth/guards";

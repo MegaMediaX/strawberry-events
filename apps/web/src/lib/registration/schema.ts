@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 import { JOB_TITLE_MAX, JOB_TITLE_OTHER } from "@/lib/registration/job-title";
-import { BADGE_TAGS, type BadgeTagValue } from "@/lib/badges/tags";
+import { BADGE_TAGS } from "@/lib/badges/tags";
 
 export const registerInputSchema = z
   .object({
