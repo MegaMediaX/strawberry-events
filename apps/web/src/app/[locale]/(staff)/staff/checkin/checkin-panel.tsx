@@ -47,6 +47,7 @@ function toBadge(b: NonNullable<CheckInResult["badge"]>): BadgeData {
     tag: b.tag,
     fullName: b.fullName,
     company: b.company,
+    jobTitle: b.jobTitle,
     badgeSlug: b.badgeSlug,
   };
 }

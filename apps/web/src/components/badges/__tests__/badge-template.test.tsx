@@ -11,7 +11,7 @@ import { BadgeTemplate } from "../badge-template";
  */
 function css(): string {
   const html = renderToStaticMarkup(
-    <BadgeTemplate badge={{ tag: "visitor", fullName: "Test Test", company: "Strawberry" }} />,
+    <BadgeTemplate badge={{ tag: "visitor", fullName: "Test Test", company: "Strawberry", jobTitle: null }} />,
   );
   const style = /<style[^>]*>([\s\S]*?)<\/style>/.exec(html);
   expect(style).not.toBeNull();
@@ -50,5 +50,34 @@ describe("the print stylesheet", () => {
 
   it("keeps the badge to a single page", () => {
     expect(css()).toMatch(/break-after:\s*avoid/);
+  });
+});
+
+describe("the fallback badge carries the job title", () => {
+  // This is the badge shown when QZ Tray cannot be reached — the one moment
+  // nobody can compare it against a printed one. It rendered tag, name and
+  // company but never the title, so the fallback and the thermal badge
+  // disagreed, silently, exactly when that is hardest to notice.
+  const render = (jobTitle: string | null) =>
+    renderToStaticMarkup(
+      <BadgeTemplate
+        badge={{ tag: "visitor", fullName: "Elias Daou", company: "Acme", jobTitle }}
+      />,
+    );
+
+  it("shows the title under the company", () => {
+    const html = render("Sales Manager");
+    expect(html).toContain("Sales Manager");
+    expect(html.indexOf("Acme")).toBeLessThan(html.indexOf("Sales Manager"));
+  });
+
+  it("renders no element when there is no title", () => {
+    const html = render(null);
+    expect(html).toContain("Acme");
+    expect(html).not.toContain("badge-job-title\">");
+  });
+
+  it("renders no element for a whitespace-only title", () => {
+    expect(render("   ")).not.toContain("badge-job-title\">");
   });
 });

@@ -14,6 +14,20 @@ export interface BadgeData {
   fullName: string;
   company: string | null;
   /**
+   * Job title, printed under the company. Null for every registration taken
+   * before the field existed, and for anyone who skipped it — so the badge must
+   * be unchanged when it is absent, not merely tolerant of it.
+   *
+   * REQUIRED and nullable, exactly like `company`, rather than optional. Both
+   * come from equally nullable columns, so "absent" is always expressible as
+   * null and the optional `?` bought nothing — it only stopped the compiler
+   * from forcing the NEXT construction site to carry the field. A badge preview
+   * or a bulk-print tool added later would have compiled clean while silently
+   * dropping the title, which is the same shape as the bug that made the
+   * walk-in Company field untypeable.
+   */
+  jobTitle: string | null;
+  /**
    * Opaque code behind the printed contact-profile QR. Optional: test badges
    * and orders predating the column have none, and must still print.
    *
@@ -44,6 +58,10 @@ export function BadgeTemplate({ badge }: { badge: BadgeData }) {
       </div>
       <div className="badge-name">{badge.fullName}</div>
       {badge.company && <div className="badge-company">{badge.company}</div>}
+      {/* Below the company, matching the printed layout. Without this the
+          fallback and the thermal badge disagree, and the fallback is exactly
+          when nobody can compare them. */}
+      {badge.jobTitle?.trim() && <div className="badge-job-title">{badge.jobTitle}</div>}
       <style>{`
         /* ---- What actually gets printed ----
            window.print() prints the WHOLE DOCUMENT. Setting @page alone only
@@ -91,6 +109,10 @@ export function BadgeTemplate({ badge }: { badge: BadgeData }) {
         }
         .badge-company {
           margin-top: 1.4mm; font-size: 3.2mm; line-height: 1.2; color: #555;
+          max-height: 4mm; overflow: hidden;
+        }
+        .badge-job-title {
+          margin-top: 0.8mm; font-size: 3mm; line-height: 1.2; color: #555;
           max-height: 4mm; overflow: hidden;
         }
       `}</style>

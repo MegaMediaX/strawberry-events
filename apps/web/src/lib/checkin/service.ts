@@ -19,6 +19,8 @@ export interface CheckInResult {
     secret: string | null;
     fullName: string;
     company: string | null;
+    /** Printed under the company. Null for everyone who was never asked. */
+    jobTitle: string | null;
     /** Drives the printed contact-profile QR. Null only for legacy rows. */
     badgeSlug: string | null;
   };
@@ -133,6 +135,7 @@ function badgeOf(order: AttendeeOrder): NonNullable<CheckInResult["badge"]> {
     secret: order.pretixSecret,
     fullName: order.attendeeName ?? order.email,
     company: order.company,
+    jobTitle: order.jobTitle,
     badgeSlug: order.badgeSlug,
   };
 }

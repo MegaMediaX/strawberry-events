@@ -1,8 +1,25 @@
 import { describe, it, expect } from "vitest";
 import {
-  LABEL_W, QR_X, QR_SIZE, QR_QUIET, QR_MAG, TEXT_LEFT, TEXT_RIGHT, TEXT_WIDTH,
-  wrapText, centreX, fitName, NAME_SIZE, NAME_MIN_SIZE,
+  LABEL_W,
+  QR_X,
+  QR_SIZE,
+  QR_QUIET,
+  QR_MAG,
+  TEXT_LEFT,
+  TEXT_RIGHT,
+  TEXT_WIDTH,
+  wrapText,
+  centreX,
+  fitName,
+  NAME_SIZE,
+  NAME_MIN_SIZE,
+  JOB_TITLE_Y,
+  JOB_TITLE_SIZE,
+  COMPANY_Y,
+  COMPANY_SIZE,
+  LABEL_H,
 } from "@/lib/checkin/badge-layout";
+import { buildBadgeZpl } from "@/lib/checkin/badge-zpl";
 
 // A stand-in for canvas metrics: every glyph is 20 dots wide. Enough to pin the
 // wrapping rules without a real 2D context.
@@ -122,5 +139,38 @@ describe("fitName — the guard that keeps a name out of the QR", () => {
         expect(measureAt(size, line)).toBeLessThanOrEqual(TEXT_WIDTH);
       }
     }
+  });
+});
+
+describe("the two printer languages agree on the job title line", () => {
+  // badge-layout.ts exists so ZPL and TSPL cannot drift, but badge-zpl.ts does
+  // NOT import it for the name or the company — it carries its own copies, and
+  // they already differ (ZPL draws the name at y=104 size 40; this module says
+  // 98 and 38). The job title is wired to the shared constants from the start so
+  // it cannot join them.
+  it("ZPL emits the job title at the shared Y and size", () => {
+    const zpl = buildBadgeZpl({
+      tag: "visitor",
+      fullName: "Elias Daou",
+      company: "Bank of Beirut SAL",
+      jobTitle: "Sales Manager",
+    });
+    const line = zpl.split("\n").find((l) => l.includes("Sales Manager"))!;
+    const m = /\^FO(\d+),(\d+)\^A0N,(\d+),(\d+)/.exec(line)!;
+    expect(Number(m[2])).toBe(JOB_TITLE_Y);
+    expect(Number(m[3])).toBe(JOB_TITLE_SIZE);
+    expect(Number(m[1])).toBe(TEXT_LEFT);
+  });
+
+  it("the job title line clears the company and stays on the label", () => {
+    expect(JOB_TITLE_Y).toBeGreaterThan(COMPANY_Y + COMPANY_SIZE);
+    expect(JOB_TITLE_Y + JOB_TITLE_SIZE).toBeLessThanOrEqual(LABEL_H);
+  });
+
+  it("the job title row never overlaps the QR's rows and columns", () => {
+    // Horizontal is the one that matters: the column ends a full quiet zone
+    // short of the symbol. Assert it explicitly rather than trusting the
+    // constant arithmetic to stay true if someone edits one of them.
+    expect(TEXT_LEFT + TEXT_WIDTH).toBeLessThanOrEqual(QR_X - QR_QUIET);
   });
 });

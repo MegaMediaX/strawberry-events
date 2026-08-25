@@ -1,5 +1,9 @@
 import type { BadgeData } from "@/components/badges/badge-template";
 import { badgeProfileUrl } from "./badge-slug";
+// Only the job-title line is taken from the shared module. The name and
+// company keep the numbers this file has always used, because the three
+// PC42d lanes were verified against them on hardware — see the note below.
+import { JOB_TITLE_Y, JOB_TITLE_SIZE } from "./badge-layout";
 
 /**
  * Generate ZPL II for a 60×40 mm (landscape) attendee badge, targeting the
@@ -10,6 +14,7 @@ import { badgeProfileUrl } from "./badge-slug";
  *     thermal is monochrome, so the on-screen tag color becomes black)
  *   - full name (large)
  *   - company (smaller, optional)
+ *   - job title (smaller still, optional)
  *   - contact-profile QR, bottom right (optional — omitted if no slug)
  *
  * 203 dpi ≈ 8 dots/mm, so 60 × 40 mm ≈ 480 × 320 dots.
@@ -142,9 +147,38 @@ function qrBlock(slug: string): string {
   }
 }
 
+/**
+ * The job title as it can actually be printed, or null.
+ *
+ * Returns null both when there is no title and when there was one the printer
+ * cannot render — but only the second case is reported, because only the second
+ * is a surprise. See `hasUnprintableName` for why transliterating instead would
+ * be worse.
+ */
+function printableJobTitle(raw: string | null | undefined): string | null {
+  if (!raw?.trim()) return null;
+  const printable = sanitizeZplText(raw);
+  if (!printable) {
+    console.error(
+      "[badge] job title dropped — nothing printable in the printer's Latin fonts:",
+      { length: raw.trim().length },
+    );
+    return null;
+  }
+  return printable;
+}
+
 export function buildBadgeZpl(badge: BadgeData): string {
   const tag = sanitizeZplText(badge.tag).toUpperCase();
   const company = badge.company ? sanitizeZplText(badge.company) : null;
+  // Gate on the SANITISED value, not the raw one. The printer's fonts are
+  // Latin-only, so an Arabic job title sanitises to "" — the line is dropped
+  // and the badge comes out byte-identical to one where the attendee never
+  // answered. Dropping is the only correct output on this hardware; dropping
+  // SILENTLY is not, because nothing then distinguishes "not given" from
+  // "given and discarded", and nobody ever learns the field was useless for
+  // those attendees.
+  const jobTitle = printableJobTitle(badge.jobTitle);
 
   // Tag band: a filled black box with reversed (white) centered text. The tag
   // is the most prominent element, so it gets a tall band and large font.
@@ -168,6 +202,7 @@ export function buildBadgeZpl(badge: BadgeData): string {
     band,
     textBlock(104, 40, badge.fullName, 2),
     company ? textBlock(196, 26, company, 1) : "",
+    jobTitle ? textBlock(JOB_TITLE_Y, JOB_TITLE_SIZE, jobTitle, 1) : "",
     qr,
     "^XZ",
   ]

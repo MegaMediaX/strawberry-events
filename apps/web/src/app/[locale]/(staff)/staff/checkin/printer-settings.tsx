@@ -17,6 +17,9 @@ import { printBadge } from "@/lib/checkin/print-badge";
 const TEST_BADGE = {
   tag: "staff",
   fullName: "Test Badge",
+  // Carries a title so a test print proves the new line prints and
+  // still clears the QR — a lane can be checked without an attendee.
+  jobTitle: "General Manager",
   company: "Strawberry Agency",
 } as const;
 

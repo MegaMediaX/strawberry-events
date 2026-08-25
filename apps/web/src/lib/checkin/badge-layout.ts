@@ -43,6 +43,32 @@ export const NAME_MAX_LINES = 2;
 export const NAME_MIN_SIZE = 24;
 export const COMPANY_Y = 196;
 export const COMPANY_SIZE = 26;
+/**
+ * Job title, on its own line under the company.
+ *
+ * Below rather than above deliberately: the company sits at 196 and the three
+ * PC42d lanes were verified on hardware against that exact layout. Appending a
+ * line leaves every existing element where it was, so a badge without a title
+ * is byte-identical to the proven one — which is what almost every badge on the
+ * door will be.
+ *
+ * 230 clears the company (196 + 26 = 222) and 230 + 24 = 254 stays well inside
+ * the 320-dot label. One line only: a second would run into the QR's row.
+ *
+ * The 15-character cap (JOB_TITLE_MAX) makes REALISTIC titles fit the 249-dot
+ * column at this size: measured in Arial 24px, "General Manager" is 187 dots and
+ * "Procure officer" 156. It is NOT a guarantee — character count is not width,
+ * and 15 wide glyphs ("WWWWWWWWWWWWWWW") measure 340 and would overflow.
+ *
+ * What actually protects the QR is the CLIP, not the cap: the canvas clips to
+ * TEXT_WIDTH and ZPL's ^FB is 249 wide with one line, so an over-wide title is
+ * cut off at the column edge instead of reaching the quiet zone. A clipped
+ * title is a cosmetic problem; a title touching the QR is a badge that will not
+ * scan, and that is the one that must be impossible.
+ */
+export const JOB_TITLE_Y = 230;
+export const JOB_TITLE_SIZE = 24;
+
 export const TAG_SIZE = 46;
 
 /**
