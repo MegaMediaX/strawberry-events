@@ -28,6 +28,24 @@ import {
   type AttendeeRow,
 } from "./actions";
 
+/** A dropped connection rejects the server-action CALL itself. The action's own
+ *  try/catch never sees that, so the await throws inside the transition: the
+ *  banner stays on "Checking in…" for someone who may or may not be inside, and
+ *  with no error boundary anywhere in this route React tears the panel down to
+ *  Next's default error screen — a reload, mid-queue. Shaping the rejection as
+ *  an ordinary refusal routes it through the red banner every other failure
+ *  already uses.
+ *
+ *  The advice comes FIRST and the browser's own message does not appear at all.
+ *  The banner's detail line is `truncate` — one line, clipped — so leading with
+ *  "Failed to fetch" spends the visible half of it on the one part of the
+ *  sentence an operator cannot act on, and clips the half they can. The real
+ *  error still goes to the console, where whoever is debugging will look. */
+function connectionLost(err: unknown, advice: string): CheckInResult {
+  console.error("[door] server action call rejected", err);
+  return { ok: false, reason: `Connection lost — ${advice}` };
+}
+
 /** Typing settles before we query. Long enough to avoid a request per keystroke,
  *  short enough that results feel immediate to someone mid-conversation. */
 const SEARCH_DEBOUNCE_MS = 220;
@@ -193,12 +211,24 @@ export function CheckinPanel({
       openingEditRef.current = true;
       setEditing(null);
       setOpeningEdit(true);
-      void attendeeForEditAction(eventId, orderCode).then((res) => {
-        openingEditRef.current = false;
-        setOpeningEdit(false);
-        if (res.ok) setEditing(res.attendee);
-        else setResult({ kind: "err", name: orderCode, detail: res.reason });
-      });
+      void attendeeForEditAction(eventId, orderCode)
+        .then((res) => {
+          if (res.ok) setEditing(res.attendee);
+          else setResult({ kind: "err", name: orderCode, detail: res.reason });
+        })
+        // The action catches its own errors, but the CALL still rejects if the
+        // connection drops mid-request — and then this guard would stay latched
+        // and silently block every future Fix for the rest of the shift.
+        .catch((err: unknown) => {
+          // Action first, browser message to the console: the banner's detail
+          // line is one truncated line (see connectionLost above).
+          console.error("[door] attendeeForEditAction rejected", err);
+          setResult({ kind: "err", name: orderCode, detail: "Connection lost — try Fix again." });
+        })
+        .finally(() => {
+          openingEditRef.current = false;
+          setOpeningEdit(false);
+        });
     },
     [eventId],
   );
@@ -309,7 +339,14 @@ export function CheckinPanel({
       // for.
       if (pending) return;
       setResult({ kind: "working" });
-      start(async () => handleResult(await checkInAction(eventId, orderCode, listId), "in"));
+      start(async () =>
+        handleResult(
+          await checkInAction(eventId, orderCode, listId).catch((err: unknown) =>
+            connectionLost(err, "try again. ALREADY IN means they got in — print the badge there."),
+          ),
+          "in",
+        ),
+      );
     },
     [eventId, listId, pending, handleResult],
   );
@@ -322,7 +359,14 @@ export function CheckinPanel({
       // the confirm dialog exists to prevent.
       if (pending) return;
       setResult({ kind: "working" });
-      start(async () => handleResult(await reprintAction(eventId, orderCode), "reprint"));
+      start(async () =>
+        handleResult(
+          await reprintAction(eventId, orderCode).catch((err: unknown) =>
+            connectionLost(err, "check whether a badge came out before trying again."),
+          ),
+          "reprint",
+        ),
+      );
     },
     [eventId, pending, handleResult],
   );
@@ -331,7 +375,14 @@ export function CheckinPanel({
     (text: string) => {
       if (pending) return;
       setResult({ kind: "working" });
-      start(async () => handleResult(await scanAction(eventId, text, listId), "in"));
+      start(async () =>
+        handleResult(
+          await scanAction(eventId, text, listId).catch((err: unknown) =>
+            connectionLost(err, "scan again. ALREADY IN means they got in — print the badge there."),
+          ),
+          "in",
+        ),
+      );
     },
     [eventId, listId, pending, handleResult],
   );
@@ -750,21 +801,33 @@ export function CheckinPanel({
                   // idempotency key to fall back on.
                   if (submittingWalkIn) return;
                   setSubmittingWalkIn(true);
-                  void walkInAndCheckInAction(eventId, input, listId).then((res) => {
-                    setSubmittingWalkIn(false);
-                    if (!res.ok) {
+                  const who = `${input.firstName} ${input.lastName}`.trim();
+                  void walkInAndCheckInAction(eventId, input, listId)
+                    .then((res) => {
+                      if (!res.ok) {
+                        setResult({ kind: "err", name: who, detail: res.reason ?? "Could not register." });
+                        return;
+                      }
+                      setWalkIn(false);
+                      // Same result path as any other check-in, so the badge
+                      // prints under the same ownership and fallback rules.
+                      handleResult(res, "in");
+                    })
+                    // A dropped connection rejects the CALL, and .then never
+                    // runs — leaving submittingWalkIn latched and the Register
+                    // button dead for the rest of the shift, with nothing on
+                    // screen saying why. The message is deliberately honest
+                    // about the ambiguity: pretix may well have created the
+                    // order before the connection went.
+                    .catch((err: unknown) => {
+                      console.error("[door] walkInAndCheckInAction rejected", err);
                       setResult({
                         kind: "err",
-                        name: `${input.firstName} ${input.lastName}`.trim(),
-                        detail: res.reason ?? "Could not register.",
+                        name: who,
+                        detail: "Connection lost — search their name before retrying; they may be registered.",
                       });
-                      return;
-                    }
-                    setWalkIn(false);
-                    // Same result path as any other check-in, so the badge
-                    // prints under the same ownership and fallback rules.
-                    handleResult(res, "in");
-                  });
+                    })
+                    .finally(() => setSubmittingWalkIn(false));
                 }}
               />
             )}
@@ -846,7 +909,6 @@ export function CheckinPanel({
             void correctAttendeeAction(eventId, orderCode, patch)
               .then((res) => {
                 if (!res.ok) {
-                  setSavingEdit(false);
                   setResult({ kind: "err", name: patch.fullName, detail: res.reason ?? "Could not save." });
                   return;
                 }
@@ -860,7 +922,6 @@ export function CheckinPanel({
                 // happened to be open by then — discarding an unrelated edit.
                 setEditing((cur) => (cur?.orderCode === orderCode ? null : cur));
                 return reprintAction(eventId, orderCode).then((printed) => {
-                  setSavingEdit(false);
                   if (!printed.ok) {
                     setResult({
                       kind: "warn",
@@ -872,7 +933,20 @@ export function CheckinPanel({
                   }
                   handleResult(printed, "reprint");
                 });
-              });
+              })
+              // Either call can reject if the connection drops. Without this the
+              // flag stays latched — which disables Save AND every Fix button in
+              // the recent list, so no correction is possible for the rest of the
+              // shift, with nothing on screen saying why.
+              .catch((err: unknown) => {
+                console.error("[door] correctAttendeeAction rejected", err);
+                setResult({
+                  kind: "err",
+                  name: patch.fullName,
+                  detail: "Connection lost — check their details before trying again; it may not have saved.",
+                });
+              })
+              .finally(() => setSavingEdit(false));
           }}
         />
       )}

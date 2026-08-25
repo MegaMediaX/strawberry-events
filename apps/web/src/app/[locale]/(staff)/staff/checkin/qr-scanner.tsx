@@ -180,18 +180,22 @@ export function QrScanner({ onScan }: { onScan: (text: string) => void }) {
         </label>
       )}
 
-      {error && (
-        <div className="mt-2">
-          <p className="text-sm text-destructive">{error}</p>
-          <button
-            type="button"
-            onClick={() => setRetryTick((n) => n + 1)}
-            className="mt-2 min-h-11 rounded-md border border-border px-4 text-[14px] font-semibold hover:bg-accent"
-          >
-            Retry camera
-          </button>
-        </div>
-      )}
+      {error && <p className="mt-2 text-sm text-destructive">{error}</p>}
+
+      {/* Always present, not only when `error` is set. The freezes that matter
+          most leave `error` null: start() already succeeded, and permission
+          revoked mid-shift, another app seizing the device, or a driver stall
+          all stop the frames without raising anything the per-frame callback
+          can distinguish from "no QR in view". `devicechange` catches the
+          unplug case and nothing else. Gating the only recovery control on an
+          error that never arrives left the lane with nothing to press. */}
+      <button
+        type="button"
+        onClick={() => setRetryTick((n) => n + 1)}
+        className="mt-2 min-h-11 rounded-md border border-border px-4 text-[14px] font-semibold hover:bg-accent"
+      >
+        Retry camera
+      </button>
     </div>
   );
 }

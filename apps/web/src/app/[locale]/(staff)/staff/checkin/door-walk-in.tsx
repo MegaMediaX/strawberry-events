@@ -80,11 +80,17 @@ export function DoorWalkInForm({
     firstRef.current?.select();
   }, []);
 
+  // Not while a submit is in flight. Escape only removes the form from the
+  // screen; it cannot recall the request, which finishes in the background and
+  // may already have created the order. An operator who reads a vanished form
+  // as "cancelled" registers the same person again.
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onCancel();
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && !busy) onCancel();
+    };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [onCancel]);
+  }, [onCancel, busy]);
 
   // The job title only makes sense against an employer, matching the public
   // form and the walk-in desk.

@@ -107,14 +107,17 @@ export function AttendeeEditDialog({
   }, []);
 
   // Escape closes. A door operator who opened this by accident should not have
-  // to find a button while someone waits.
+  // to find a button while someone waits — but not once Save is in flight.
+  // Escape only takes the form off the screen; it cannot recall the request,
+  // which finishes in the background and may already have written the change.
+  // An operator who reads a vanished form as "cancelled" does the edit again.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onCancel();
+      if (e.key === "Escape" && !busy) onCancel();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [onCancel]);
+  }, [onCancel, busy]);
 
   function submit() {
     if (busy) return;
