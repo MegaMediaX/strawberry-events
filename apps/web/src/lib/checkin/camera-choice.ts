@@ -26,12 +26,37 @@ export const CAMERA_KEY = "strawberry.checkin.cameraId";
  * the built-in one is there to look at the operator.
  */
 const EXTERNAL_HINTS = [
+  // "webcam c" was here for Logitech's C-series and also matched
+  // "Dell Webcam Central" — a built-in. The explicit model numbers and the
+  // vendor name cover the real cases without the collision.
   "logitech", "brio", "streamcam", "c920", "c922", "c925", "c930", "c270",
-  "usb camera", "usb video", "hd pro", "webcam c",
+  "hd pro",
+  // "usb" anywhere wins outright, and is checked BEFORE the built-in list. A
+  // laptop does not describe its own lid camera as USB, but a Dell or Lenovo
+  // branded external one says so plainly — "ThinkPad USB Webcam",
+  // "Dell Webcam WB7022". Without this, the vendor hints below would call
+  // those built-in and pick the wrong camera.
+  "usb",
 ];
 
-/** Labels that are almost certainly the laptop's own lid camera. */
-const BUILT_IN_HINTS = ["integrated", "built-in", "builtin", "facetime", "internal"];
+/**
+ * Labels that are almost certainly the laptop's own lid camera.
+ *
+ * Observed live: a MacBook reports "MacBook Air Camera (0000:0001)", which
+ * matched none of these and so tied with an unknown external camera — and the
+ * built-in one won on order. Vendor and model names belong here for the same
+ * reason: a machine that names its own camera after itself is naming the one
+ * pointed at the operator.
+ */
+const BUILT_IN_HINTS = [
+  "integrated", "built-in", "builtin", "facetime", "internal",
+  "macbook", "imac", "surface camera", "hp truevision", "hp wide vision",
+  // Narrow on purpose. "dell webcam" alone matched "Dell Webcam WB7022", a
+  // real external one, and "thinkpad" matched "ThinkPad USB Webcam". A
+  // ThinkPad's own camera reports as "Integrated Camera", already covered
+  // above, so the vendor name buys nothing and costs a misclassification.
+  "dell webcam central", "lenovo easycamera",
+];
 
 function score(label: string): number {
   const l = label.toLowerCase();
