@@ -193,12 +193,25 @@ export function CheckinPanel({
       openingEditRef.current = true;
       setEditing(null);
       setOpeningEdit(true);
-      void attendeeForEditAction(eventId, orderCode).then((res) => {
-        openingEditRef.current = false;
-        setOpeningEdit(false);
-        if (res.ok) setEditing(res.attendee);
-        else setResult({ kind: "err", name: orderCode, detail: res.reason });
-      });
+      void attendeeForEditAction(eventId, orderCode)
+        .then((res) => {
+          if (res.ok) setEditing(res.attendee);
+          else setResult({ kind: "err", name: orderCode, detail: res.reason });
+        })
+        // The action catches its own errors, but the CALL still rejects if the
+        // connection drops mid-request — and then this guard would stay latched
+        // and silently block every future Fix for the rest of the shift.
+        .catch((err: unknown) => {
+          setResult({
+            kind: "err",
+            name: orderCode,
+            detail: `Could not open — ${(err as Error)?.message ?? "connection lost"}. Try again.`,
+          });
+        })
+        .finally(() => {
+          openingEditRef.current = false;
+          setOpeningEdit(false);
+        });
     },
     [eventId],
   );
@@ -750,21 +763,32 @@ export function CheckinPanel({
                   // idempotency key to fall back on.
                   if (submittingWalkIn) return;
                   setSubmittingWalkIn(true);
-                  void walkInAndCheckInAction(eventId, input, listId).then((res) => {
-                    setSubmittingWalkIn(false);
-                    if (!res.ok) {
+                  const who = `${input.firstName} ${input.lastName}`.trim();
+                  void walkInAndCheckInAction(eventId, input, listId)
+                    .then((res) => {
+                      if (!res.ok) {
+                        setResult({ kind: "err", name: who, detail: res.reason ?? "Could not register." });
+                        return;
+                      }
+                      setWalkIn(false);
+                      // Same result path as any other check-in, so the badge
+                      // prints under the same ownership and fallback rules.
+                      handleResult(res, "in");
+                    })
+                    // A dropped connection rejects the CALL, and .then never
+                    // runs — leaving submittingWalkIn latched and the Register
+                    // button dead for the rest of the shift, with nothing on
+                    // screen saying why. The message is deliberately honest
+                    // about the ambiguity: pretix may well have created the
+                    // order before the connection went.
+                    .catch((err: unknown) => {
                       setResult({
                         kind: "err",
-                        name: `${input.firstName} ${input.lastName}`.trim(),
-                        detail: res.reason ?? "Could not register.",
+                        name: who,
+                        detail: `Connection lost — ${(err as Error)?.message ?? "unknown"}. They may already be registered: search their name before trying again.`,
                       });
-                      return;
-                    }
-                    setWalkIn(false);
-                    // Same result path as any other check-in, so the badge
-                    // prints under the same ownership and fallback rules.
-                    handleResult(res, "in");
-                  });
+                    })
+                    .finally(() => setSubmittingWalkIn(false));
                 }}
               />
             )}
@@ -846,7 +870,6 @@ export function CheckinPanel({
             void correctAttendeeAction(eventId, orderCode, patch)
               .then((res) => {
                 if (!res.ok) {
-                  setSavingEdit(false);
                   setResult({ kind: "err", name: patch.fullName, detail: res.reason ?? "Could not save." });
                   return;
                 }
@@ -860,7 +883,6 @@ export function CheckinPanel({
                 // happened to be open by then — discarding an unrelated edit.
                 setEditing((cur) => (cur?.orderCode === orderCode ? null : cur));
                 return reprintAction(eventId, orderCode).then((printed) => {
-                  setSavingEdit(false);
                   if (!printed.ok) {
                     setResult({
                       kind: "warn",
@@ -872,7 +894,19 @@ export function CheckinPanel({
                   }
                   handleResult(printed, "reprint");
                 });
-              });
+              })
+              // Either call can reject if the connection drops. Without this the
+              // flag stays latched — which disables Save AND every Fix button in
+              // the recent list, so no correction is possible for the rest of the
+              // shift, with nothing on screen saying why.
+              .catch((err: unknown) => {
+                setResult({
+                  kind: "err",
+                  name: patch.fullName,
+                  detail: `Connection lost — ${(err as Error)?.message ?? "unknown"}. The change may not have saved; check the details before trying again.`,
+                });
+              })
+              .finally(() => setSavingEdit(false));
           }}
         />
       )}
