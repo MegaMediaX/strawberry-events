@@ -497,6 +497,18 @@ export function CheckinPanel({
   const busy = pending;
 
   /**
+   * The "no one matches — register THEM" prompt, which names the person the
+   * operator just searched for.
+   *
+   * Named once because the persistent button below defers to it. Both were
+   * eligible in the empty state, stacking two identical calls to action in the
+   * one moment they both applied — and the persistent one is meant to be the
+   * quiet fallback, not a second shout.
+   */
+  const showContextualWalkIn =
+    !walkIn && Boolean(q.trim()) && !searching && rows.length === 0;
+
+  /**
    * Enter in the search box, which is also where a wedge scanner's payload
    * lands. Four outcomes, and one of them is deliberately "do nothing".
    */
@@ -697,7 +709,7 @@ export function CheckinPanel({
             {q.trim() && searching && (
               <p className="text-[14px] text-muted-foreground">Searching…</p>
             )}
-            {q.trim() && !searching && rows.length === 0 && !walkIn && (
+            {showContextualWalkIn && (
               <div className="rounded-lg border border-border p-3">
                 <p className="text-[14px] text-muted-foreground">
                   No one matches “{q.trim()}”. Check the spelling, or try their order code.
@@ -803,7 +815,7 @@ export function CheckinPanel({
                 person, and a loud button above the list is how a Mohamad who is
                 already in the system gets registered a second time. Whatever is
                 typed carries over, so nothing is retyped either way. */}
-            {!walkIn && (
+            {!walkIn && !showContextualWalkIn && (
               <button
                 type="button"
                 onClick={() => {
