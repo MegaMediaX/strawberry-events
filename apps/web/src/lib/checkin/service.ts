@@ -450,9 +450,16 @@ export interface AttendeeCorrection {
  * Correct an attendee's printed details at the door, and hand back a badge
  * ready to reprint.
  *
- * Deliberately NOT a check-in: it redeems nothing in pretix, logs no badge
- * print, and does not change eligibility. Staff use it when someone's name was
- * mistyped at registration or they never gave a job title — then reprint.
+ * Deliberately NOT a check-in and NOT a print: it redeems nothing in pretix and
+ * returns no badge. Staff use it when someone's name was mistyped or they never
+ * gave a job title; the caller then goes through the normal reprint path.
+ *
+ * Returning a badge here was a real gap. reprintBadge refuses to hand back a
+ * printable badge for a cancelled, rejected or unpaid order — this did not, so
+ * a directly-invoked correction could produce a badge for someone not entitled
+ * to one, and the print would never reach badgePrintLog either. Routing the
+ * print through reprintBadge instead gets both the eligibility gate and the
+ * print log for free, rather than reimplementing them here and drifting.
  */
 export async function updateAttendeeDetails(
   session: SessionContext,
@@ -562,7 +569,7 @@ export async function updateAttendeeDetails(
     },
   });
 
-  return { ok: true, badge: badgeOf(updated) };
+  return { ok: true };
 }
 
 /** Everything the door's correction form needs to open pre-filled. */

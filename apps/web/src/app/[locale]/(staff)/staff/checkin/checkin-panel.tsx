@@ -79,7 +79,13 @@ export function CheckinPanel({
   >(null);
   const [showSettings, setShowSettings] = useState(false);
   const [editing, setEditing] = useState<EditTarget | null>(null);
+  // Three unrelated async operations, three flags. Sharing one meant a fast
+  // lookup resolving could re-enable a slow submit that was still on the wire —
+  // and the walk-in submit creates a real pretix order, so a second click
+  // registered the same person twice.
+  const [openingEdit, setOpeningEdit] = useState(false);
   const [savingEdit, setSavingEdit] = useState(false);
+  const [submittingWalkIn, setSubmittingWalkIn] = useState(false);
   const [walkIn, setWalkIn] = useState(false);
 
   const searchRef = useRef<HTMLInputElement>(null);
@@ -92,6 +98,15 @@ export function CheckinPanel({
   const printOwner = useRef(createPrintOwnership());
   // Mirrors confirmReprint for the window key handler, which is bound once.
   const confirmReprintRef = useRef<typeof confirmReprint>(null);
+  // Same reason as confirmReprintRef: the window key handler is bound once, so
+  // it cannot see current state without a ref.
+  const editingRef = useRef<EditTarget | null>(null);
+  const walkInRef = useRef(false);
+  // Read by openEdit's re-entrancy guard. A ref rather than the state value so
+  // the callback keeps a stable identity.
+  const openingEditRef = useRef(false);
+  /** Where focus goes when the Fix or walk-in form closes. */
+  const formReturnFocusRef = useRef<HTMLElement | null>(null);
   const confirmBoxRef = useRef<HTMLDivElement>(null);
   // Where focus came from, so closing the dialog returns it.
   const returnFocusRef = useRef<HTMLElement | null>(null);
@@ -142,10 +157,13 @@ export function CheckinPanel({
 
   const openEdit = useCallback(
     (orderCode: string) => {
+      if (openingEditRef.current) return;
+      openingEditRef.current = true;
       setEditing(null);
-      setSavingEdit(true);
+      setOpeningEdit(true);
       void attendeeForEditAction(eventId, orderCode).then((res) => {
-        setSavingEdit(false);
+        openingEditRef.current = false;
+        setOpeningEdit(false);
         if (res.ok) setEditing(res.attendee);
         else setResult({ kind: "err", name: orderCode, detail: res.reason });
       });
@@ -338,6 +356,28 @@ export function CheckinPanel({
     }
   }, [confirmReprint]);
 
+  /* ------------------------------------------ inline form focus + refs */
+
+  useEffect(() => {
+    editingRef.current = editing;
+    walkInRef.current = walkIn;
+
+    const open = Boolean(editing) || walkIn;
+    if (open) {
+      // Where to send focus back to when the form closes. Both forms move focus
+      // into themselves on open; without this, closing dropped it on <body> and
+      // the next Tab restarted from the top of the page — dozens of times a day
+      // over three days.
+      if (!formReturnFocusRef.current) {
+        formReturnFocusRef.current =
+          document.activeElement instanceof HTMLElement ? document.activeElement : null;
+      }
+    } else if (formReturnFocusRef.current) {
+      formReturnFocusRef.current.focus();
+      formReturnFocusRef.current = null;
+    }
+  }, [editing, walkIn]);
+
   /* --------------------------------------------------- success auto-clear */
 
   useEffect(() => {
@@ -352,7 +392,10 @@ export function CheckinPanel({
     function onKey(e: KeyboardEvent) {
       const typing =
         e.target instanceof HTMLElement &&
-        (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA");
+        (e.target.tagName === "INPUT" ||
+        e.target.tagName === "TEXTAREA" ||
+        // Both new forms use native selects for role, title and ticket.
+        e.target.tagName === "SELECT");
 
       if (e.key === "/" && !typing) {
         e.preventDefault();
@@ -360,6 +403,10 @@ export function CheckinPanel({
         return;
       }
       if (e.key === "Escape") {
+        // A form owns Escape while it is open. Without this the panel's own
+        // handler ALSO ran and silently wiped the search box the operator had
+        // typed for the next person.
+        if (editingRef.current || walkInRef.current) return;
         // The reprint confirm owns Escape while it is open. Otherwise a stray
         // Escape — someone starting to retype a search — silently dismisses a
         // decision they had not made yet.
@@ -447,7 +494,12 @@ export function CheckinPanel({
             >
               Print replacement
             </Button>
-            <Button variant="outline" disabled={busy} onClick={() => setConfirmReprint(null)}>
+            <Button
+              variant="outline"
+              className="min-h-12 px-5 text-[15px]"
+              disabled={busy}
+              onClick={() => setConfirmReprint(null)}
+            >
               Cancel
             </Button>
           </div>
@@ -502,16 +554,24 @@ export function CheckinPanel({
               </div>
             )}
 
-            {walkIn && (
+            {/* Strictly exclusive with the results list. The search box stays
+                live while this is open, so a corrected spelling can match a
+                real attendee — and a filled walk-in form sitting above their
+                row is how one person gets registered twice. */}
+            {walkIn && rows.length === 0 && (
               <DoorWalkInForm
                 prefill={q}
                 tickets={tickets}
-                busy={savingEdit}
+                busy={submittingWalkIn}
                 onCancel={() => setWalkIn(false)}
                 onSubmit={(input) => {
-                  setSavingEdit(true);
+                  // Without this a double-tap creates TWO pretix orders for one
+                  // person — one checked in, one dangling. register() has no
+                  // idempotency key to fall back on.
+                  if (submittingWalkIn) return;
+                  setSubmittingWalkIn(true);
                   void walkInAndCheckInAction(eventId, input, listId).then((res) => {
-                    setSavingEdit(false);
+                    setSubmittingWalkIn(false);
                     if (!res.ok) {
                       setResult({
                         kind: "err",
@@ -566,20 +626,38 @@ export function CheckinPanel({
           busy={savingEdit}
           onCancel={() => setEditing(null)}
           onSave={(patch) => {
+            // Double-tap guard, like doCheckIn and doReprint. Without it a
+            // second tap before React commits `disabled` saves twice.
+            if (savingEdit) return;
             setSavingEdit(true);
             const orderCode = editing.orderCode;
-            void correctAttendeeAction(eventId, orderCode, patch).then((res) => {
-              setSavingEdit(false);
-              if (!res.ok) {
-                setResult({ kind: "err", name: patch.fullName, detail: res.reason ?? "Could not save." });
-                return;
-              }
-              setEditing(null);
-              // Reuses the normal result path, so the corrected badge prints
-              // under the same print-ownership and fallback rules as every
-              // other badge. Recorded as a reprint because that is what it is.
-              handleResult(res, "reprint");
-            });
+            void correctAttendeeAction(eventId, orderCode, patch)
+              .then((res) => {
+                if (!res.ok) {
+                  setSavingEdit(false);
+                  setResult({ kind: "err", name: patch.fullName, detail: res.reason ?? "Could not save." });
+                  return;
+                }
+                // The correction saves; the PRINT goes through the ordinary
+                // reprint path. That path already refuses a badge for a
+                // cancelled or unpaid order and records the print in
+                // badgePrintLog — neither of which a correction should be
+                // reimplementing on its own.
+                setEditing(null);
+                return reprintAction(eventId, orderCode).then((printed) => {
+                  setSavingEdit(false);
+                  if (!printed.ok) {
+                    setResult({
+                      kind: "warn",
+                      name: patch.fullName,
+                      label: "Saved",
+                      detail: `Details saved, but no badge printed — ${printed.reason ?? "not eligible"}`,
+                    });
+                    return;
+                  }
+                  handleResult(printed, "reprint");
+                });
+              });
           }}
         />
       )}
@@ -613,7 +691,7 @@ export function CheckinPanel({
                   <button
                     type="button"
                     onClick={() => openEdit(r.orderCode)}
-                    disabled={busy || savingEdit}
+                    disabled={busy || openingEdit}
                     className="min-h-11 rounded-md border border-border px-4 text-[13px] font-semibold hover:bg-accent disabled:opacity-50"
                   >
                     Fix
@@ -640,7 +718,14 @@ export function CheckinPanel({
             Use the browser print dialog below, then fix the printer when the queue allows.
           </p>
           <div className="mt-3">
-            <BadgePrintDialog badge={badge} auto />
+            {/* Deliberately NOT `auto`. Once qzUnreachable latches, every
+                subsequent attendee re-renders this block — and `auto` fired
+                window.print() on each mount, opening a modal OS print dialog
+                for every person in the queue, stealing focus from the scanner
+                and the search box. A jam turned into a stopped lane instead of
+                a degraded one. The operator presses this once, deliberately,
+                for the person in front of them. */}
+            <BadgePrintDialog badge={badge} />
           </div>
           <button
             type="button"

@@ -91,6 +91,10 @@ export function DoorWalkInForm({
   const showTitle = company.trim() !== "";
 
   function submit() {
+    // Guard the handler itself, not just the disabled attribute: a double-tap
+    // fires twice before React commits `disabled`, and this one creates a real
+    // pretix order.
+    if (busy) return;
     setErr(null);
     if (!firstName.trim() || !lastName.trim()) return setErr("First and last name are required.");
     if (itemId === "") return setErr("Choose a ticket type.");
@@ -122,12 +126,16 @@ export function DoorWalkInForm({
         <div className="flex flex-col gap-1.5">
           <Label htmlFor={fid.first}>First name</Label>
           <Input ref={firstRef} id={fid.first} className={field} value={firstName}
-            onChange={(e) => setFirstName(e.target.value)} />
+            onChange={(e) => setFirstName(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && submit()}
+          />
         </div>
         <div className="flex flex-col gap-1.5">
           <Label htmlFor={fid.last}>Last name</Label>
           <Input id={fid.last} className={field} value={lastName}
-            onChange={(e) => setLastName(e.target.value)} />
+            onChange={(e) => setLastName(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && submit()}
+          />
         </div>
 
         <div className="flex flex-col gap-1.5">
@@ -138,7 +146,9 @@ export function DoorWalkInForm({
               // Clearing the company clears the title held behind it, so a
               // selection cannot reappear against a different employer.
               if (!e.target.value.trim()) { setTitle(""); setOther(""); }
-            }} />
+            }}
+            onKeyDown={(e) => e.key === "Enter" && submit()}
+          />
         </div>
 
         {showTitle && (
@@ -160,7 +170,9 @@ export function DoorWalkInForm({
           <div className="flex flex-col gap-1.5">
             <Label htmlFor={fid.other}>Their job title</Label>
             <Input id={fid.other} className={field} maxLength={JOB_TITLE_MAX} value={other}
-              onChange={(e) => setOther(e.target.value)} />
+              onChange={(e) => setOther(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && submit()}
+          />
           </div>
         )}
 
@@ -188,21 +200,31 @@ export function DoorWalkInForm({
         <div className="flex flex-col gap-1.5">
           <Label htmlFor={fid.email}>Email (optional)</Label>
           <Input id={fid.email} type="email" className={field} value={email}
-            onChange={(e) => setEmail(e.target.value)} />
+            onChange={(e) => setEmail(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && submit()}
+          />
         </div>
 
         <div className="flex flex-col gap-1.5">
           <Label htmlFor={fid.phone}>Phone (optional)</Label>
           <div className="flex gap-2">
             <Input id={fid.cc} aria-label="Country code" className="h-12 w-24 text-[16px]"
-              value={cc} onChange={(e) => setCc(e.target.value)} />
+              value={cc} onChange={(e) => setCc(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && submit()}
+          />
             <Input id={fid.phone} className="h-12 flex-1 text-[16px]" value={phone}
-              onChange={(e) => setPhone(e.target.value)} />
+              onChange={(e) => setPhone(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && submit()}
+          />
           </div>
         </div>
       </div>
 
-      {err && <p className="mt-3 text-[14px] text-destructive">{err}</p>}
+      {err && (
+        <p role="alert" className="mt-3 text-[14px] text-destructive">
+          {err}
+        </p>
+      )}
 
       <div className="mt-4 flex flex-wrap gap-2">
         <Button className="min-h-12 px-5 text-[15px]" onClick={submit} disabled={busy}>

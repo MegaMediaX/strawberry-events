@@ -1,5 +1,5 @@
 
-import type { BadgeTagValue } from "@/lib/badges/tags";
+import { badgeBandText, type BadgeTagValue } from "@/lib/badges/tags";
 
 export type BadgeTag = BadgeTagValue;
 
@@ -61,7 +61,7 @@ export function BadgeTemplate({ badge }: { badge: BadgeData }) {
   return (
     <div className="badge-sheet">
       <div className="badge-tag" style={{ background: TAG_COLOR[badge.tag] }}>
-        {badge.tag.toUpperCase()}
+        {badgeBandText(badge.tag)}
       </div>
       <div className="badge-name">{badge.fullName}</div>
       {badge.company && <div className="badge-company">{badge.company}</div>}

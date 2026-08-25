@@ -73,14 +73,29 @@ export function AttendeeEditDialog({
   // Free text has to reopen as "Other" with the box filled, or saving without
   // touching the field would silently wipe it.
   const known = (JOB_TITLE_PRESETS as readonly string[]).includes(target.jobTitle ?? "");
+
+  // Titles predating the 15-character cap, or predating the "Other" sentinel
+  // convention, cannot pass the validation this form applies on save. Left
+  // alone they trap the operator: someone opens Fix to correct a MISSPELT NAME,
+  // never touches the title, presses Save, and is refused because of a field
+  // they did not edit and that looks completely normal on screen — maxLength
+  // does not truncate a pre-filled value, it only blocks further typing.
+  //
+  // So they are surfaced instead of hidden: the title is emptied and the
+  // operator is told why, once, in the form. Nothing is saved until they act.
+  const legacy = (target.jobTitle ?? "").trim();
+  const legacyUnusable =
+    legacy.length > JOB_TITLE_MAX || legacy === JOB_TITLE_OTHER;
   const [name, setName] = useState(target.fullName);
   const [email, setEmail] = useState(target.email ?? "");
   const [cc, setCc] = useState(target.phoneCC ?? "");
   const [phone, setPhone] = useState(target.phone ?? "");
   const [role, setRole] = useState<BadgeTagValue>(target.roleTag);
   const [company, setCompany] = useState(target.company ?? "");
-  const [title, setTitle] = useState(known ? (target.jobTitle as string) : target.jobTitle ? JOB_TITLE_OTHER : "");
-  const [other, setOther] = useState(known ? "" : (target.jobTitle ?? ""));
+  const [title, setTitle] = useState(
+    known ? (target.jobTitle as string) : legacy && !legacyUnusable ? JOB_TITLE_OTHER : "",
+  );
+  const [other, setOther] = useState(known || legacyUnusable ? "" : legacy);
   const [err, setErr] = useState<string | null>(null);
 
   const nameRef = useRef<HTMLInputElement>(null);
@@ -102,8 +117,12 @@ export function AttendeeEditDialog({
   }, [onCancel]);
 
   function submit() {
+    if (busy) return;
     setErr(null);
-    if (!name.trim()) return setErr("A name is required.");
+    if (!name.trim()) {
+      nameRef.current?.focus();
+      return setErr("A name is required.");
+    }
     const resolved = resolveJobTitleSelection(title, other);
     if (!resolved.ok) return setErr(resolved.error);
     onSave({
@@ -175,6 +194,7 @@ export function AttendeeEditDialog({
               aria-label="Country code"
               className="h-12 w-24 text-[16px]"
               value={cc}
+            placeholder="+961"
               onChange={(e) => setCc(e.target.value)}
             />
             <Input
@@ -235,7 +255,19 @@ export function AttendeeEditDialog({
         )}
       </div>
 
-      {err && <p className="mt-3 text-[14px] text-destructive">{err}</p>}
+      {legacyUnusable && (
+        <p className="mt-3 text-[14px] text-muted-foreground">
+          Their old job title (“{legacy}”) is too long to print, so it has been
+          cleared. Pick one above if you want a title on the badge.
+        </p>
+      )}
+
+      {/* role="alert" so a validation refusal is announced, not just shown. */}
+      {err && (
+        <p role="alert" className="mt-3 text-[14px] text-destructive">
+          {err}
+        </p>
+      )}
 
       <div className="mt-4 flex flex-wrap gap-2">
         <Button className="min-h-12 px-5 text-[15px]" onClick={submit} disabled={busy}>

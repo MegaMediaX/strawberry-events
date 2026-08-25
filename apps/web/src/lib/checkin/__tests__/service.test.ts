@@ -476,15 +476,24 @@ describe("updateAttendeeDetails — correcting someone at the door", () => {
     );
   });
 
-  it("corrects the name and hands back a badge ready to reprint", async () => {
+  it("saves the correction", async () => {
     const res = await updateAttendeeDetails(staff, "e1", "ABC12", {
       fullName: "Elias Daou", company: "Bank of Beirut SAL", jobTitle: "CEO",
     });
     expect(res.ok).toBe(true);
-    expect(res.badge?.fullName).toBe("Elias Daou");
-    expect(res.badge?.jobTitle).toBe("CEO");
     const arg = mock(prisma.attendeeOrder.update).mock.calls[0][0];
     expect(arg.data).toEqual({ attendeeName: "Elias Daou", company: "Bank of Beirut SAL", jobTitle: "CEO" });
+  });
+
+  it("hands back NO badge — the print goes through reprintBadge instead", async () => {
+    // reprintBadge refuses a badge for a cancelled, rejected or unpaid order
+    // and records the print in badgePrintLog. This returned a printable badge
+    // with neither check, so a directly-invoked correction could produce a
+    // badge for someone not entitled to one, uncounted. Returning nothing
+    // forces the caller through the path that already gets both right.
+    const res = await updateAttendeeDetails(staff, "e1", "ABC12", { fullName: "Elias Daou" });
+    expect(res.ok).toBe(true);
+    expect(res.badge).toBeUndefined();
   });
 
   it("writes an audit row carrying what changed, before and after", async () => {

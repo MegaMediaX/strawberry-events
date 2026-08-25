@@ -187,7 +187,13 @@ describe("the role band shrinks rather than truncating", () => {
   // "ORGANISING COMMITT" is worn for three days.
   it("leaves the existing roles at their current size, exactly", () => {
     // This is what keeps every badge printed so far byte-identical.
-    for (const tag of ["VISITOR", "MEDIA", "PARTNER", "SPEAKER", "STAFF", "EXHIBITOR"]) {
+    // Every role that fits, including the ones added last. Without ORGANISER
+    // and CO-FOUNDER here, tuning BAND_ADVANCE could shrink them and nothing
+    // would fail.
+    for (const tag of [
+      "VISITOR", "MEDIA", "PARTNER", "SPEAKER", "STAFF",
+      "EXHIBITOR", "ORGANISER", "CO-FOUNDER",
+    ]) {
       expect(bandFontSize(tag, 50)).toBe(50);
       expect(bandFontSize(tag, TAG_SIZE)).toBe(TAG_SIZE);
     }
