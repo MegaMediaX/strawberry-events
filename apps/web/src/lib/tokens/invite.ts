@@ -1,4 +1,6 @@
+
 import { createHmac, timingSafeEqual } from "node:crypto";
+import type { BadgeTagValue } from "@/lib/badges/tags";
 
 export interface InvitePayload {
   /** pretix event slug — must match the event the registrant is opening */
@@ -6,7 +8,7 @@ export interface InvitePayload {
   /** pretix item ids this invite unlocks */
   items: number[];
   /** role tag to assign the registrant (overrides itemTagMap) */
-  tag?: "media" | "partner" | "speaker" | "staff" | "visitor";
+  tag?: BadgeTagValue;
   /** email-bound restriction (Phase B; ignored in Phase A) */
   email?: string;
   /** unix epoch seconds; absent = never expires */

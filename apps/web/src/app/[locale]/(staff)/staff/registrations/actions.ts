@@ -2,10 +2,11 @@
 
 import { getSessionContext } from "@/lib/auth/session";
 import { createWalkIn } from "@/lib/staff/walkin";
+import type { BadgeTagValue } from "@/lib/badges/tags";
 
 export interface WalkInActionInput {
   itemId: number;
-  roleTag: "media" | "partner" | "staff" | "speaker" | "visitor";
+  roleTag: BadgeTagValue;
   locale?: "en" | "ar";
   attendee: {
     firstName: string;

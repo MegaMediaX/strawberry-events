@@ -8,6 +8,8 @@ import { resolvePretixContext } from "@/lib/pretix/context";
 import * as pretixCheckin from "@/lib/pretix/checkin";
 import { emit } from "@/lib/webhooks/service";
 import { generateBadgeSlug, resolveBadgeSlug } from "./badge-slug";
+import { JOB_TITLE_MAX, JOB_TITLE_OTHER } from "@/lib/registration/job-title";
+import { BADGE_TAGS, type BadgeTagValue } from "@/lib/badges/tags";
 import { checkinEligibility } from "./eligibility";
 
 export interface CheckInResult {
@@ -415,4 +417,129 @@ export async function liveCounters(
   if (!org) throw new Error("Organization not found");
   const ctx = resolvePretixContext(org);
   return pretixCheckin.checkinCounters(ctx.organizerSlug, mapping.pretixEventSlug, listId, ctx.token);
+}
+
+/**
+ * Everything a door operator may correct on someone standing in front of them:
+ * their name, how to reach them, who they are with, and which badge they get.
+ *
+ * An absent key means "leave it alone". An empty string means "clear it" —
+ * which is why company, jobTitle and phone are clearable and fullName is not:
+ * a badge with no name is worse than a badge with a misspelt one.
+ *
+ * NOT here, and not an oversight: order status, approval, tickets, seats,
+ * pretixSecret and badgeSlug. Those live in pretix or are the credentials the
+ * badge is built from — changing them locally would put this database and
+ * pretix into two different opinions about the same order, mid-event, with no
+ * way to tell which is right.
+ */
+export interface AttendeeCorrection {
+  fullName?: string;
+  email?: string;
+  phone?: string;
+  phoneCC?: string;
+  company?: string;
+  jobTitle?: string;
+  roleTag?: BadgeTagValue;
+}
+
+/**
+ * Correct an attendee's printed details at the door, and hand back a badge
+ * ready to reprint.
+ *
+ * Deliberately NOT a check-in: it redeems nothing in pretix, logs no badge
+ * print, and does not change eligibility. Staff use it when someone's name was
+ * mistyped at registration or they never gave a job title — then reprint.
+ */
+export async function updateAttendeeDetails(
+  session: SessionContext,
+  eventId: string,
+  orderCode: string,
+  patch: AttendeeCorrection,
+): Promise<CheckInResult> {
+  assertCanCheckin(session);
+  const mapping = await resolveEvent(session, eventId);
+
+  const order = await prisma.attendeeOrder.findFirst({
+    where: { eventMappingId: mapping.id, orderCode },
+  });
+  if (!order) throw new ForbiddenError("Registration not found");
+
+  // Built key by key rather than spread, so a field the caller was never
+  // allowed to send cannot reach Prisma by riding along on the object.
+  const data: {
+    attendeeName?: string;
+    email?: string;
+    phone?: string | null;
+    phoneCC?: string | null;
+    company?: string | null;
+    jobTitle?: string | null;
+    roleTag?: BadgeTagValue;
+  } = {};
+
+  if (patch.fullName !== undefined) {
+    const name = patch.fullName.trim();
+    if (!name) return { ok: false, reason: "A name is required." };
+    data.attendeeName = name;
+  }
+  if (patch.email !== undefined) {
+    const email = patch.email.trim();
+    // A blank email is allowed (walk-ins get a synthesised one), but a
+    // malformed one is not: it flows to the ticket mail and to pretix.
+    if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      return { ok: false, reason: "That email address is not valid." };
+    }
+    if (email) data.email = email;
+  }
+  if (patch.phone !== undefined) data.phone = patch.phone.trim() || null;
+  if (patch.phoneCC !== undefined) data.phoneCC = patch.phoneCC.trim() || null;
+  if (patch.roleTag !== undefined) {
+    if (!(BADGE_TAGS as readonly string[]).includes(patch.roleTag)) {
+      return { ok: false, reason: "That is not a badge role." };
+    }
+    data.roleTag = patch.roleTag;
+  }
+  if (patch.company !== undefined) {
+    data.company = patch.company.trim() || null;
+  }
+  if (patch.jobTitle !== undefined) {
+    const title = patch.jobTitle.trim();
+    if (title === JOB_TITLE_OTHER) {
+      return { ok: false, reason: "Enter the job title, not \"Other\"." };
+    }
+    if (title.length > JOB_TITLE_MAX) {
+      return { ok: false, reason: `Job title must be ${JOB_TITLE_MAX} characters or fewer.` };
+    }
+    data.jobTitle = title || null;
+  }
+
+  if (Object.keys(data).length === 0) return { ok: false, reason: "Nothing to change." };
+
+  const updated = await prisma.attendeeOrder.update({ where: { id: order.id }, data });
+
+  // before/after carry only the fields this action can touch, so the row reads
+  // as "what an operator corrected" rather than a dump of the attendee.
+  const pick = (o: AttendeeOrder) => ({
+    attendeeName: o.attendeeName,
+    email: o.email,
+    phone: o.phone,
+    phoneCC: o.phoneCC,
+    company: o.company,
+    jobTitle: o.jobTitle,
+    roleTag: o.roleTag,
+  });
+  await prisma.auditLog.create({
+    data: {
+      organizationId: mapping.organizationId,
+      eventMappingId: mapping.id,
+      actorUserId: session.userId,
+      action: "attendee.details_corrected",
+      entityType: "order",
+      entityId: order.id,
+      before: pick(order),
+      after: pick(updated),
+    },
+  });
+
+  return { ok: true, badge: badgeOf(updated) };
 }

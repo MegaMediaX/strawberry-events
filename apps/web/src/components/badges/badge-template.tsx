@@ -1,12 +1,17 @@
 
-export type BadgeTag = "media" | "partner" | "staff" | "speaker" | "visitor";
+import type { BadgeTagValue } from "@/lib/badges/tags";
 
+export type BadgeTag = BadgeTagValue;
+
+// Screen only: the thermal badge is monochrome and prints the band solid black.
 const TAG_COLOR: Record<BadgeTag, string> = {
   media: "#7c3aed",
   partner: "#0891b2",
   staff: "#16a34a",
   speaker: "#e8375a",
   visitor: "#475569",
+  exhibitor: "#ea580c",
+  organising_committee: "#4338ca",
 };
 
 export interface BadgeData {

@@ -6,6 +6,8 @@ import {
   checkInOrder,
   checkInBySecret,
   reprintBadge,
+  updateAttendeeDetails,
+  type AttendeeCorrection,
   type CheckInResult,
 } from "@/lib/checkin/service";
 
@@ -83,6 +85,26 @@ export async function reprintAction(
     const session = await getSessionContext();
     if (!session) return { ok: false, reason: "Not authenticated" };
     return await reprintBadge(session, eventId, orderCode);
+  } catch (err) {
+    return { ok: false, reason: (err as Error).message };
+  }
+}
+
+/**
+ * Correct an attendee's printed details at the door.
+ *
+ * Not a check-in: nothing is redeemed and no badge print is logged. It returns
+ * the corrected badge so the panel can offer an immediate reprint.
+ */
+export async function correctAttendeeAction(
+  eventId: string,
+  orderCode: string,
+  patch: AttendeeCorrection,
+): Promise<CheckInResult> {
+  try {
+    const session = await getSessionContext();
+    if (!session) return { ok: false, reason: "Not authenticated" };
+    return await updateAttendeeDetails(session, eventId, orderCode, patch);
   } catch (err) {
     return { ok: false, reason: (err as Error).message };
   }

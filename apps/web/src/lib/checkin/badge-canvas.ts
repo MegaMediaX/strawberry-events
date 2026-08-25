@@ -3,10 +3,11 @@
 import type { BadgeData } from "@/components/badges/badge-template";
 import { sanitizeZplText } from "./badge-zpl";
 import { packBitmap } from "./badge-tspl";
+import { badgeBandText } from "@/lib/badges/tags";
 import {
   LABEL_W, LABEL_H, BAND_Y, BAND_H,
   TEXT_LEFT, TEXT_WIDTH, NAME_Y, NAME_SIZE, NAME_LINE_H, NAME_MAX_LINES,
-  COMPANY_Y, COMPANY_SIZE, JOB_TITLE_Y, JOB_TITLE_SIZE, TAG_SIZE,
+  COMPANY_Y, COMPANY_SIZE, JOB_TITLE_Y, JOB_TITLE_SIZE, TAG_SIZE, bandFontSize,
   fitName, centreX,
 } from "./badge-layout";
 
@@ -38,12 +39,16 @@ export function renderBadgeBitmap(badge: BadgeData): Uint8Array {
 
   // Role band: solid black, with the tag reversed out and centred. TSPL cannot
   // centre text itself, which is why this is drawn rather than commanded.
-  const tag = sanitizeZplText(badge.tag).toUpperCase();
+  const tag = sanitizeZplText(badgeBandText(badge.tag));
+  // Same shrink rule as ZPL, deliberately by character count rather than by
+  // measuring here — measuring would give a better fit and a DIFFERENT size
+  // from the other printer for the same badge.
+  const tagSize = bandFontSize(tag, TAG_SIZE);
   ctx.fillStyle = "#000";
   ctx.fillRect(0, BAND_Y, LABEL_W, BAND_H);
-  ctx.font = `bold ${TAG_SIZE}px ${FONT_STACK}`;
+  ctx.font = `bold ${tagSize}px ${FONT_STACK}`;
   ctx.fillStyle = "#fff";
-  ctx.fillText(tag, centreX(ctx.measureText(tag).width), BAND_Y + (BAND_H - TAG_SIZE) / 2);
+  ctx.fillText(tag, centreX(ctx.measureText(tag).width), BAND_Y + (BAND_H - tagSize) / 2);
 
   // Name, kept inside the column that stops short of the QR's quiet zone.
   //

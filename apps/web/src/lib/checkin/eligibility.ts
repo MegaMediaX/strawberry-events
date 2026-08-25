@@ -1,5 +1,6 @@
 import type { AttendeeApprovalStatus, AttendeeOrderStatus, AttendeeTag } from "@prisma/client";
 import { registrationState } from "@/lib/approval/state";
+import { BADGE_TAGS, type BadgeTagValue } from "@/lib/badges/tags";
 
 export interface Eligibility {
   ok: boolean;
@@ -25,7 +26,7 @@ export function checkinEligibility(order: {
   }
 }
 
-const TAGS: AttendeeTag[] = ["media", "partner", "staff", "speaker", "visitor"];
+const TAGS: readonly AttendeeTag[] = BADGE_TAGS;
 
 /** Resolve a pretix item id to its configured role tag (default visitor). */
 export function tagForItem(

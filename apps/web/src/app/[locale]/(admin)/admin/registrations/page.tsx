@@ -5,6 +5,7 @@ import { prisma } from "@/lib/db/client";
 import { eventScope } from "@/lib/admin/scope";
 import { subEventScope } from "@/lib/auth/org-scope";
 import { listRegistrationsPage, type RegistrationFilters } from "@/lib/admin/registrations";
+import { BADGE_TAGS, type BadgeTagValue } from "@/lib/badges/tags";
 
 export const dynamic = "force-dynamic";
 
@@ -15,7 +16,7 @@ const STATE_LABEL: Record<string, string> = {
   rejected: "Rejected",
   canceled: "Canceled",
 };
-const ROLE_TAGS = ["", "visitor", "media", "partner", "speaker", "staff"];
+const ROLE_TAGS = ["", ...BADGE_TAGS];
 
 type SP = Record<string, string | undefined>;
 

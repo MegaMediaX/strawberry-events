@@ -14,6 +14,7 @@ import { QrScanner } from "./qr-scanner";
 import { PrinterSettings } from "./printer-settings";
 import { PrinterStatus } from "./printer-status";
 import { ResultBanner, type DoorResult } from "./result-banner";
+import { AttendeeEditDialog, type EditTarget } from "./attendee-edit";
 import {
   searchAction,
   checkInAction,
@@ -40,6 +41,11 @@ type RecentEntry = {
   name: string;
   kind: "in" | "reprint";
   at: string;
+  // Carried so "Fix" can open pre-filled without another round trip. A door
+  // operator noticing a misspelt name is reading the label they just handed
+  // over — the person is still standing there.
+  company: string | null;
+  jobTitle: string | null;
 };
 
 function toBadge(b: NonNullable<CheckInResult["badge"]>): BadgeData {
@@ -71,6 +77,8 @@ export function CheckinPanel({
     { orderCode: string; fullName: string } | null
   >(null);
   const [showSettings, setShowSettings] = useState(false);
+  const [editing, setEditing] = useState<EditTarget | null>(null);
+  const [savingEdit, setSavingEdit] = useState(false);
 
   const searchRef = useRef<HTMLInputElement>(null);
   // Once QZ Tray has proved unreachable, stop dialling it. qz-tray probes
@@ -116,13 +124,20 @@ export function CheckinPanel({
     }
   }, []);
 
-  const remember = useCallback((orderCode: string, name: string, kind: RecentEntry["kind"]) => {
+  const remember = useCallback((
+    orderCode: string,
+    name: string,
+    kind: RecentEntry["kind"],
+    details: { company: string | null; jobTitle: string | null },
+  ) => {
     recentId.current += 1;
     const entry: RecentEntry = {
       id: recentId.current,
       orderCode,
       name,
       kind,
+      company: details.company,
+      jobTitle: details.jobTitle,
       at: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
     };
     setRecent((prev) => [entry, ...prev].slice(0, RECENT_LIMIT));
@@ -138,7 +153,10 @@ export function CheckinPanel({
         setBrowserFallback(false);
         setConfirmReprint(null);
         setResult({ kind: "working" });
-        remember(res.badge.orderCode, who, kind);
+        remember(res.badge.orderCode, who, kind, {
+          company: res.badge.company,
+          jobTitle: res.badge.jobTitle,
+        });
         // Clear the search so the next person starts from an empty field rather
         // than the previous attendee's results.
         setQ("");

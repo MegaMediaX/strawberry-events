@@ -14,6 +14,11 @@ import {
   NAME_SIZE,
   NAME_MIN_SIZE,
   JOB_TITLE_Y,
+  TAG_SIZE,
+  bandFontSize,
+  BAND_ADVANCE,
+  BAND_MIN_SIZE,
+  BAND_TEXT_WIDTH,
   JOB_TITLE_SIZE,
   COMPANY_Y,
   COMPANY_SIZE,
@@ -172,5 +177,42 @@ describe("the two printer languages agree on the job title line", () => {
     // short of the symbol. Assert it explicitly rather than trusting the
     // constant arithmetic to stay true if someone edits one of them.
     expect(TEXT_LEFT + TEXT_WIDTH).toBeLessThanOrEqual(QR_X - QR_QUIET);
+  });
+});
+
+describe("the role band shrinks rather than truncating", () => {
+  // "ORGANISING COMMITTEE" is 20 characters. At the band's normal size it is
+  // far wider than the 448-dot band, and both renderers would simply cut it
+  // off — ZPL at its ^FB width, canvas at its clip. A band reading
+  // "ORGANISING COMMITT" is worn for three days.
+  it("leaves the existing roles at their current size, exactly", () => {
+    // This is what keeps every badge printed so far byte-identical.
+    for (const tag of ["VISITOR", "MEDIA", "PARTNER", "SPEAKER", "STAFF", "EXHIBITOR"]) {
+      expect(bandFontSize(tag, 50)).toBe(50);
+      expect(bandFontSize(tag, TAG_SIZE)).toBe(TAG_SIZE);
+    }
+  });
+
+  it("shrinks the long one enough to fit the band", () => {
+    const size = bandFontSize("ORGANISING COMMITTEE", 50);
+    expect(size).toBeLessThan(50);
+    expect(size * "ORGANISING COMMITTEE".length * BAND_ADVANCE).toBeLessThanOrEqual(BAND_TEXT_WIDTH);
+  });
+
+  it("never shrinks below the floor, however long the text", () => {
+    expect(bandFontSize("X".repeat(200), 50)).toBe(BAND_MIN_SIZE);
+  });
+
+  it("both printer languages shrink identically", () => {
+    // ZPL cannot measure text, so the size comes from a character-count rule
+    // rather than font metrics. Both renderers use the SAME rule so the two
+    // printers cannot disagree about how big the band text is — which is the
+    // whole reason this module exists.
+    const zpl = bandFontSize("ORGANISING COMMITTEE", 50);
+    const canvas = bandFontSize("ORGANISING COMMITTEE", TAG_SIZE);
+    expect(zpl).toBe(Math.min(50, zpl));
+    expect(canvas).toBeLessThanOrEqual(TAG_SIZE);
+    // same rule, so the smaller cap simply caps
+    expect(canvas).toBe(Math.min(TAG_SIZE, zpl));
   });
 });

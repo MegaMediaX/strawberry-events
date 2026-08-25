@@ -7,6 +7,7 @@ import { getActiveOrg } from "@/lib/auth/active-org.server";
 import * as service from "@/lib/events/service";
 import { eventInputSchema, ticketInputSchema, subEventInputSchema } from "@/lib/events/schema";
 import { PretixValidationError } from "@/lib/pretix/errors";
+import type { BadgeTagValue } from "@/lib/badges/tags";
 
 export interface ActionResult {
   ok?: boolean;
@@ -211,7 +212,7 @@ export async function generateInviteLinkAction(
   locale: string,
   eventId: string,
   itemId: number,
-  tag: "media" | "partner" | "speaker" | "staff" | "visitor" | undefined,
+  tag: BadgeTagValue | undefined,
   expiresInSeconds: number | undefined,
 ): Promise<ActionResult & { url?: string }> {
   const session = await getSessionContext();
