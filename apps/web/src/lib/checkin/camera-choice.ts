@@ -30,7 +30,13 @@ const EXTERNAL_HINTS = [
   // "Dell Webcam Central" — a built-in. The explicit model numbers and the
   // vendor name cover the real cases without the collision.
   "logitech", "brio", "streamcam", "c920", "c922", "c925", "c930", "c270",
-  "usb camera", "usb video", "hd pro",
+  "hd pro",
+  // "usb" anywhere wins outright, and is checked BEFORE the built-in list. A
+  // laptop does not describe its own lid camera as USB, but a Dell or Lenovo
+  // branded external one says so plainly — "ThinkPad USB Webcam",
+  // "Dell Webcam WB7022". Without this, the vendor hints below would call
+  // those built-in and pick the wrong camera.
+  "usb",
 ];
 
 /**
@@ -45,7 +51,11 @@ const EXTERNAL_HINTS = [
 const BUILT_IN_HINTS = [
   "integrated", "built-in", "builtin", "facetime", "internal",
   "macbook", "imac", "surface camera", "hp truevision", "hp wide vision",
-  "dell webcam", "lenovo easycamera", "thinkpad",
+  // Narrow on purpose. "dell webcam" alone matched "Dell Webcam WB7022", a
+  // real external one, and "thinkpad" matched "ThinkPad USB Webcam". A
+  // ThinkPad's own camera reports as "Integrated Camera", already covered
+  // above, so the vendor name buys nothing and costs a misclassification.
+  "dell webcam central", "lenovo easycamera",
 ];
 
 function score(label: string): number {

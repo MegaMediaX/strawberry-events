@@ -53,6 +53,42 @@ describe("pickCamera", () => {
     expect(pickCamera(null, [builtIn, usb])?.id).toBe("u-1");
   });
 
+  it.each([
+    "Logitech HD Pro Webcam C920",
+    "HD Pro Webcam C920 (046d:0892)",
+    "Logitech BRIO",
+    "Logitech StreamCam",
+    "C922 Pro Stream Webcam",
+    "USB Video Device",
+  ])("picks %s over the laptop's own camera", (label) => {
+    // The lanes run Logitechs. If any of these ever stops scoring as external,
+    // that lane silently scans with the camera pointed at the operator.
+    const builtIn: CameraOption = { id: "b-1", label: "Integrated Camera" };
+    const external: CameraOption = { id: "e-1", label };
+    expect(pickCamera(null, [builtIn, external])?.id).toBe("e-1");
+  });
+
+  it.each(["Dell Webcam WB7022", "ThinkPad USB Webcam", "Lenovo 500 FHD Webcam"])(
+    "does not mistake the vendor-branded external %s for a built-in",
+    (label) => {
+      // The hints once read "dell webcam" and "thinkpad", which matched these
+      // real USB webcams and scored them as the machine's own — picking the lid
+      // camera instead. "usb" now wins outright, and the vendor hints are
+      // narrowed to the names built-ins actually use.
+      const builtIn: CameraOption = { id: "b-1", label: "Integrated Camera" };
+      const external: CameraOption = { id: "e-1", label };
+      expect(pickCamera(null, [builtIn, external])?.id).toBe("e-1");
+    },
+  );
+
+  it("still knows Dell's own built-in software name", () => {
+    // "Dell Webcam Central" is a built-in; "Dell Webcam WB7022" is not. The
+    // hint has to be specific enough to tell them apart.
+    const dellBuiltIn: CameraOption = { id: "b-1", label: "Dell Webcam Central" };
+    const unknown: CameraOption = { id: "u-1", label: "Some Device" };
+    expect(pickCamera(null, [dellBuiltIn, unknown])?.id).toBe("u-1");
+  });
+
   it("returns null when there is no camera at all", () => {
     expect(pickCamera(null, [])).toBeNull();
     expect(pickCamera("lid-1", [])).toBeNull();
