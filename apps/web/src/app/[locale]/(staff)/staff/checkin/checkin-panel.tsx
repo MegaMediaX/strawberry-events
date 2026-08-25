@@ -757,6 +757,16 @@ export function CheckinPanel({
               />
             )}
 
+            {/* Hidden while the walk-in form is open, not merely frozen.
+                Freezing the search stops NEW results arriving; it does not
+                remove the ones already there. With the persistent button, the
+                form can now be opened with a list on screen — so a filled
+                walk-in form would sit directly above the very person it is
+                about to duplicate, each row still carrying a live
+                "Check in & print".
+                Nothing is lost: `rows` stays in state, so cancelling the form
+                brings the same results straight back. */}
+            {!walkIn && (
             <ul className="flex flex-col gap-2">
               {rows.map((r) => (
                 <li
@@ -784,6 +794,7 @@ export function CheckinPanel({
                 </li>
               ))}
             </ul>
+            )}
 
             {/* Always here, so registering someone never requires searching for
                 them and failing first. Deliberately quiet, and deliberately
