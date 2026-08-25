@@ -574,6 +574,33 @@ describe("updateAttendeeDetails — correcting someone at the door", () => {
     expect(prisma.attendeeOrder.update).not.toHaveBeenCalled();
   });
 
+  it("bounds the free text a door can enter", async () => {
+    // Nothing here can be injected — sanitizeZplText strips ZPL control
+    // prefixes and non-Latin-1 before printing — but the columns are unbounded
+    // TEXT, so a pasted blob would land in the database, the CSV and the
+    // printed roster. Flagged by the security review as cheap hardening.
+    for (const patch of [
+      { fullName: "x".repeat(121) },
+      { company: "x".repeat(121) },
+      { email: `${"x".repeat(115)}@b.com` },
+      { phone: "1".repeat(33) },
+      { phoneCC: "+".repeat(9) },
+    ]) {
+      mock(prisma.attendeeOrder.update).mockClear();
+      const res = await updateAttendeeDetails(staff, "e1", "ABC12", patch);
+      expect(res.ok).toBe(false);
+      expect(prisma.attendeeOrder.update).not.toHaveBeenCalled();
+    }
+  });
+
+  it("still accepts a long real name", async () => {
+    // The cap must not reject anyone genuine. This is 44 characters.
+    const res = await updateAttendeeDetails(staff, "e1", "ABC12", {
+      fullName: "Mouhamad Abdel Rahman Al-Hassan Kouyoumdjian",
+    });
+    expect(res.ok).toBe(true);
+  });
+
   it("is refused to roles that cannot check in", async () => {
     await expect(
       updateAttendeeDetails(finance, "e1", "ABC12", { fullName: "X" }),

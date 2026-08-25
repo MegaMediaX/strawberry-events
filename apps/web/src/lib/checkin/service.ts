@@ -433,6 +433,9 @@ export async function liveCounters(
  * pretix into two different opinions about the same order, mid-event, with no
  * way to tell which is right.
  */
+/** Ceiling for door-entered free text. Generous for a real name, far under a paste. */
+const FREE_TEXT_MAX = 120;
+
 export interface AttendeeCorrection {
   fullName?: string;
   email?: string;
@@ -477,22 +480,38 @@ export async function updateAttendeeDetails(
     roleTag?: BadgeTagValue;
   } = {};
 
+  // Free text from a door has no natural ceiling, and these columns are
+  // unbounded TEXT. Nothing downstream can be injected — sanitizeZplText
+  // strips ZPL control prefixes and non-Latin-1 before anything prints — but a
+  // pasted blob would still land in the database, the CSV and the roster.
+  const tooLong = (v: string, max: number) => v.length > max;
+
   if (patch.fullName !== undefined) {
     const name = patch.fullName.trim();
     if (!name) return { ok: false, reason: "A name is required." };
+    if (tooLong(name, FREE_TEXT_MAX)) return { ok: false, reason: "That name is too long." };
     data.attendeeName = name;
   }
   if (patch.email !== undefined) {
     const email = patch.email.trim();
     // A blank email is allowed (walk-ins get a synthesised one), but a
     // malformed one is not: it flows to the ticket mail and to pretix.
+    if (tooLong(email, FREE_TEXT_MAX)) return { ok: false, reason: "That email address is too long." };
     if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
       return { ok: false, reason: "That email address is not valid." };
     }
     if (email) data.email = email;
   }
-  if (patch.phone !== undefined) data.phone = patch.phone.trim() || null;
-  if (patch.phoneCC !== undefined) data.phoneCC = patch.phoneCC.trim() || null;
+  if (patch.phone !== undefined) {
+    const phone = patch.phone.trim();
+    if (tooLong(phone, 32)) return { ok: false, reason: "That phone number is too long." };
+    data.phone = phone || null;
+  }
+  if (patch.phoneCC !== undefined) {
+    const cc = patch.phoneCC.trim();
+    if (tooLong(cc, 8)) return { ok: false, reason: "That country code is too long." };
+    data.phoneCC = cc || null;
+  }
   if (patch.roleTag !== undefined) {
     if (!(BADGE_TAGS as readonly string[]).includes(patch.roleTag)) {
       return { ok: false, reason: "That is not a badge role." };
@@ -500,7 +519,9 @@ export async function updateAttendeeDetails(
     data.roleTag = patch.roleTag;
   }
   if (patch.company !== undefined) {
-    data.company = patch.company.trim() || null;
+    const company = patch.company.trim();
+    if (tooLong(company, FREE_TEXT_MAX)) return { ok: false, reason: "That company name is too long." };
+    data.company = company || null;
   }
   if (patch.jobTitle !== undefined) {
     const title = patch.jobTitle.trim();
