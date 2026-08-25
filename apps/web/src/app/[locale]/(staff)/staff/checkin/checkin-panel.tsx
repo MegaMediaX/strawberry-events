@@ -335,14 +335,6 @@ export function CheckinPanel({
     const query = q.trim();
     let cancelled = false;
 
-    // A scanned payload is a code, not a name. Searching for it is a wasted
-    // round trip in front of a queue, and it is how a badge slug used to match
-    // strangers by phone.
-    if (looksScannable(query)) {
-      setRows([]);
-      setSearching(false);
-      return;
-    }
 
     // Frozen while the walk-in form is open. The form holds its own state, so a
     // late result arriving behind it and unmounting it would discard whatever
@@ -353,7 +345,14 @@ export function CheckinPanel({
     // Every setState is inside the timeout, never synchronous in the effect
     // body — a synchronous one cascades renders on every keystroke.
     const id = setTimeout(async () => {
-      if (!query) {
+      // Same treatment as an empty box, and for the same reason as every other
+      // setState here — inside the timeout, never synchronous in the effect
+      // body, which cascades renders on each keystroke.
+      //
+      // A scanned payload is a code, not a name. Searching for it is a wasted
+      // round trip in front of a queue, and it is how a badge slug used to
+      // match strangers by phone.
+      if (!query || looksScannable(query)) {
         setRows([]);
         setSearching(false);
         return;
