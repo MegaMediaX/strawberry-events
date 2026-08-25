@@ -44,8 +44,8 @@ export function QrScanner({ onScan }: { onScan: (text: string) => void }) {
     // so it cannot seed useState (that initializer also runs on the server).
     // External-store read, not derived state; useSyncExternalStore is the
     // idiomatic fix and is deferred, matching printer-settings.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     try {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setCameraId(window.localStorage.getItem(CAMERA_KEY));
     } catch {
       // Private mode or a locked-down profile: fall back to auto-selection.
