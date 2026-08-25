@@ -497,6 +497,18 @@ export function CheckinPanel({
   const busy = pending;
 
   /**
+   * The "no one matches — register THEM" prompt, which names the person the
+   * operator just searched for.
+   *
+   * Named once because the persistent button below defers to it. Both were
+   * eligible in the empty state, stacking two identical calls to action in the
+   * one moment they both applied — and the persistent one is meant to be the
+   * quiet fallback, not a second shout.
+   */
+  const showContextualWalkIn =
+    !walkIn && Boolean(q.trim()) && !searching && rows.length === 0;
+
+  /**
    * Enter in the search box, which is also where a wedge scanner's payload
    * lands. Four outcomes, and one of them is deliberately "do nothing".
    */
@@ -697,7 +709,7 @@ export function CheckinPanel({
             {q.trim() && searching && (
               <p className="text-[14px] text-muted-foreground">Searching…</p>
             )}
-            {q.trim() && !searching && rows.length === 0 && !walkIn && (
+            {showContextualWalkIn && (
               <div className="rounded-lg border border-border p-3">
                 <p className="text-[14px] text-muted-foreground">
                   No one matches “{q.trim()}”. Check the spelling, or try their order code.
@@ -757,6 +769,16 @@ export function CheckinPanel({
               />
             )}
 
+            {/* Hidden while the walk-in form is open, not merely frozen.
+                Freezing the search stops NEW results arriving; it does not
+                remove the ones already there. With the persistent button, the
+                form can now be opened with a list on screen — so a filled
+                walk-in form would sit directly above the very person it is
+                about to duplicate, each row still carrying a live
+                "Check in & print".
+                Nothing is lost: `rows` stays in state, so cancelling the form
+                brings the same results straight back. */}
+            {!walkIn && (
             <ul className="flex flex-col gap-2">
               {rows.map((r) => (
                 <li
@@ -784,6 +806,28 @@ export function CheckinPanel({
                 </li>
               ))}
             </ul>
+            )}
+
+            {/* Always here, so registering someone never requires searching for
+                them and failing first. Deliberately quiet, and deliberately
+                BELOW the results: the most common reason a name does not appear
+                is a spelling or transliteration miss, not an unregistered
+                person, and a loud button above the list is how a Mohamad who is
+                already in the system gets registered a second time. Whatever is
+                typed carries over, so nothing is retyped either way. */}
+            {!walkIn && !showContextualWalkIn && (
+              <button
+                type="button"
+                onClick={() => {
+                  captureReturnFocus();
+                  setWalkIn(true);
+                }}
+                disabled={busy}
+                className="mt-3 min-h-12 w-full rounded-lg border border-dashed border-border px-5 text-[15px] font-semibold text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-50"
+              >
+                + Register a walk-in
+              </button>
+            )}
           </div>
         </section>
       </div>
