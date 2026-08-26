@@ -89,6 +89,7 @@ enum AttendeeTag {
   organising_committee
   organiser
   cofounder
+  moderator
 }
 
 enum SeatState {
