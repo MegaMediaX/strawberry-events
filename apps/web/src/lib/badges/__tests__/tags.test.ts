@@ -8,7 +8,7 @@ describe("the badge role list", () => {
   // window while the two lists were briefly out of step mid-edit.
   it("carries every role the product offers", () => {
     expect([...BADGE_TAGS]).toEqual([
-      "visitor", "media", "partner", "speaker", "staff",
+      "visitor", "media", "partner", "speaker", "moderator", "staff",
       "exhibitor", "organising_committee", "organiser", "cofounder",
     ]);
   });

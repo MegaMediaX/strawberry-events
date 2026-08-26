@@ -14,6 +14,10 @@ const TAG_COLOR: Record<BadgeTag, string> = {
   organising_committee: "#4338ca",
   organiser: "#0d9488",
   cofounder: "#9333ea",
+  // Deliberately NOT a near-neighbour of speaker's rose: the two roles sit
+  // side by side on a panel, and the band is what tells them apart across a
+  // room.
+  moderator: "#a16207",
 };
 
 export interface BadgeData {
