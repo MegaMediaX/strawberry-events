@@ -200,10 +200,15 @@ export function DoorWalkInForm({
           </select>
         </div>
 
-        {/* Revealed by the selection, exactly like the job title's Other box.
-            Kept in its own state so switching away and back does not silently
-            re-attach the old text — resolveRoleLabel drops it server-side, and
-            this clears it on screen. */}
+        {/* Revealed by the selection, like the job title's Other box. The text
+            SURVIVES switching away and back, and that is fine here in a way it
+            was not for the job title: this box appears because the operator
+            picked Other, so seeing their own text again is expected. The job
+            title's box appears when an unrelated field (company) becomes
+            non-empty, which is why that one needs jobTitleForCompanyChange to
+            clear it. Either way nothing leaks: resolveRoleLabel returns null
+            for every role that is not Other, so a value left in this box is
+            never stored. */}
         {role === ROLE_OTHER && (
           <div className="flex flex-col gap-1.5">
             <Label htmlFor={fid.roleOther}>Role to print on the badge</Label>

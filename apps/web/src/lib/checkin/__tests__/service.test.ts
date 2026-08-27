@@ -520,18 +520,36 @@ describe("updateAttendeeDetails — correcting someone at the door", () => {
     }).then(() => {
       const arg = mock(prisma.attendeeOrder.update).mock.calls[0][0];
       expect(Object.keys(arg.data).sort()).toEqual(
-        ["attendeeName", "company", "email", "jobTitle", "roleTag"],
+        // roleLabel belongs here for the same reason as jobTitle: it is
+        // printed on the badge and an operator corrects it. The point of this
+        // assertion is the fields that are ABSENT.
+        ["attendeeName", "company", "email", "jobTitle", "roleLabel", "roleTag"],
       );
     });
   });
 
   it("changes the badge role, including the new ones", async () => {
-    for (const roleTag of ["exhibitor", "organising_committee"] as const) {
+    for (const roleTag of ["exhibitor", "organising_committee", "strawberry"] as const) {
       mock(prisma.attendeeOrder.update).mockClear();
       const res = await updateAttendeeDetails(staff, "e1", "ABC12", { roleTag });
       expect(res.ok).toBe(true);
-      expect(mock(prisma.attendeeOrder.update).mock.calls[0][0].data).toEqual({ roleTag });
+      // roleLabel: null is not incidental. Setting a FIXED role clears the
+      // Other text, so a label left on the row cannot outlive the role that
+      // justified it and reappear on the next badge.
+      expect(mock(prisma.attendeeOrder.update).mock.calls[0][0].data).toEqual({ roleTag, roleLabel: null });
     }
+  });
+
+  it("refuses Other with nothing typed, and prints what was typed otherwise", async () => {
+    const blank = await updateAttendeeDetails(staff, "e1", "ABC12", { roleTag: "other", roleLabel: "  " });
+    expect(blank.ok).toBe(false);
+
+    mock(prisma.attendeeOrder.update).mockClear();
+    const ok = await updateAttendeeDetails(staff, "e1", "ABC12", { roleTag: "other", roleLabel: " Accelerator " });
+    expect(ok.ok).toBe(true);
+    expect(mock(prisma.attendeeOrder.update).mock.calls[0][0].data).toEqual({
+      roleTag: "other", roleLabel: "Accelerator",
+    });
   });
 
   it("refuses a role that is not a badge role", async () => {
