@@ -94,6 +94,7 @@ enum AttendeeTag {
   startup
   government
   strawberry
+  other
 }
 
 enum SeatState {
@@ -813,6 +814,11 @@ model AttendeeOrder {
   approvalStatus AttendeeApprovalStatus @default(not_required)
   provider       AttendeeOrderProvider  @default(manual_cod)
   roleTag        AttendeeTag            @default(visitor)
+  /// What the role band prints when roleTag is `other`, and nothing otherwise.
+  /// Stored resolved, exactly like jobTitle: never the sentinel, never a
+  /// preset's name. NULL for all thirteen fixed roles — a value here without
+  /// roleTag = other is a bug, not a variant.
+  roleLabel      String?
   totalCents     Int                    @default(0)
   pretixSecret   String? // pretix position secret (QR payload, used for check-in redeem)
   magicLinkToken String                 @unique

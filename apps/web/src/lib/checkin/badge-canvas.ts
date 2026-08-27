@@ -39,7 +39,11 @@ export function renderBadgeBitmap(badge: BadgeData): Uint8Array {
 
   // Role band: solid black, with the tag reversed out and centred. TSPL cannot
   // centre text itself, which is why this is drawn rather than commanded.
-  const tag = sanitizeZplText(badgeBandText(badge.tag));
+  // The fallback matters for `other` alone: a role typed in Arabic sanitises
+  // to "" on this Latin-only hardware, and an empty string would print a blank
+  // black bar. badgeBandText(tag) without the label yields OTHER, which is at
+  // least true.
+  const tag = sanitizeZplText(badgeBandText(badge.tag, badge.roleLabel)) || badgeBandText(badge.tag);
   // Same shrink rule as ZPL, deliberately by character count rather than by
   // measuring here — measuring would give a better fit and a DIFFERENT size
   // from the other printer for the same badge.

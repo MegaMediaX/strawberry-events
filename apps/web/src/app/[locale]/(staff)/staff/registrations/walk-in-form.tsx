@@ -13,7 +13,10 @@ import {
   resolveVisibleJobTitle,
   jobTitleForCompanyChange,
 } from "@/lib/registration/job-title";
-import { BADGE_TAGS, BADGE_TAG_LABEL, type BadgeTagValue } from "@/lib/badges/tags";
+import {
+  BADGE_TAGS, BADGE_TAG_LABEL, ROLE_OTHER, ROLE_LABEL_MAX, resolveRoleLabel,
+  type BadgeTagValue,
+} from "@/lib/badges/tags";
 
 interface WalkInTicket {
   id: number;
@@ -41,6 +44,7 @@ export function WalkInForm({
 }) {
   const [itemId, setItemId] = useState<number | "">(tickets[0]?.id ?? "");
   const [roleTag, setRoleTag] = useState<BadgeTagValue>("visitor");
+  const [roleOther, setRoleOther] = useState("");
   const [a, setA] = useState(EMPTY_ATTENDEE);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<WalkInActionResult | null>(null);
@@ -74,10 +78,15 @@ export function WalkInForm({
     // error about a control that is no longer rendered.
     const title = resolveVisibleJobTitle(showJobTitle, a.jobTitle, a.jobTitleOther);
     if (!title.ok) return setErr(title.error);
+    // Same reason as the title above: caught at the desk, not swallowed into a
+    // badge that reads OTHER.
+    const role = resolveRoleLabel(roleTag, roleOther);
+    if (!role.ok) return setErr(role.error);
     setBusy(true);
     const res = await walkInAction(eventId, {
       itemId: Number(itemId),
       roleTag,
+      roleLabel: role.value,
       locale: locale === "ar" ? "ar" : "en",
       // Listed field by field rather than spread: `a` also carries the raw
       // dropdown selection and the text behind "Other", neither of which is a
@@ -151,6 +160,21 @@ export function WalkInForm({
           ))}
         </select>
       </div>
+      {roleTag === ROLE_OTHER && (
+        <div>
+          <Label>Role to print on the badge</Label>
+          <Input
+            className="mt-1"
+            value={roleOther}
+            maxLength={ROLE_LABEL_MAX}
+            placeholder="e.g. Accelerator"
+            onChange={(e) => setRoleOther(e.target.value)}
+          />
+          <p className="mt-1 text-xs text-muted-foreground">
+            Printed in upper case across the badge. {ROLE_LABEL_MAX} characters max.
+          </p>
+        </div>
+      )}
       <div className="grid grid-cols-2 gap-3">
         <div>
           <Label>First name</Label>

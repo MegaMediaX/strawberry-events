@@ -15,6 +15,7 @@ import {
 } from "@/lib/email/templates";
 import { requiresApproval } from "@/lib/approval/state";
 import { tagForItem } from "@/lib/checkin/eligibility";
+import { resolveRoleLabel } from "@/lib/badges/tags";
 import { holdSeats, confirmSeats, releaseSeats } from "@/lib/seats/service";
 import { emit } from "@/lib/webhooks/service";
 import { getEventFields, getFieldsForTicket, validateRequiredAnswers } from "@/lib/admin/custom-fields";
@@ -298,6 +299,19 @@ export async function register(input: RegisterInput): Promise<RegisterResult> {
   const consentAt =
     data.consentTerms && data.consentPrivacy && data.consentDataUse ? new Date() : null;
 
+  // Resolved once, so the label below is decided against the SAME tag the row
+  // is about to store. Computing the tag inline in the create and the label
+  // beside it would let an invite tag and a label disagree.
+  const resolvedRoleTag =
+    invitePayload?.tag ??
+    data.roleTag ??
+    tagForItem(
+      (event.itemTagMap ?? {}) as Record<string, unknown>,
+      data.tickets[0]?.itemId ?? -1,
+    );
+  const roleLabelResolution = resolveRoleLabel(resolvedRoleTag, data.roleLabel);
+  const resolvedRoleLabel = roleLabelResolution.ok ? roleLabelResolution.value : null;
+
   await prisma.attendeeOrder.create({
     data: {
       eventMappingId: event.id,
@@ -323,13 +337,14 @@ export async function register(input: RegisterInput): Promise<RegisterResult> {
       approvalStatus,
       provider,
       totalCents,
-      roleTag:
-        invitePayload?.tag ??
-        data.roleTag ??
-        tagForItem(
-          (event.itemTagMap ?? {}) as Record<string, unknown>,
-          data.tickets[0]?.itemId ?? -1,
-        ),
+      roleTag: resolvedRoleTag,
+      // Never independently: a label without `other` would print on a role
+      // that has no use for it, and `other` reached through an invite or an
+      // item mapping carries no text at all. Lenient on purpose — a missing
+      // label degrades to a band reading OTHER (badgeBandText's fallback)
+      // rather than failing a registration for someone already at the desk.
+      // The door action and the edit dialog are where this is enforced.
+      roleLabel: resolvedRoleLabel,
       pretixSecret: order.positions?.[0]?.secret ?? null,
       magicLinkToken,
     },

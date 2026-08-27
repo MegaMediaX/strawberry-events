@@ -172,7 +172,11 @@ function printableJobTitle(raw: string | null | undefined): string | null {
 export function buildBadgeZpl(badge: BadgeData): string {
   // The role's human label, not the raw enum value: `organising_committee`
   // across someone's chest reads as a bug, not a role.
-  const tag = sanitizeZplText(badgeBandText(badge.tag));
+  // The fallback matters for `other` alone: a role typed in Arabic sanitises
+  // to "" on this Latin-only hardware, and an empty string would print a blank
+  // black bar. badgeBandText(tag) without the label yields OTHER, which is at
+  // least true.
+  const tag = sanitizeZplText(badgeBandText(badge.tag, badge.roleLabel)) || badgeBandText(badge.tag);
   const company = badge.company ? sanitizeZplText(badge.company) : null;
   // Gate on the SANITISED value, not the raw one. The printer's fonts are
   // Latin-only, so an Arabic job title sanitises to "" — the line is dropped

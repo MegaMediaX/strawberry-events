@@ -7,6 +7,8 @@ import type { BadgeTagValue } from "@/lib/badges/tags";
 export interface WalkInActionInput {
   itemId: number;
   roleTag: BadgeTagValue;
+  /** Band text, required by the caller when roleTag is `other`. */
+  roleLabel?: string | null;
   locale?: "en" | "ar";
   attendee: {
     firstName: string;

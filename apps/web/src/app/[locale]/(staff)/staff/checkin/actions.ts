@@ -2,7 +2,7 @@
 
 import { getSessionContext } from "@/lib/auth/session";
 import { createWalkIn } from "@/lib/staff/walkin";
-import type { BadgeTagValue } from "@/lib/badges/tags";
+import { resolveRoleLabel, type BadgeTagValue } from "@/lib/badges/tags";
 import {
   searchAttendees,
   checkInOrder,
@@ -138,6 +138,8 @@ export interface DoorWalkIn {
   company?: string | null;
   jobTitle?: string | null;
   roleTag: BadgeTagValue;
+  /** Required when roleTag is `other`; it is what the band prints. */
+  roleLabel?: string | null;
   itemId: number;
 }
 
@@ -170,12 +172,20 @@ export async function walkInAndCheckInAction(
   }
   if (!session) return { ok: false, reason: "Not authenticated" };
 
+  // Strict here, lenient in register(). The operator is standing at the door
+  // with the person in front of them, so an `other` with no text is a mistake
+  // that can be fixed in two seconds — not something to paper over with a band
+  // reading OTHER. A malformed client cannot get past this either.
+  const role = resolveRoleLabel(input.roleTag, input.roleLabel);
+  if (!role.ok) return { ok: false, reason: role.error };
+
   let orderCode: string;
   try {
     const created = await createWalkIn(session, {
       eventId,
       itemId: input.itemId,
       roleTag: input.roleTag,
+      roleLabel: role.value,
       attendee: {
         firstName: input.firstName,
         lastName: input.lastName,

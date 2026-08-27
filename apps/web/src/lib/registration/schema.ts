@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 import { JOB_TITLE_MAX, JOB_TITLE_OTHER } from "@/lib/registration/job-title";
-import { BADGE_TAGS } from "@/lib/badges/tags";
+import { BADGE_TAGS, ROLE_LABEL_MAX } from "@/lib/badges/tags";
 
 export const registerInputSchema = z
   .object({
@@ -38,6 +38,9 @@ export const registerInputSchema = z
     // Staff walk-in only: an explicit role/tag overriding the item→tag mapping.
     // The public wizard never sets this, so behavior there is unchanged.
     roleTag: z.enum(BADGE_TAGS).optional(),
+    // Band text for roleTag `other`. Capped here as well as in the resolver
+    // because this schema is the boundary the external API comes through.
+    roleLabel: z.string().trim().max(ROLE_LABEL_MAX).optional().nullable(),
     // Staff walk-in marker: when true, phone is optional. The public wizard
     // never sets this, so phone stays required for public registrations.
     staffWalkIn: z.boolean().optional(),
