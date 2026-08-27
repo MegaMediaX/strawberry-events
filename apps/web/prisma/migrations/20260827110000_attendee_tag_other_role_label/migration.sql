@@ -9,4 +9,7 @@
 --    right: none of them is tagged `other`.
 ALTER TYPE "AttendeeTag" ADD VALUE IF NOT EXISTS 'other';
 
-ALTER TABLE "AttendeeOrder" ADD COLUMN IF NOT EXISTS "roleLabel" TEXT;
+-- "attendee_orders", not "AttendeeOrder": the model carries @@map, and the
+-- table is what SQL sees. The jobTitle migration got this right; this one did
+-- not, and only failed because it was rehearsed against the real database.
+ALTER TABLE "attendee_orders" ADD COLUMN IF NOT EXISTS "roleLabel" TEXT;
