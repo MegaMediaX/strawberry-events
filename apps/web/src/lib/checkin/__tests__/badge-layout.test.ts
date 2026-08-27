@@ -159,6 +159,7 @@ describe("the two printer languages agree on the job title line", () => {
       fullName: "Elias Daou",
       company: "Bank of Beirut SAL",
       jobTitle: "Sales Manager",
+      roleLabel: null,
     });
     const line = zpl.split("\n").find((l) => l.includes("Sales Manager"))!;
     const m = /\^FO(\d+),(\d+)\^A0N,(\d+),(\d+)/.exec(line)!;

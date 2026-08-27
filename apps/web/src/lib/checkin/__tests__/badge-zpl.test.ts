@@ -17,6 +17,7 @@ const badge = (overrides: Partial<BadgeData> = {}): BadgeData => ({
   fullName: "Mouhamad Al-Hassan",
   company: "Strawberry Agency",
   jobTitle: null,
+  roleLabel: null,
   ...overrides,
 });
 
@@ -208,6 +209,7 @@ describe("job title on the badge", () => {
     fullName: "Elias Daou",
     company: "Bank of Beirut SAL",
     jobTitle: null,
+    roleLabel: null,
     badgeSlug: "SZSZEC50",
   });
 
@@ -276,6 +278,7 @@ describe("an over-wide job title is cut off, never allowed to reach the QR", () 
       company: "Bank of Beirut SAL",
       badgeSlug: "SZSZEC50",
       jobTitle: "WWWWWWWWWWWWWWW",
+      roleLabel: null,
     });
     const line = zpl.split("\n").find((l) => l.includes("WWWW"))!;
     const fb = /\^FB(\d+),(\d+),/.exec(line)!;
@@ -299,15 +302,15 @@ describe("absence of a job title changes nothing, for every badge shape", () => 
   const TAGS = ["media", "partner", "staff", "speaker", "visitor"] as const;
   const shapes: BadgeData[] = [];
   for (const tag of TAGS) {
-    shapes.push({ tag, fullName: "Elias Daou", company: "Bank of Beirut SAL", jobTitle: null, badgeSlug: "SZSZEC50" });
-    shapes.push({ tag, fullName: "Elias Daou", company: null, jobTitle: null, badgeSlug: "SZSZEC50" });
-    shapes.push({ tag, fullName: "Elias Daou", company: "Acme", jobTitle: null, badgeSlug: null });
-    shapes.push({ tag, fullName: "Elias Daou", company: null, jobTitle: null, badgeSlug: null });
+    shapes.push({ tag, fullName: "Elias Daou", company: "Bank of Beirut SAL", jobTitle: null, roleLabel: null, badgeSlug: "SZSZEC50" });
+    shapes.push({ tag, fullName: "Elias Daou", company: null, jobTitle: null, roleLabel: null, badgeSlug: "SZSZEC50" });
+    shapes.push({ tag, fullName: "Elias Daou", company: "Acme", jobTitle: null, roleLabel: null, badgeSlug: null });
+    shapes.push({ tag, fullName: "Elias Daou", company: null, jobTitle: null, roleLabel: null, badgeSlug: null });
   }
-  shapes.push({ tag: "visitor", fullName: "Mouhamad Abdel Rahman Al-Hassan Kouyoumdjian", company: "A Very Long Company Name Indeed SAL", jobTitle: null, badgeSlug: "SZSZEC50" });
-  shapes.push({ tag: "visitor", fullName: "محمد", company: "شركة", jobTitle: null, badgeSlug: "SZSZEC50" });
-  shapes.push({ tag: "visitor", fullName: "a^b~c", company: "x^y~z", jobTitle: null, badgeSlug: "SZSZEC50" });
-  shapes.push({ tag: "visitor", fullName: "", company: "", jobTitle: null, badgeSlug: "SZSZEC50" });
+  shapes.push({ tag: "visitor", fullName: "Mouhamad Abdel Rahman Al-Hassan Kouyoumdjian", company: "A Very Long Company Name Indeed SAL", jobTitle: null, roleLabel: null, badgeSlug: "SZSZEC50" });
+  shapes.push({ tag: "visitor", fullName: "محمد", company: "شركة", jobTitle: null, roleLabel: null, badgeSlug: "SZSZEC50" });
+  shapes.push({ tag: "visitor", fullName: "a^b~c", company: "x^y~z", jobTitle: null, roleLabel: null, badgeSlug: "SZSZEC50" });
+  shapes.push({ tag: "visitor", fullName: "", company: "", jobTitle: null, roleLabel: null, badgeSlug: "SZSZEC50" });
 
   // "omitted" is deliberately not a case any more: BadgeData.jobTitle is
   // required, so a construction site that forgets it no longer compiles. The
@@ -341,7 +344,7 @@ describe("a job title that cannot be printed says so", () => {
   // those attendees.
   it("logs when a title is discarded by sanitisation", () => {
     const spy = vi.spyOn(console, "error").mockImplementation(() => {});
-    const base: BadgeData = { tag: "visitor", fullName: "Elias Daou", company: "Acme", jobTitle: null, badgeSlug: "SZSZEC50" };
+    const base: BadgeData = { tag: "visitor", fullName: "Elias Daou", company: "Acme", jobTitle: null, roleLabel: null, badgeSlug: "SZSZEC50" };
     const zpl = buildBadgeZpl({ ...base, jobTitle: "مدير المبيعات" });
 
     // Output is unchanged — the badge is still correct and still scans.
@@ -353,15 +356,15 @@ describe("a job title that cannot be printed says so", () => {
 
   it("says nothing for a title that was simply never given", () => {
     const spy = vi.spyOn(console, "error").mockImplementation(() => {});
-    buildBadgeZpl({ tag: "visitor", fullName: "Elias Daou", company: "Acme", jobTitle: null, badgeSlug: "SZSZEC50" });
-    buildBadgeZpl({ tag: "visitor", fullName: "Elias Daou", company: "Acme", badgeSlug: "SZSZEC50", jobTitle: "   " });
+    buildBadgeZpl({ tag: "visitor", fullName: "Elias Daou", company: "Acme", jobTitle: null, roleLabel: null, badgeSlug: "SZSZEC50" });
+    buildBadgeZpl({ tag: "visitor", fullName: "Elias Daou", company: "Acme", badgeSlug: "SZSZEC50", jobTitle: "   ", roleLabel: null });
     expect(spy).not.toHaveBeenCalled();
     spy.mockRestore();
   });
 
   it("says nothing for a title that prints fine", () => {
     const spy = vi.spyOn(console, "error").mockImplementation(() => {});
-    buildBadgeZpl({ tag: "visitor", fullName: "Elias Daou", company: "Acme", badgeSlug: "SZSZEC50", jobTitle: "CEO" });
+    buildBadgeZpl({ tag: "visitor", fullName: "Elias Daou", company: "Acme", badgeSlug: "SZSZEC50", jobTitle: "CEO", roleLabel: null });
     expect(spy).not.toHaveBeenCalled();
     spy.mockRestore();
   });
@@ -377,7 +380,7 @@ describe("the two copies of the text column agree", () => {
   it("badge-zpl's column is the same width as badge-layout's", () => {
     const zpl = buildBadgeZpl({
       tag: "visitor", fullName: "Elias Daou", company: "Acme",
-      badgeSlug: "SZSZEC50", jobTitle: "CEO",
+      badgeSlug: "SZSZEC50", jobTitle: "CEO", roleLabel: null,
     });
     const line = zpl.split("\n").find((l) => l.includes("^FDCEO^FS"))!;
     expect(Number(/\^FB(\d+),/.exec(line)![1])).toBe(SHARED_TEXT_WIDTH);
