@@ -20,6 +20,7 @@ const TEST_BADGE = {
   // Carries a title so a test print proves the new line prints and
   // still clears the QR — a lane can be checked without an attendee.
   jobTitle: "General Manager",
+  roleLabel: null,
   company: "Strawberry Agency",
 } as const;
 

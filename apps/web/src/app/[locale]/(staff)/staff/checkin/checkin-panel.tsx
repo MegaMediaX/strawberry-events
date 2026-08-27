@@ -77,6 +77,7 @@ type RecentEntry = {
 function toBadge(b: NonNullable<CheckInResult["badge"]>): BadgeData {
   return {
     tag: b.tag,
+    roleLabel: b.roleLabel,
     fullName: b.fullName,
     company: b.company,
     jobTitle: b.jobTitle,

@@ -9,7 +9,7 @@ import * as pretixCheckin from "@/lib/pretix/checkin";
 import { emit } from "@/lib/webhooks/service";
 import { generateBadgeSlug, resolveBadgeSlug } from "./badge-slug";
 import { JOB_TITLE_MAX, JOB_TITLE_OTHER } from "@/lib/registration/job-title";
-import { BADGE_TAGS, type BadgeTagValue } from "@/lib/badges/tags";
+import { BADGE_TAGS, resolveRoleLabel, type BadgeTagValue } from "@/lib/badges/tags";
 import { checkinEligibility } from "./eligibility";
 
 export interface CheckInResult {
@@ -23,6 +23,8 @@ export interface CheckInResult {
     company: string | null;
     /** Printed under the company. Null for everyone who was never asked. */
     jobTitle: string | null;
+    /** Band text for `other`. Null for every fixed role. */
+    roleLabel: string | null;
     /** Drives the printed contact-profile QR. Null only for legacy rows. */
     badgeSlug: string | null;
   };
@@ -163,6 +165,7 @@ function badgeOf(order: AttendeeOrder): NonNullable<CheckInResult["badge"]> {
   return {
     orderCode: order.orderCode,
     tag: order.roleTag,
+    roleLabel: order.roleLabel,
     secret: order.pretixSecret,
     fullName: order.attendeeName ?? order.email,
     company: order.company,
@@ -473,6 +476,8 @@ export interface AttendeeCorrection {
   company?: string;
   jobTitle?: string;
   roleTag?: BadgeTagValue;
+  /** Only meaningful alongside roleTag `other`; see the resolver below. */
+  roleLabel?: string;
 }
 
 /**
@@ -514,6 +519,7 @@ export async function updateAttendeeDetails(
     company?: string | null;
     jobTitle?: string | null;
     roleTag?: BadgeTagValue;
+    roleLabel?: string | null;
   } = {};
 
   // Free text from a door has no natural ceiling, and these columns are
@@ -548,11 +554,21 @@ export async function updateAttendeeDetails(
     if (tooLong(cc, 8)) return { ok: false, reason: "That country code is too long." };
     data.phoneCC = cc || null;
   }
-  if (patch.roleTag !== undefined) {
-    if (!(BADGE_TAGS as readonly string[]).includes(patch.roleTag)) {
+  // Resolved as a PAIR, against the row's current state, because the two can
+  // be patched independently. Switching to Other with no text must fail, and
+  // switching AWAY from Other must clear the label — otherwise the old text
+  // sits in the column and reappears the moment someone picks Other again,
+  // looking for all the world like a deliberate answer.
+  if (patch.roleTag !== undefined || patch.roleLabel !== undefined) {
+    const tag = patch.roleTag ?? (order.roleTag as BadgeTagValue);
+    if (!(BADGE_TAGS as readonly string[]).includes(tag)) {
       return { ok: false, reason: "That is not a badge role." };
     }
-    data.roleTag = patch.roleTag;
+    const label = patch.roleLabel !== undefined ? patch.roleLabel : order.roleLabel;
+    const resolved = resolveRoleLabel(tag, label);
+    if (!resolved.ok) return { ok: false, reason: resolved.error };
+    data.roleTag = tag;
+    data.roleLabel = resolved.value;
   }
   if (patch.company !== undefined) {
     const company = patch.company.trim();
@@ -584,6 +600,7 @@ export async function updateAttendeeDetails(
     company: o.company,
     jobTitle: o.jobTitle,
     roleTag: o.roleTag,
+    roleLabel: o.roleLabel,
   });
   await prisma.auditLog.create({
     data: {
@@ -611,6 +628,7 @@ export interface AttendeeForEdit {
   company: string | null;
   jobTitle: string | null;
   roleTag: BadgeTagValue;
+  roleLabel: string | null;
 }
 
 /**
@@ -632,7 +650,7 @@ export async function getAttendeeForEdit(
     where: { eventMappingId: mapping.id, orderCode },
     select: {
       orderCode: true, attendeeName: true, email: true, phone: true,
-      phoneCC: true, company: true, jobTitle: true, roleTag: true,
+      phoneCC: true, company: true, jobTitle: true, roleTag: true, roleLabel: true,
     },
   });
   if (!order) throw new ForbiddenError("Registration not found");
@@ -645,5 +663,6 @@ export async function getAttendeeForEdit(
     company: order.company,
     jobTitle: order.jobTitle,
     roleTag: order.roleTag as BadgeTagValue,
+    roleLabel: order.roleLabel,
   };
 }

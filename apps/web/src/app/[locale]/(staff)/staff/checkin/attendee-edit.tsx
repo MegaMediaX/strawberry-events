@@ -5,7 +5,10 @@ import { useEffect, useId, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { BADGE_TAGS, BADGE_TAG_LABEL, type BadgeTagValue } from "@/lib/badges/tags";
+import {
+  BADGE_TAGS, BADGE_TAG_LABEL, ROLE_OTHER, ROLE_LABEL_MAX, resolveRoleLabel,
+  type BadgeTagValue,
+} from "@/lib/badges/tags";
 import {
   JOB_TITLE_MAX,
   JOB_TITLE_OTHER,
@@ -22,6 +25,7 @@ export interface EditTarget {
   company: string | null;
   jobTitle: string | null;
   roleTag: BadgeTagValue;
+  roleLabel: string | null;
 }
 
 /**
@@ -55,6 +59,7 @@ export function AttendeeEditDialog({
     company: string;
     jobTitle: string;
     roleTag: BadgeTagValue;
+    roleLabel: string;
   }) => void;
 }) {
   const uid = useId();
@@ -66,6 +71,7 @@ export function AttendeeEditDialog({
     company: `${uid}-company`,
     title: `${uid}-title`,
     other: `${uid}-other`,
+    roleOther: `${uid}-role-other`,
     role: `${uid}-role`,
   };
 
@@ -91,6 +97,9 @@ export function AttendeeEditDialog({
   const [cc, setCc] = useState(target.phoneCC ?? "");
   const [phone, setPhone] = useState(target.phone ?? "");
   const [role, setRole] = useState<BadgeTagValue>(target.roleTag);
+  // Prefilled from the row, so reopening an Other shows what is on the badge
+  // rather than an empty box that would blank it on save.
+  const [roleOther, setRoleOther] = useState(target.roleLabel ?? "");
   const [company, setCompany] = useState(target.company ?? "");
   const [title, setTitle] = useState(
     known ? (target.jobTitle as string) : legacy && !legacyUnusable ? JOB_TITLE_OTHER : "",
@@ -128,6 +137,8 @@ export function AttendeeEditDialog({
     }
     const resolved = resolveJobTitleSelection(title, other);
     if (!resolved.ok) return setErr(resolved.error);
+    const resolvedRole = resolveRoleLabel(role, roleOther);
+    if (!resolvedRole.ok) return setErr(resolvedRole.error);
     onSave({
       fullName: name.trim(),
       email: email.trim(),
@@ -136,6 +147,7 @@ export function AttendeeEditDialog({
       company: company.trim(),
       jobTitle: resolved.value ?? "",
       roleTag: role,
+      roleLabel: resolvedRole.value ?? "",
     });
   }
 
@@ -176,6 +188,24 @@ export function AttendeeEditDialog({
             ))}
           </select>
         </div>
+
+        {/* Revealed by the selection, like the job title's Other box. */}
+        {role === ROLE_OTHER && (
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor={fid.roleOther}>Role to print on the badge</Label>
+            <Input
+              id={fid.roleOther}
+              className="h-12 text-[16px]"
+              value={roleOther}
+              maxLength={ROLE_LABEL_MAX}
+              placeholder="e.g. Accelerator"
+              onChange={(e) => setRoleOther(e.target.value)}
+            />
+            <p className="text-[12px] text-muted-foreground">
+              Printed in upper case across the badge. {ROLE_LABEL_MAX} characters max.
+            </p>
+          </div>
+        )}
 
         <div className="flex flex-col gap-1.5">
           <Label htmlFor={fid.email}>Email</Label>

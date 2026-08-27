@@ -27,6 +27,9 @@ const TAG_COLOR: Record<BadgeTag, string> = {
   // The agency's own brand red, --primary in globals.css. The one role where
   // the colour is not an arbitrary pick for separation: it is the mark.
   strawberry: "#b10b0b",
+  // Neutral on purpose: this band's meaning comes from the typed text, not
+  // from a colour nobody has agreed the meaning of.
+  other: "#334155",
 };
 
 export interface BadgeData {
@@ -47,6 +50,12 @@ export interface BadgeData {
    * walk-in Company field untypeable.
    */
   jobTitle: string | null;
+  /**
+   * What the role band prints when `tag` is `other`. Null for every fixed
+   * role — badgeBandText ignores it in that case, so a stale value cannot
+   * override a real role.
+   */
+  roleLabel: string | null;
   /**
    * Opaque code behind the printed contact-profile QR. Optional: test badges
    * and orders predating the column have none, and must still print.
@@ -74,7 +83,7 @@ export function BadgeTemplate({ badge }: { badge: BadgeData }) {
   return (
     <div className="badge-sheet">
       <div className="badge-tag" style={{ background: TAG_COLOR[badge.tag] }}>
-        {badgeBandText(badge.tag)}
+        {badgeBandText(badge.tag, badge.roleLabel)}
       </div>
       <div className="badge-name">{badge.fullName}</div>
       {badge.company && <div className="badge-company">{badge.company}</div>}

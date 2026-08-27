@@ -5,7 +5,7 @@ import { useEffect, useId, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { BADGE_TAGS, BADGE_TAG_LABEL, type BadgeTagValue } from "@/lib/badges/tags";
+import { BADGE_TAGS, BADGE_TAG_LABEL, ROLE_OTHER, ROLE_LABEL_MAX, resolveRoleLabel, type BadgeTagValue } from "@/lib/badges/tags";
 import {
   JOB_TITLE_MAX,
   JOB_TITLE_OTHER,
@@ -58,7 +58,8 @@ export function DoorWalkInForm({
   const fid = {
     first: `${uid}-first`, last: `${uid}-last`, email: `${uid}-email`,
     cc: `${uid}-cc`, phone: `${uid}-phone`, company: `${uid}-company`,
-    title: `${uid}-title`, other: `${uid}-other`, role: `${uid}-role`, ticket: `${uid}-ticket`,
+    title: `${uid}-title`, other: `${uid}-other`, role: `${uid}-role`,
+    roleOther: `${uid}-role-other`, ticket: `${uid}-ticket`,
   };
 
   const split = splitName(prefill);
@@ -71,6 +72,7 @@ export function DoorWalkInForm({
   const [title, setTitle] = useState("");
   const [other, setOther] = useState("");
   const [role, setRole] = useState<BadgeTagValue>("visitor");
+  const [roleOther, setRoleOther] = useState("");
   const [itemId, setItemId] = useState<number | "">(tickets[0]?.id ?? "");
   const [err, setErr] = useState<string | null>(null);
 
@@ -106,6 +108,11 @@ export function DoorWalkInForm({
     if (itemId === "") return setErr("Choose a ticket type.");
     const resolved = resolveJobTitleSelection(showTitle ? title : "", other);
     if (!resolved.ok) return setErr(resolved.error);
+    // Same shape as the job title above, and validated in the same place: the
+    // server re-checks it, but an operator should see the message here rather
+    // than after a round trip with someone waiting.
+    const resolvedRole = resolveRoleLabel(role, roleOther);
+    if (!resolvedRole.ok) return setErr(resolvedRole.error);
     onSubmit({
       firstName: firstName.trim(),
       lastName: lastName.trim(),
@@ -115,6 +122,7 @@ export function DoorWalkInForm({
       company: company.trim() || null,
       jobTitle: resolved.value,
       roleTag: role,
+      roleLabel: resolvedRole.value,
       itemId: Number(itemId),
     });
   }
@@ -191,6 +199,33 @@ export function DoorWalkInForm({
             {BADGE_TAGS.map((t) => <option key={t} value={t}>{BADGE_TAG_LABEL[t]}</option>)}
           </select>
         </div>
+
+        {/* Revealed by the selection, like the job title's Other box. The text
+            SURVIVES switching away and back, and that is fine here in a way it
+            was not for the job title: this box appears because the operator
+            picked Other, so seeing their own text again is expected. The job
+            title's box appears when an unrelated field (company) becomes
+            non-empty, which is why that one needs jobTitleForCompanyChange to
+            clear it. Either way nothing leaks: resolveRoleLabel returns null
+            for every role that is not Other, so a value left in this box is
+            never stored. */}
+        {role === ROLE_OTHER && (
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor={fid.roleOther}>Role to print on the badge</Label>
+            <Input
+              id={fid.roleOther}
+              className={field}
+              value={roleOther}
+              maxLength={ROLE_LABEL_MAX}
+              placeholder="e.g. Accelerator"
+              onChange={(e) => setRoleOther(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && submit()}
+            />
+            <p className="text-[12px] text-muted-foreground">
+              Printed in upper case across the badge. {ROLE_LABEL_MAX} characters max.
+            </p>
+          </div>
+        )}
 
         <div className="flex flex-col gap-1.5">
           <Label htmlFor={fid.ticket}>Ticket</Label>

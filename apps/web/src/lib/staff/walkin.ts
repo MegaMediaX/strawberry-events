@@ -11,6 +11,8 @@ export interface WalkInInput {
   /** pretix item id for the chosen ticket type. */
   itemId: number;
   roleTag: BadgeTagValue;
+  /** Band text, required by the caller when roleTag is `other`. */
+  roleLabel?: string | null;
   locale?: "en" | "ar";
   attendee: {
     firstName: string;
@@ -80,6 +82,7 @@ export async function createWalkIn(
     tickets: [{ itemId: input.itemId, quantity: 1 }],
     seatIds: input.seatIds,
     roleTag: input.roleTag,
+    roleLabel: input.roleLabel ?? null,
     // Staff walk-ins may omit phone (the public wizard still requires it).
     staffWalkIn: true,
     // The attendee is standing at the desk and the terms/privacy notice is

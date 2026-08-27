@@ -11,7 +11,7 @@ import { BadgeTemplate } from "../badge-template";
  */
 function css(): string {
   const html = renderToStaticMarkup(
-    <BadgeTemplate badge={{ tag: "visitor", fullName: "Test Test", company: "Strawberry", jobTitle: null }} />,
+    <BadgeTemplate badge={{ tag: "visitor", fullName: "Test Test", company: "Strawberry", jobTitle: null, roleLabel: null }} />,
   );
   const style = /<style[^>]*>([\s\S]*?)<\/style>/.exec(html);
   expect(style).not.toBeNull();
@@ -61,7 +61,7 @@ describe("the fallback badge carries the job title", () => {
   const render = (jobTitle: string | null) =>
     renderToStaticMarkup(
       <BadgeTemplate
-        badge={{ tag: "visitor", fullName: "Elias Daou", company: "Acme", jobTitle }}
+        badge={{ tag: "visitor", fullName: "Elias Daou", company: "Acme", jobTitle, roleLabel: null }}
       />,
     );
 
