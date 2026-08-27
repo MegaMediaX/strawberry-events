@@ -10,7 +10,7 @@ describe("the badge role list", () => {
     expect([...BADGE_TAGS]).toEqual([
       "visitor", "media", "partner", "investor", "startup", "government",
       "speaker", "moderator", "staff",
-      "exhibitor", "organising_committee", "organiser", "cofounder",
+      "exhibitor", "organising_committee", "organiser", "cofounder", "strawberry",
     ]);
   });
 
