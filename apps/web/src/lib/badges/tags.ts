@@ -29,6 +29,7 @@ export const BADGE_TAGS = [
   "organising_committee",
   "organiser",
   "cofounder",
+  "strawberry",
 ] as const satisfies readonly AttendeeTag[];
 
 export type BadgeTagValue = (typeof BADGE_TAGS)[number];
@@ -63,6 +64,7 @@ export const BADGE_TAG_LABEL: Record<BadgeTagValue, string> = {
   organising_committee: "Organising committee",
   organiser: "Organiser",
   cofounder: "Co-founder",
+  strawberry: "Strawberry",
 };
 
 /**

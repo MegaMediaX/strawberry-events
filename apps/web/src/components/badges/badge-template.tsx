@@ -24,6 +24,9 @@ const TAG_COLOR: Record<BadgeTag, string> = {
   investor: "#831843",
   startup: "#1d4ed8",
   government: "#78350f",
+  // The agency's own brand red, --primary in globals.css. The one role where
+  // the colour is not an arbitrary pick for separation: it is the mark.
+  strawberry: "#b10b0b",
 };
 
 export interface BadgeData {

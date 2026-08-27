@@ -93,6 +93,7 @@ enum AttendeeTag {
   investor
   startup
   government
+  strawberry
 }
 
 enum SeatState {
