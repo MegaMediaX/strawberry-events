@@ -90,6 +90,9 @@ enum AttendeeTag {
   organiser
   cofounder
   moderator
+  investor
+  startup
+  government
 }
 
 enum SeatState {

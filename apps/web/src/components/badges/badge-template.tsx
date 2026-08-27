@@ -18,6 +18,12 @@ const TAG_COLOR: Record<BadgeTag, string> = {
   // side by side on a panel, and the band is what tells them apart across a
   // room.
   moderator: "#a16207",
+  // Thirteen roles is more than a palette can keep comfortably distinct, and
+  // the thermal band is monochrome regardless — these are picked for
+  // separation from their nearest neighbour on screen, nothing more.
+  investor: "#831843",
+  startup: "#1d4ed8",
+  government: "#78350f",
 };
 
 export interface BadgeData {
