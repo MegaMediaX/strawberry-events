@@ -32,7 +32,8 @@ export interface AttendeeView {
   pretixSecret?: string;
   eventMapping: {
     titleEn: string;
-    whatsappChannelUrl: string | null;
+    /** Optional, matching the shape the component already accepted. */
+    whatsappChannelUrl?: string | null;
   } & EventLocation;
 }
 
