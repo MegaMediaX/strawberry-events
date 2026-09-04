@@ -129,7 +129,7 @@ Premium public storefront under `/<locale>/events`:
 - Checkout: free events issue a QR ticket instantly; COD events create a pending
   pretix order (ticket withheld until finance marks paid — later milestone).
 - Guest access via signed magic link `/<locale>/t/<token>`; account dashboard at
-  `/<locale>/my-tickets`.
+  `/<locale>/my-registrations`.
 - Email via SMTP when configured, else a dev transport that logs to the console
   (set `SMTP_HOST` to enable real delivery). Email failures never block registration.
 
@@ -145,7 +145,7 @@ DATABASE_URL=... TEST_DATABASE_URL=... npx vitest run register.integration
 `/<locale>/admin/finance` — order list filterable by status (pending/paid/canceled)
 and method (free/COD), order detail, and **Mark paid** for COD/manual orders.
 Marking paid syncs pretix, flips `AttendeeOrder` → paid (which enables the ticket QR
-in confirmation / `/t/<token>` / `/my-tickets`), sends the confirmation email, and
+in confirmation / `/t/<token>` / `/my-registrations`), sends the confirmation email, and
 writes an audit log. Org/event isolation enforced; Finance role sees only assigned
 organizations (super admin sees all). Mark-paid is blocked while impersonating
 (`SessionContext.impersonating`).
@@ -186,7 +186,7 @@ submitted modular fields) + approve/reject.
 **Permissions.** super_admin: all. organizer_admin: assigned org/events. finance &
 check-in staff: **cannot** approve/reject. Impersonating sessions are blocked.
 
-**Attendee access.** confirmation / `/t/<token>` / `/my-tickets` all render the derived
+**Attendee access.** confirmation / `/t/<token>` / `/my-registrations` all render the derived
 state — pending review, rejected, payment instructions, or QR.
 
 ## Staff check-in + badges (Milestone 8)
