@@ -4,17 +4,11 @@ import type { ReactNode } from "react";
 import { motion } from "framer-motion";
 import { CheckCircle2, Clock, XCircle, Ban, MessageCircle } from "lucide-react";
 import { registrationState } from "@/lib/approval/state";
-import { hasLocation, locationLine, directionsUrl, type EventLocation } from "@/lib/events/location";
+import { hasLocation, locationLine, directionsUrl } from "@/lib/events/location";
 import { QrCodeDisplay } from "./qr-code-display";
 import { shouldShowTicketQr, shouldOfferTicketRecovery } from "./ticket-reveal";
+import type { AttendeeView } from "@/lib/registration/attendee-view";
 
-interface OrderLike {
-  orderCode: string;
-  status: "pending" | "paid" | "canceled";
-  approvalStatus: "not_required" | "pending" | "approved" | "rejected";
-  pretixSecret?: string | null;
-  eventMapping: { titleEn: string; whatsappChannelUrl?: string | null } & EventLocation;
-}
 
 const STATE_CONFIG = {
   issued: {
@@ -50,7 +44,7 @@ const STATE_CONFIG = {
 } as const;
 
 interface AttendeeStateViewProps {
-  order: OrderLike;
+  order: AttendeeView;
   /**
    * Authorization to render the scannable pretix secret. Defaults to false so
    * every surface fails closed: only the HMAC-signed `/t/[token]` route, whose
