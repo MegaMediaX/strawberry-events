@@ -46,6 +46,13 @@ describe.skipIf(!run)("register integration", () => {
         pretixEventSlug: slug,
         titleEn: "Reg Event",
         visibility: "public",
+        // register() requires liveOnPretix as well as public visibility, so a
+        // direct call cannot register against a public-but-not-yet-live event
+        // (added by the Ruflo security review). liveOnPretix defaults to false,
+        // so omitting it here made every case below fail with "Event not
+        // found" — which went unnoticed while this suite was skipped for want
+        // of a TEST_DATABASE_URL.
+        liveOnPretix: true,
       },
     });
     mappingIds.push(m.id);
@@ -95,5 +102,36 @@ describe.skipIf(!run)("register integration", () => {
       consentPrivacy: true, consentDataUse: true,
     });
     expect(res.status).toBe("paid");
+  });
+
+  it("refuses a public event that is not yet live on pretix", async () => {
+    // The guard that broke the two cases above had no coverage of its own, so
+    // nothing would have caught its removal. A draft event is public locally
+    // but not yet live, and must not be registrable by a direct call.
+    const draftSlug = `reg-draft-${stamp}`;
+    const draft = await prisma.eventMapping.create({
+      data: {
+        organizationId: orgId,
+        localEventId: `loc-draft-${stamp}`,
+        pretixOrganizerSlug: `reg-${stamp}`,
+        pretixEventSlug: draftSlug,
+        titleEn: "Draft Event",
+        visibility: "public",
+        liveOnPretix: false,
+      },
+    });
+    mappingIds.push(draft.id);
+
+    await expect(
+      register({
+        eventSlug: draftSlug,
+        locale: "en",
+        attendee,
+        tickets: [{ itemId: 8, quantity: 1 }],
+        consentTerms: true,
+        consentPrivacy: true,
+        consentDataUse: true,
+      }),
+    ).rejects.toThrow("Event not found");
   });
 });
