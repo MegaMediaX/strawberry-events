@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { setRequestLocale } from "next-intl/server";
 import { getOrderByCode } from "@/lib/registration/access";
+import { toAttendeeView } from "@/lib/registration/attendee-view";
 import { allowOrderCodeLookup } from "@/lib/security/order-lookup";
 import { AttendeeStateView } from "@/components/public/attendee-state-view";
 import { TooManyRequests } from "@/components/public/too-many-requests";
@@ -24,13 +25,15 @@ export default async function ConfirmationPage({
   const order = await getOrderByCode(orderCode, slug);
   if (!order) notFound();
 
-  // No `canRevealTicket` — an order code must never yield a scannable ticket.
+  // No `canRevealTicket`, and no secret in the projection either — an order
+  // code must never yield a scannable ticket. The prop is serialized into the
+  // page HTML, so withholding it from the MARKUP alone would still ship it.
   // Issued orders get the "email me my link" recovery path instead; pending
   // approval and pending payment have no ticket to show either way, so those
   // states (and the links already in attendees' inboxes) are unaffected.
   return (
     <AttendeeStateView
-      order={order}
+      order={toAttendeeView(order, { revealSecret: false })}
       ticketRecovery={<ResendTicketLink slug={slug} orderCode={orderCode} />}
     />
   );
