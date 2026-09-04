@@ -23,6 +23,29 @@ const nextConfig: NextConfig = {
     return [
       { source: "/C/:slug", destination: "/en/c/:slug", permanent: false },
       { source: "/c/:slug", destination: "/en/c/:slug", permanent: false },
+      /**
+       * `/my-tickets` and `/my-registrations` were two pages listing the same
+       * rows, reached from different places and already drifting apart. The
+       * survivor is `/my-registrations`, which projects each row explicitly and
+       * only exposes a QR once the registration is issued.
+       *
+       * Kept as a redirect rather than simply deleted: this path was the
+       * post-login landing and the nav link for the whole 2026 cycle, so it is
+       * in browser histories and bookmarks.
+       *
+       * `permanent: false` (307) on purpose — a 308 is cached by the browser
+       * indefinitely and would outlive any decision to reuse the path.
+       */
+      {
+        source: "/my-tickets",
+        destination: "/en/my-registrations",
+        permanent: false,
+      },
+      {
+        source: "/:locale/my-tickets",
+        destination: "/:locale/my-registrations",
+        permanent: false,
+      },
     ];
   },
   async headers() {

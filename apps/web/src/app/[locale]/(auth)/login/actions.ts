@@ -25,5 +25,5 @@ export async function landingPathAction(locale: string): Promise<string> {
   if (STAFF_ROLES.some((r) => held.has(r))) return `/${locale}/staff`;
 
   // Attendees hold no membership — their tickets are the point.
-  return `/${locale}/my-tickets`;
+  return `/${locale}/my-registrations`;
 }

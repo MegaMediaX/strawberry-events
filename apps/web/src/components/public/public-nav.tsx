@@ -25,7 +25,7 @@ export async function PublicNav({ locale }: { locale: string }) {
           {session ? (
             <>
               <Link
-                href={`/${locale}/my-tickets`}
+                href={`/${locale}/my-registrations`}
                 className="inline-flex min-h-10 shrink-0 items-center whitespace-nowrap rounded-md px-2 text-sm font-medium text-muted-foreground transition hover:bg-muted hover:text-foreground sm:px-3"
               >
                 My tickets

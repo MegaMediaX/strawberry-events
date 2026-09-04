@@ -32,7 +32,7 @@ describe("where login sends you", () => {
 
       if (dest === "/en/admin") expect(ADMIN_ROLES).toContain(role);
       else if (dest === "/en/staff") expect(STAFF_ROLES).toContain(role);
-      else expect(dest).toBe("/en/my-tickets");
+      else expect(dest).toBe("/en/my-registrations");
     }
   });
 
@@ -43,7 +43,7 @@ describe("where login sends you", () => {
 
   it("sends attendees to their tickets", async () => {
     mock(getSessionContext).mockResolvedValue(session([]));
-    expect(await landingPathAction("en")).toBe("/en/my-tickets");
+    expect(await landingPathAction("en")).toBe("/en/my-registrations");
   });
 
   it("sends a super admin to the admin", async () => {
