@@ -47,16 +47,34 @@ export interface SignMagicLinkOptions {
   expiresInSeconds?: number;
 }
 
+/**
+ * The key every ticket link is signed with.
+ *
+ * There is no fallback to another secret. There used to be one — to
+ * `WEBHOOK_SECRET`, a name nothing else in this app reads (the pretix webhook
+ * uses `PRETIX_WEBHOOK_SECRET`). Production has never had it set, so the branch
+ * was dead there, but it meant a ticket-forging key could be introduced by
+ * setting an unrelated-looking variable, and it quietly widened the blast
+ * radius of any secret that happened to carry that name.
+ *
+ * `/t/<token>` is the only surface that renders the pretix entrance QR, so
+ * whatever signs these tokens is an entry credential for the event.
+ *
+ * The constant is reachable only from `development` and `test`. An unset or
+ * unexpected NODE_ENV now throws instead of silently signing with a value that
+ * is in the public repository: a container that lost its env is a loud failure
+ * on the first ticket, not a forgeable link nobody notices.
+ */
 function secret(): string {
-  const s = process.env.MAGIC_LINK_SECRET || process.env.WEBHOOK_SECRET;
-  if (!s) {
-    if (process.env.NODE_ENV === "production") {
-      // Never sign with a public constant in production (forgeable ticket links).
-      throw new Error("MAGIC_LINK_SECRET is required in production");
-    }
-    return "dev-secret";
-  }
-  return s;
+  const s = process.env.MAGIC_LINK_SECRET;
+  if (s) return s;
+
+  const env = process.env.NODE_ENV;
+  if (env === "development" || env === "test") return "dev-secret";
+
+  throw new Error(
+    `MAGIC_LINK_SECRET is required (NODE_ENV=${env ?? "unset"}); refusing to sign ticket links with a public constant`,
+  );
 }
 
 function b64url(input: Buffer | string): string {

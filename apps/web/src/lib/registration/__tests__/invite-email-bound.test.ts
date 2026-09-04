@@ -53,7 +53,7 @@ const base = {
 beforeEach(() => {
   vi.clearAllMocks();
   process.env.PRETIX_API_TOKEN = "env_tok";
-  process.env.WEBHOOK_SECRET = "s";
+  process.env.MAGIC_LINK_SECRET = "s";
   process.env.APP_URL = "https://x";
 
   mock(prisma.eventMapping.findFirst).mockResolvedValue({
