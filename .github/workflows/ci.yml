@@ -20,6 +20,25 @@ jobs:
     defaults:
       run:
         working-directory: apps/web
+    # A real database, so the integration and e2e suites actually run. They are
+    # gated on TEST_DATABASE_URL and silently self-skipped for as long as it was
+    # unset — 12 files and 37 cases, including registration, check-in, seats and
+    # the public API. A green check meant unit tests only.
+    # 16-alpine matches production (16.15).
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: ci
+          POSTGRES_PASSWORD: ci
+          POSTGRES_DB: ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ci -d ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     steps:
       - uses: actions/checkout@v5
 
@@ -43,10 +62,21 @@ jobs:
       - name: Lint
         run: npm run lint
 
-      # Suites needing a real database or a live pretix instance self-skip when
-      # TEST_DATABASE_URL / PRETIX_* are unset, so this stays hermetic.
+      # The schema has to exist before the integration suites connect.
+      - name: Apply schema to the test database
+        run: npx prisma migrate deploy
+        env:
+          DATABASE_URL: postgresql://ci:ci@localhost:5432/ci?schema=public
+
+      # TEST_DATABASE_URL is only the GATE the suites check (`skipIf(!run)`);
+      # the Prisma client itself reads DATABASE_URL, so both are needed and must
+      # point at the same database. Suites needing a live pretix instance still
+      # self-skip — PRETIX_* stays unset, so this remains hermetic.
       - name: Test
         run: npm test
+        env:
+          DATABASE_URL: postgresql://ci:ci@localhost:5432/ci?schema=public
+          TEST_DATABASE_URL: postgresql://ci:ci@localhost:5432/ci?schema=public
 
       # Every route is dynamic, so nothing reaches the database at build time;
       # DATABASE_URL only has to parse.
@@ -107,8 +137,10 @@ jobs:
   #     never used, as it would delete containers of the real deployment;
   #   * the pulled image is re-tagged to whatever name the compose file already
   #     expects, so the server's compose file needs no edit;
-  #   * a preflight aborts before any change, and the previous image is restored
-  #     if migrations or the health check fail.
+  #   * a preflight aborts before any change; migrations run from a one-off
+  #     container of the new image BEFORE the swap, so a migration failure
+  #     leaves the old code serving; and the previous image is restored if the
+  #     health check fails afterwards.
   # ---------------------------------------------------------------------------
   deploy:
     name: deploy to VPS
@@ -255,19 +287,31 @@ jobs:
           docker tag "$NEW_IMAGE" "$TARGET_IMG"
           docker logout ghcr.io >/dev/null 2>&1 || true
 
-          echo "==> Recreating $WEB_SERVICE only (database and other services untouched)"
-          $DC up -d --no-deps --force-recreate "$WEB_SERVICE"
-
+          # Migrations run BEFORE the swap, from a one-off container of the NEW
+          # image. Recreating first meant new code served traffic against the
+          # old schema until migrate finished; at a door that window is a 500 on
+          # a walk-in, and it is the reason migrations have had to be applied by
+          # hand before merging.
+          #
+          # `run --rm --no-deps` borrows the service's network and environment
+          # without publishing its ports or touching the running container, so a
+          # failure here aborts with the old code still serving and nothing
+          # swapped — strictly safer than failing after the recreate. -T because
+          # there is no TTY over ssh. The CLI is invoked through node, NOT npx:
+          # the runner image copies the prisma package but not node_modules/.bin,
+          # so `npx prisma` fails with "sh: 1: prisma: not found".
+          #
           # Idempotent: applies only migrations the database has not seen.
-          # The CLI is invoked through node, NOT npx: the runner image copies the
-          # prisma package but not node_modules/.bin, so `npx prisma` finds no
-          # executable and fails with "sh: 1: prisma: not found".
-          echo "==> Applying database migrations"
-          if ! $DC exec -T "$WEB_SERVICE" node node_modules/prisma/build/index.js migrate deploy; then
-            echo "!! migrations failed — rolling back"
-            rollback
+          echo "==> Applying database migrations (before the swap)"
+          if ! $DC run --rm --no-deps -T "$WEB_SERVICE" node node_modules/prisma/build/index.js migrate deploy; then
+            echo "!! migrations failed — restoring the previous image tag."
+            echo "   The running service was never replaced, so it is still serving the old code."
+            [ -n "$PREV_ID" ] && docker tag "$PREV_ID" "$TARGET_IMG"
             exit 1
           fi
+
+          echo "==> Recreating $WEB_SERVICE only (database and other services untouched)"
+          $DC up -d --no-deps --force-recreate "$WEB_SERVICE"
 
           # Health URL: explicit secret wins; otherwise use the service's own
           # published host port. Never skip the check silently.
