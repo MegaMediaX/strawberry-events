@@ -25,11 +25,14 @@ export interface AttendeeView {
   status: AttendeeOrderStatus;
   approvalStatus: AttendeeApprovalStatus;
   /**
-   * Only present when the surface is authorized to render the QR. Omitted
-   * entirely rather than nulled, so it is absent from the serialized payload
-   * instead of merely empty.
+   * Only present when the surface is authorized to render the QR.
+   *
+   * `toAttendeeView` OMITS the key rather than setting it to null, so it is
+   * absent from the serialized payload instead of present-and-empty. `null` is
+   * still accepted in the type because the component already tolerated it and
+   * its own tests exercise that case.
    */
-  pretixSecret?: string;
+  pretixSecret?: string | null;
   eventMapping: {
     titleEn: string;
     /** Optional, matching the shape the component already accepted. */
