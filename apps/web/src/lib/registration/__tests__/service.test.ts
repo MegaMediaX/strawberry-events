@@ -30,7 +30,7 @@ const mock = <T,>(fn: T) => fn as unknown as ReturnType<typeof vi.fn>;
 beforeEach(() => {
   vi.clearAllMocks();
   process.env.PRETIX_API_TOKEN = "env_tok";
-  process.env.WEBHOOK_SECRET = "s";
+  process.env.MAGIC_LINK_SECRET = "s";
   process.env.APP_URL = "https://x";
   mock(prisma.eventMapping.findFirst).mockResolvedValue({
     id: "e1",
@@ -390,7 +390,7 @@ describe("register", () => {
 
 describe("assertInviteAllows", () => {
   beforeEach(() => {
-    process.env.WEBHOOK_SECRET = "s";
+    process.env.MAGIC_LINK_SECRET = "s";
   });
 
   it("allows a public-only selection with no token", () => {

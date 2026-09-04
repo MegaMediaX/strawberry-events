@@ -42,7 +42,7 @@ describe.skipIf(!run)("approval integration", () => {
 
   beforeAll(async () => {
     process.env.PRETIX_API_TOKEN = "env_tok";
-    process.env.WEBHOOK_SECRET = "s";
+    process.env.MAGIC_LINK_SECRET = "s";
     ({ prisma } = await import("@/lib/db/client"));
     svc = await import("@/lib/approval/service");
     await prisma.organization.create({

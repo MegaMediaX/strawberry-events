@@ -51,7 +51,7 @@ function order(overrides: Record<string, unknown> = {}) {
 beforeEach(() => {
   vi.clearAllMocks();
   process.env.PRETIX_API_TOKEN = "env_tok";
-  process.env.WEBHOOK_SECRET = "s";
+  process.env.MAGIC_LINK_SECRET = "s";
   mock(prisma.organization.findUnique).mockResolvedValue({
     id: "orgA", pretixOrganizerSlug: "acme", pretixApiToken: null,
   });

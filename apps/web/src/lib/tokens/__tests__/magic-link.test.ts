@@ -7,7 +7,7 @@ import {
 } from "@/lib/tokens/magic-link";
 
 beforeAll(() => {
-  process.env.WEBHOOK_SECRET = "test-secret";
+  process.env.MAGIC_LINK_SECRET = "test-secret";
 });
 
 /**
@@ -16,7 +16,7 @@ beforeAll(() => {
  * compatibility tests must not depend on the current signer to produce it.
  */
 function legacyToken(orderCode: string): string {
-  const secret = process.env.MAGIC_LINK_SECRET || process.env.WEBHOOK_SECRET || "dev-secret";
+  const secret = process.env.MAGIC_LINK_SECRET || "dev-secret";
   const b64url = (input: Buffer | string) =>
     Buffer.from(input)
       .toString("base64")

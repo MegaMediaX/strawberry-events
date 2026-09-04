@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach } from "vitest";
 import { signInvite, verifyInvite } from "../invite";
 
 beforeEach(() => {
-  process.env.WEBHOOK_SECRET = "test-secret";
+  process.env.MAGIC_LINK_SECRET = "test-secret";
 });
 
 describe("signInvite / verifyInvite", () => {

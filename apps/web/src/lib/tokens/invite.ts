@@ -15,15 +15,21 @@ export interface InvitePayload {
   exp?: number;
 }
 
+/**
+ * Same key, same rules, same reasons as `magic-link.ts` — an invite token
+ * grants a registration, so a forgeable one is a free ticket. No fallback to
+ * `WEBHOOK_SECRET`; the constant is reachable only from development and test.
+ */
 function secret(): string {
-  const s = process.env.MAGIC_LINK_SECRET || process.env.WEBHOOK_SECRET;
-  if (!s) {
-    if (process.env.NODE_ENV === "production") {
-      throw new Error("MAGIC_LINK_SECRET is required in production");
-    }
-    return "dev-secret";
-  }
-  return s;
+  const s = process.env.MAGIC_LINK_SECRET;
+  if (s) return s;
+
+  const env = process.env.NODE_ENV;
+  if (env === "development" || env === "test") return "dev-secret";
+
+  throw new Error(
+    `MAGIC_LINK_SECRET is required (NODE_ENV=${env ?? "unset"}); refusing to sign invite tokens with a public constant`,
+  );
 }
 
 function b64url(input: Buffer | string): string {
