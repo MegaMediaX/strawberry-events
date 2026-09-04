@@ -6,7 +6,7 @@ import { sendEmail } from "@/lib/email/service";
 import { confirmationEmail } from "@/lib/email/templates";
 import { recipientLocale } from "@/lib/email/recipient-locale";
 import { rateLimit } from "@/lib/security/rate-limit";
-import { clientIp } from "@/lib/security/order-lookup";
+import { clientIp } from "@/lib/security/client-ip";
 
 /**
  * Deliberately identical for "no such order", "not issued yet", "sent" and
