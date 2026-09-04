@@ -1,4 +1,4 @@
-import { headers } from "next/headers";
+import { clientIp } from "./client-ip";
 import { rateLimit } from "./rate-limit";
 
 /**
@@ -14,14 +14,20 @@ import { rateLimit } from "./rate-limit";
 export const ORDER_LOOKUP_LIMIT = 20;
 export const ORDER_LOOKUP_WINDOW_MS = 60_000;
 
-export async function clientIp(): Promise<string> {
-  const h = await headers();
-  return (
-    h.get("x-forwarded-for")?.split(",")[0]?.trim() ||
-    h.get("x-real-ip") ||
-    "unknown"
-  );
-}
+/**
+ * The client IP comes from `./client-ip`, which reads the entries the trusted
+ * proxies appended (the RIGHTMOST ones).
+ *
+ * This module used to carry its own `clientIp()` reading the LEFTMOST
+ * `X-Forwarded-For` entry — the one the client supplies. That value is
+ * attacker-controlled, so rotating it per request landed every request in a
+ * fresh bucket and disabled this limiter entirely: the enumeration defence the
+ * comment above describes was not running. `client-ip.ts` was written to kill
+ * exactly that pattern and names the three duplicated helpers it replaced;
+ * this one was missed because it lives beside it rather than in a route.
+ *
+ * There must be one definition. Do not reintroduce a local copy.
+ */
 
 /** Namespaced so one event's traffic cannot exhaust another event's budget. */
 export function orderLookupKey(scope: string, ip: string): string {
