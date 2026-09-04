@@ -171,3 +171,52 @@ export function passwordResetEmail(locale: Locale, resetUrl: string): RenderedEm
     text: `To reset your password, open this link (valid for 1 hour):\n${resetUrl}\nIf you didn't request this, you can ignore this email.`,
   };
 }
+
+/**
+ * Sent when someone submits the signup form for an address that ALREADY has an
+ * account. The form answers identically either way, so this mail is the only
+ * place the difference surfaces — and it surfaces to the mailbox owner, who is
+ * entitled to know, rather than to whoever typed the address.
+ */
+export function accountExistsEmail(
+  locale: Locale,
+  loginUrl: string,
+  resetUrl: string,
+): RenderedEmail {
+  if (locale === "ar") {
+    return {
+      subject: "لديك حساب بالفعل",
+      text:
+        "حاول أحدهم إنشاء حساب بهذا البريد الإلكتروني، ولديك حساب بالفعل.\n" +
+        `لتسجيل الدخول: ${loginUrl}\n` +
+        `نسيت كلمة المرور؟ ${resetUrl}\n` +
+        "لم يتغير شيء في حسابك. إذا لم تكن أنت، تجاهل هذه الرسالة.",
+    };
+  }
+  return {
+    subject: "You already have an account",
+    text:
+      "Someone tried to create an account with this email address, and you already have one.\n" +
+      `Sign in: ${loginUrl}\n` +
+      `Forgot your password? ${resetUrl}\n` +
+      "Nothing about your account has changed. If this wasn't you, you can ignore this email.",
+  };
+}
+
+/**
+ * Sent when the signup form DID create an account. Its only job is to make the
+ * neutral "check your inbox" screen true in both branches — without it that
+ * screen would be a lie for new accounts, and the difference would be visible.
+ */
+export function accountCreatedEmail(locale: Locale, loginUrl: string): RenderedEmail {
+  if (locale === "ar") {
+    return {
+      subject: "حسابك جاهز",
+      text: `تم إنشاء حسابك. لتسجيل الدخول: ${loginUrl}`,
+    };
+  }
+  return {
+    subject: "Your account is ready",
+    text: `Your account has been created. Sign in here: ${loginUrl}`,
+  };
+}

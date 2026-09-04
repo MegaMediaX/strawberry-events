@@ -1,11 +1,10 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { signIn } from "next-auth/react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -23,9 +22,15 @@ const schema = z
 
 type FormValues = z.infer<typeof schema>;
 
+/**
+ * Deliberately identical whether the address was free or already had an
+ * account — the same shape `forgot-password` uses, and for the same reason.
+ */
+const NEUTRAL = "Check your inbox. We've emailed you a link to sign in.";
+
 export function RegisterForm({ locale }: { locale: string }) {
-  const router = useRouter();
   const [error, setError] = useState<string | null>(null);
+  const [sent, setSent] = useState(false);
   const {
     register,
     handleSubmit,
@@ -34,24 +39,33 @@ export function RegisterForm({ locale }: { locale: string }) {
 
   async function onSubmit(values: FormValues) {
     setError(null);
-    const res = await registerAction(values);
+    const res = await registerAction({ ...values, locale });
     if (!res.ok) {
+      // Only input/throttle failures reach here. Whether the address is taken
+      // is NOT one of them, by design.
       setError(res.error ?? "Registration failed.");
       return;
     }
-    // Account created — sign in (same credentials flow as login).
-    const signin = await signIn("credentials", {
-      email: values.email,
-      password: values.password,
-      redirect: false,
-    });
-    if (signin?.error) {
-      // Account exists but sign-in failed; send them to login.
-      router.push(`/${locale}/login`);
-      return;
-    }
-    router.push(`/${locale}/my-tickets`);
-    router.refresh();
+    setSent(true);
+  }
+
+  if (sent) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle>Almost there</CardTitle>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-4">
+          <p className="text-sm text-muted-foreground">{NEUTRAL}</p>
+          <Link
+            href={`/${locale}/login`}
+            className="text-sm font-medium text-primary underline-offset-4 hover:underline"
+          >
+            Go to sign in
+          </Link>
+        </CardContent>
+      </Card>
+    );
   }
 
   return (
