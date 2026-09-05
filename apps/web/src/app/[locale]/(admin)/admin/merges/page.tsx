@@ -2,6 +2,7 @@ import Link from "next/link";
 import { setRequestLocale } from "next-intl/server";
 import { getSessionContext, requireRole } from "@/lib/auth/session";
 import { listMergeEvents } from "@/lib/merge/admin";
+import { hasAnyRole } from "@/lib/auth/guards";
 import { ReverseButton } from "./reverse-button";
 
 export const dynamic = "force-dynamic";
@@ -16,7 +17,17 @@ export default async function MergesPage({
   await requireRole(["super_admin", "organizer_admin"], `/${locale}/admin`);
 
   const session = await getSessionContext();
-  const events = session ? await listMergeEvents(session) : [];
+  /**
+   * Pre-checked rather than letting the service throw. `listMergeEvents` raises
+   * ForbiddenError, there is no error.tsx in the admin tree, and an impersonating
+   * admin would meet a crash instead of an empty page. The detail page already
+   * guards this way; matching it keeps the two consistent.
+   */
+  const mayMerge =
+    !!session &&
+    hasAnyRole(session, ["super_admin", "organizer_admin"]) &&
+    !session.impersonating;
+  const events = mayMerge ? await listMergeEvents(session) : [];
 
   return (
     <div className="max-w-4xl">

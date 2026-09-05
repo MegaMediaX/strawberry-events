@@ -14,6 +14,9 @@ import { linkOrdersToUser, reverseMergeEvent, orderLinkHistory } from "./ledger"
  */
 const MERGE_ROLES = ["super_admin", "organizer_admin"] as const;
 
+/** Thrown to roll back the legacy-detach transaction; returning would commit it. */
+class DetachConflict extends Error {}
+
 export interface OperatorResult {
   ok: boolean;
   error?: string;
@@ -109,6 +112,14 @@ export async function unlinkOrder(
 ): Promise<OperatorResult> {
   assertMayMerge(session);
 
+  /**
+   * Checked HERE, not only in ledger.ts. The legacy-detach branch below writes
+   * its own event rather than going through reverseMergeEvent, so it would
+   * otherwise skip the reason requirement entirely — and `unlinkAction` is a
+   * real HTTP endpoint, so the disabled button in the UI is not a gate.
+   */
+  if (!params.reason?.trim()) return { ok: false, error: "A reason is required." };
+
   const scoped = await getOrderForOperator(session, params.orderId);
   if (!scoped) return { ok: false, error: "No such registration." };
   if (!scoped.order.userId) return { ok: false, error: "That registration is not linked." };
@@ -130,35 +141,60 @@ export async function unlinkOrder(
    * became unowned.
    */
   const previousUserId = scoped.order.userId;
-  await prisma.$transaction(async (tx) => {
-    const event = await tx.accountMergeEvent.create({
-      data: {
-        userId: previousUserId,
-        actorType: "staff_override",
-        actorUserId: session.userId,
-        proofType: "admin_override",
-        reason: params.reason.trim(),
-        ip: params.ip ?? null,
-        reverseDeadline: new Date(),
-        reversedAt: new Date(),
-        reversedByUserId: session.userId,
-        reversedReason: params.reason.trim(),
-        reversedCount: 1,
-      },
+  try {
+    await prisma.$transaction(async (tx) => {
+      /**
+       * Lock the row before writing the event that describes moving it.
+       * Without this the owner can change between the read above and the write
+       * below: zero rows update, and a ledger row still claims a completed
+       * detach that never happened. Same reasoning — and the same FOR UPDATE —
+       * as linkOrdersToUser.
+       */
+      const locked = await tx.$queryRaw<{ id: string; userId: string | null }[]>`
+        SELECT id, "userId" FROM attendee_orders WHERE id = ${scoped.order.id} FOR UPDATE
+      `;
+      if (locked[0]?.userId !== previousUserId) throw new DetachConflict();
+
+      const event = await tx.accountMergeEvent.create({
+        data: {
+          userId: previousUserId,
+          actorType: "staff_override",
+          actorUserId: session.userId,
+          proofType: "admin_override",
+          reason: params.reason.trim(),
+          ip: params.ip ?? null,
+          reverseDeadline: new Date(),
+          reversedAt: new Date(),
+          reversedByUserId: session.userId,
+          reversedReason: params.reason.trim(),
+          reversedCount: 1,
+        },
+      });
+      await tx.accountMergeEventEntity.create({
+        data: {
+          mergeEventId: event.id,
+          entityType: "attendee_order",
+          entityId: scoped.order.id,
+          previousUserId,
+        },
+      });
+      const moved = await tx.attendeeOrder.updateMany({
+        where: { id: scoped.order.id, userId: previousUserId },
+        data: { userId: null },
+      });
+      // The count is the whole point: a ledger row saying "detached" over an
+      // order that never moved is exactly the lie this table cannot tell.
+      if (moved.count !== 1) throw new DetachConflict();
     });
-    await tx.accountMergeEventEntity.create({
-      data: {
-        mergeEventId: event.id,
-        entityType: "attendee_order",
-        entityId: scoped.order.id,
-        previousUserId,
-      },
-    });
-    await tx.attendeeOrder.updateMany({
-      where: { id: scoped.order.id, userId: previousUserId },
-      data: { userId: null },
-    });
-  });
+  } catch (err) {
+    if (err instanceof DetachConflict) {
+      return {
+        ok: false,
+        error: "That registration changed while you were working. Reload and try again.",
+      };
+    }
+    throw err;
+  }
 
   return { ok: true };
 }
@@ -305,6 +341,27 @@ export async function reverseFromLedger(
     return { ok: false, error: "No such event." };
   }
 
+  /**
+   * Visible is not the same as wholly mine.
+   *
+   * `eventIsVisible` asks whether ANY entity on the event belongs to this
+   * organisation, but `reverseMergeEvent` restores EVERY entity on it. One
+   * event spanning two organisations would let an operator who can see their
+   * own half move the other half too — a cross-organisation write authorised by
+   * partial visibility.
+   *
+   * No current caller can create such an event: this file links one order at a
+   * time. `linkOrdersToUser` takes an array though, and the self-claim path is
+   * exactly the caller that will match one person's address across several
+   * events. Refusing now costs nothing and closes it before that lands.
+   */
+  if (await eventSpansOtherOrganisations(session, params.eventId)) {
+    return {
+      ok: false,
+      error: "That link covers registrations outside your organisation. Unlink them individually.",
+    };
+  }
+
   const res = await reverseMergeEvent({
     eventId: params.eventId,
     actor: { type: "staff_override", userId: session.userId, ip: params.ip },
@@ -333,4 +390,30 @@ async function eventIsVisible(session: SessionContext, eventId: string): Promise
     ) AS ok
   `;
   return rows[0]?.ok === true;
+}
+
+/**
+ * True when the event touches at least one registration this operator may NOT
+ * see. Counts the entities that fall outside the caller's organisations rather
+ * than the ones inside, because it is the outsiders that make a whole-event
+ * reversal unsafe.
+ */
+async function eventSpansOtherOrganisations(
+  session: SessionContext,
+  eventId: string,
+): Promise<boolean> {
+  if (session.isSuperAdmin) return false;
+  const orgIds = [...new Set(session.memberships.map((m) => m.organizationId))];
+  if (orgIds.length === 0) return true;
+
+  const rows = await prisma.$queryRaw<{ outside: bigint }[]>`
+    SELECT count(*) AS outside
+    FROM account_merge_event_entities en
+    JOIN attendee_orders o ON o.id = en."entityId"
+    JOIN event_mappings m ON m.id = o."eventMappingId"
+    WHERE en."mergeEventId" = ${eventId}
+      AND en."entityType" = 'attendee_order'
+      AND NOT (m."organizationId" = ANY(${orgIds}::text[]))
+  `;
+  return Number(rows[0]?.outside ?? 0) > 0;
 }

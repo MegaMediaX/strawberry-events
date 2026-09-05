@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import type { SessionContext } from "@/lib/auth/types";
+import type { MemberRole } from "@prisma/client";
 
 const run = Boolean(process.env.TEST_DATABASE_URL);
 
@@ -18,10 +19,18 @@ describe.skipIf(!run)("merge admin (integration)", () => {
   let attendee = "", adminA = "", financeA = "", adminB = "";
   let orderInA = "", orderInB = "";
 
-  const session = (userId: string, orgId: string, role: string, over: Partial<SessionContext> = {}): SessionContext => ({
+  // Typed against the real MemberRole rather than cast through `as never`: a
+  // typo'd role literal should fail the build, not turn into a puzzling runtime
+  // failure inside a guard test.
+  const session = (
+    userId: string,
+    orgId: string,
+    role: MemberRole,
+    over: Partial<SessionContext> = {},
+  ): SessionContext => ({
     userId,
     isSuperAdmin: false,
-    memberships: [{ organizationId: orgId, role, assignedEventIds: [] }] as never,
+    memberships: [{ organizationId: orgId, role, assignedEventIds: [] }],
     ...over,
   });
 
@@ -101,7 +110,7 @@ describe.skipIf(!run)("merge admin (integration)", () => {
    * "may re-own a registration". checkin_staff is further still from it.
    */
   it("refuses roles that can open /admin but have no business re-owning", async () => {
-    for (const role of ["finance", "workshop_organiser", "checkin_staff"]) {
+    for (const role of ["finance", "workshop_organiser", "checkin_staff"] as MemberRole[]) {
       const ses = session(financeA, orgA, role);
       await expect(admin.getOrderForOperator(ses, orderInA)).rejects.toThrow(/not allowed/i);
     }
@@ -227,5 +236,57 @@ describe.skipIf(!run)("merge admin (integration)", () => {
     const res = await admin.reverseFromLedger(sesA, { eventId: mineEvent.id, reason: "still mine to undo" });
     expect(res.ok).toBe(true);
     expect((await prisma.attendeeOrder.findUnique({ where: { id: orderInA } }))?.userId).toBeNull();
+  });
+
+  /**
+   * The gap this closes: "I can see this event" is not "this event is mine".
+   *
+   * reverseMergeEvent restores EVERY entity on an event, but visibility was
+   * decided by whether ANY entity belonged to the caller. One event spanning
+   * two organisations would therefore let an operator who can see their own
+   * half move the other half too — a cross-organisation WRITE authorised by
+   * partial visibility.
+   *
+   * Nothing in the admin path can build such an event today, since it links one
+   * order at a time. linkOrdersToUser takes an array though, and the self-claim
+   * path is precisely the caller that will match one person across several
+   * registrations. The event is built directly here to cover the shape before
+   * that lands.
+   */
+  it("refuses to reverse an event that reaches into another organisation", async () => {
+    const { linkOrdersToUser } = await import("@/lib/merge/ledger");
+
+    // One event owning an order in EACH organisation.
+    const mixed = await linkOrdersToUser({
+      orderIds: [orderInA, orderInB],
+      userId: attendee,
+      actor: { type: "staff_override", userId: adminA },
+      proofType: "admin_override",
+      reason: "mixed",
+    });
+    expect(mixed.ok).toBe(true);
+
+    const sesA = session(adminA, orgA, "organizer_admin");
+    const res = await admin.reverseFromLedger(sesA, { eventId: mixed.eventId!, reason: "undo" });
+
+    expect(res.ok).toBe(false);
+    expect(res.error).toMatch(/outside your organisation/i);
+
+    // Neither side moved — in particular the org this operator cannot see.
+    expect((await prisma.attendeeOrder.findUnique({ where: { id: orderInB } }))?.userId).toBe(attendee);
+    expect((await prisma.attendeeOrder.findUnique({ where: { id: orderInA } }))?.userId).toBe(attendee);
+  });
+
+  /** The legacy-detach branch writes its own event, so it needs its own checks. */
+  it("refuses a legacy detach with no reason, and records nothing", async () => {
+    await prisma.attendeeOrder.update({ where: { id: orderInA }, data: { userId: attendee } });
+    const sesA = session(adminA, orgA, "organizer_admin");
+
+    const res = await admin.unlinkOrder(sesA, { orderId: orderInA, reason: "   " });
+    expect(res.ok).toBe(false);
+    expect(res.error).toMatch(/reason is required/i);
+
+    expect(await prisma.accountMergeEvent.count({ where: { userId: attendee } })).toBe(0);
+    expect((await prisma.attendeeOrder.findUnique({ where: { id: orderInA } }))?.userId).toBe(attendee);
   });
 });

@@ -14,7 +14,12 @@ export async function reverseAction(
   if (!session) return { ok: false, error: "Not authenticated" };
   try {
     const res = await reverseFromLedger(session, { eventId, reason, ip: await clientIp() });
-    if (res.ok) revalidatePath(`/${locale}/admin/merges`);
+    if (res.ok) {
+      revalidatePath(`/${locale}/admin/merges`);
+      // The affected registrations show their own link history, so leaving them
+      // out means a reverse here can look like it never happened over there.
+      revalidatePath(`/${locale}/admin/registrations`, "layout");
+    }
     return res;
   } catch (err) {
     return { ok: false, error: (err as Error).message };
