@@ -26,6 +26,7 @@ CREATE TABLE "account_merge_events" (
     "reverseDeadline" TIMESTAMP(3) NOT NULL,
     "reversedAt" TIMESTAMP(3),
     "reversedByUserId" TEXT,
+    "reversedCount" INTEGER,
     "reversedReason" TEXT,
 
     CONSTRAINT "account_merge_events_pkey" PRIMARY KEY ("id")

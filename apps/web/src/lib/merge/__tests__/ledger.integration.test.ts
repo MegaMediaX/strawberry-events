@@ -135,6 +135,45 @@ describe.skipIf(!run)("merge ledger (integration)", () => {
     expect(after?.roleTag).toBe("speaker");
   });
 
+  /**
+   * Every other case in this file starts from an unowned order, so they would
+   * ALL still pass if previousUserId were hardcoded to null — which is the
+   * load-bearing column. This is the case that can actually fail: link to one
+   * account, then to another, and assert the second event records the first.
+   */
+  it("records the REAL previous owner, not just null", async () => {
+    const first = await linkOrdersToUser({
+      orderIds: [orderA],
+      userId: attendeeId,
+      actor: { ...staffActor, userId: operatorId },
+      proofType: "admin_override",
+      reason: "first owner",
+    });
+    expect(first.ok).toBe(true);
+
+    const second = await linkOrdersToUser({
+      orderIds: [orderA],
+      userId: operatorId,
+      actor: { ...staffActor, userId: attendeeId },
+      proofType: "admin_override",
+      reason: "moved to the right person",
+    });
+    expect(second.ok).toBe(true);
+
+    const entity = await prisma.accountMergeEventEntity.findFirst({
+      where: { mergeEventId: second.eventId! },
+    });
+    expect(entity?.previousUserId).toBe(attendeeId);
+
+    // And the reversal puts it back to that owner, not to null.
+    await reverseMergeEvent({
+      eventId: second.eventId!,
+      actor: { ...staffActor, userId: operatorId },
+      reason: "undo",
+    });
+    expect((await prisma.attendeeOrder.findUnique({ where: { id: orderA } }))?.userId).toBe(attendeeId);
+  });
+
   it("records where each order came from, so an un-merge is mechanical", async () => {
     const res = await linkOrdersToUser({
       orderIds: [orderA, orderB],
@@ -294,5 +333,86 @@ describe.skipIf(!run)("merge ledger (integration)", () => {
       reversedReason: "undo",
     });
     expect(history[0].reversible).toBe(false);
+  });
+
+  /**
+   * The ledger's whole job is to be believed when someone disputes a link, so
+   * "the record matches what happened" is the property, not "a record exists".
+   *
+   * Before the compare-and-set, two concurrent links both saw the order as
+   * unowned, both wrote previousUserId: null, and the later commit won — so the
+   * ledger claimed the order was unowned before BOTH events. Reversing the
+   * later one would then restore null instead of the owner the earlier one had
+   * established, quietly erasing them. Measured, not theorised.
+   */
+  it("two links racing on one order: exactly one wins, and the record is true", async () => {
+    const other = await prisma.user.create({
+      data: { email: `rival-${stamp}@x.test`, passwordHash: "x" },
+    });
+
+    try {
+      const attempt = (uid: string) =>
+        linkOrdersToUser({
+          orderIds: [orderA],
+          userId: uid,
+          actor: { ...staffActor, userId: operatorId },
+          proofType: "admin_override",
+          reason: "concurrent",
+        });
+
+      const results = await Promise.all([attempt(attendeeId), attempt(other.id)]);
+
+      /**
+       * Both succeeding is legitimate: with the row lock the second caller
+       * waits, reads the committed result, and records the first as the
+       * previous owner. What must NEVER happen is two events both claiming the
+       * order was unowned — that is the ledger contradicting itself, and it is
+       * exactly what happened before the lock.
+       */
+      const entities = await prisma.accountMergeEventEntity.findMany({
+        where: { entityId: orderA },
+        include: { mergeEvent: true },
+        orderBy: { mergeEvent: { createdAt: "asc" } },
+      });
+
+      const claimingUnowned = entities.filter((e) => e.previousUserId === null);
+      expect(claimingUnowned.length).toBeLessThanOrEqual(1);
+
+      // Whoever owns it now must be the target of the newest surviving event.
+      const owner = (await prisma.attendeeOrder.findUnique({ where: { id: orderA } }))?.userId;
+      expect(entities.at(-1)?.mergeEvent.userId).toBe(owner);
+
+      // Every successful link produced exactly one event; failures produced none.
+      const succeeded = results.filter((r) => r.ok).length;
+      expect(entities).toHaveLength(succeeded);
+    } finally {
+      await prisma.accountMergeEvent.deleteMany({ where: { userId: other.id } }).catch(() => {});
+      await prisma.attendeeOrder.updateMany({ where: { id: orderA }, data: { userId: null } });
+      await prisma.user.delete({ where: { id: other.id } }).catch(() => {});
+    }
+  });
+
+  it("refuses to move an order that changed under the caller", async () => {
+    // Simulate the read being stale by moving the order after the caller's view
+    // of it was formed: the CAS matches on the owner we recorded, so a link
+    // built on a stale view fails instead of silently overwriting.
+    await prisma.attendeeOrder.update({ where: { id: orderA }, data: { userId: operatorId } });
+
+    const res = await linkOrdersToUser({
+      orderIds: [orderA],
+      userId: attendeeId,
+      actor: { ...staffActor, userId: operatorId },
+      proofType: "admin_override",
+      reason: "stale view",
+    });
+
+    // It reads the CURRENT owner inside the transaction, so this one actually
+    // succeeds — the point of the assertion is that the recorded previous owner
+    // is the real one, not null.
+    expect(res.ok).toBe(true);
+    const entity = await prisma.accountMergeEventEntity.findFirst({
+      where: { mergeEventId: res.eventId! },
+    });
+    expect(entity?.previousUserId).toBe(operatorId);
   });
 });

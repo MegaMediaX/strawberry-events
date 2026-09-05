@@ -319,6 +319,10 @@ model AccountMergeEvent {
 
   reversedAt       DateTime?
   reversedByUserId String?
+  /// How many registrations the reversal actually moved. A reversal that found
+  /// nothing to move is refused rather than recorded, so this is never 0 — it
+  /// exists to show when a reversal was PARTIAL, which is otherwise invisible.
+  reversedCount    Int?
   /// Why it was reversed — the half of the story an audit needs most.
   reversedReason   String?
 
