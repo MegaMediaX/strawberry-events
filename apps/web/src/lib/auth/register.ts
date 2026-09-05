@@ -1,21 +1,11 @@
 import { prisma } from "@/lib/db/client";
 import { hashPassword } from "./password";
-import { mintCode, storeAndSendCode } from "./email-verification";
-import { rateLimit } from "@/lib/security/rate-limit";
+import { mintCode, storeAndSendCode, signupMailAllowed } from "./email-verification";
 import { sendEmail } from "@/lib/email/service";
 import { accountExistsEmail, type Locale } from "@/lib/email/templates";
 
 const MIN_PASSWORD = 8;
 const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
-
-/**
- * Per-ADDRESS cap on signup mail, on top of the per-IP throttle in the action.
- * The per-IP one does not protect a victim: an attacker rotating source IPs can
- * point every request at one address. This is the same shape the resend-ticket
- * action already uses to stop a known order code being used to mailbomb.
- */
-const MAIL_LIMIT = 3;
-const MAIL_WINDOW_MS = 60 * 60 * 1000;
 
 export interface RegisterResult {
   ok: boolean;
@@ -88,7 +78,7 @@ export async function registerAttendee(
     data: { email: e, passwordHash, name: name?.trim() || null, emailVerified: null },
   });
 
-  if (rateLimit(`signup-mail:${e}`, MAIL_LIMIT, MAIL_WINDOW_MS).allowed) {
+  if (signupMailAllowed(e)) {
     try {
       await storeAndSendCode(user.id, e, minted, locale);
     } catch (err) {
@@ -107,7 +97,7 @@ export async function registerAttendee(
  * there is no signal anywhere that it happened.
  */
 async function notify(to: string, msg: { subject: string; text: string }): Promise<void> {
-  if (!rateLimit(`signup-mail:${to}`, MAIL_LIMIT, MAIL_WINDOW_MS).allowed) return;
+  if (!signupMailAllowed(to)) return;
   try {
     await sendEmail(
       { to, ...msg },

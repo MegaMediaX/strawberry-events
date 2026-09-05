@@ -11,7 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { registerAction, verifyEmailAction } from "./actions";
+import { registerAction, verifyEmailAction, resendCodeAction } from "./actions";
 
 const schema = z
   .object({
@@ -44,7 +44,6 @@ export function RegisterForm({ locale }: { locale: string }) {
   const {
     register,
     handleSubmit,
-    getValues,
     formState: { errors, isSubmitting },
   } = useForm<FormValues>({ resolver: zodResolver(schema) });
 
@@ -90,13 +89,15 @@ export function RegisterForm({ locale }: { locale: string }) {
 
   async function onResend() {
     setCodeError(null);
+    if (!creds) return;
     setBusy(true);
-    // Re-runs the same action, which supersedes the previous code. No separate
-    // endpoint, so it inherits both the per-IP and per-address limits already
-    // guarding signup rather than opening a new way to mail someone.
-    await registerAction({ ...getValues(), locale });
+    // A dedicated action, NOT a second registerAction: the first submit created
+    // the account, so re-running signup would find it already present, take the
+    // existing-address branch, and mail "you already have an account" without
+    // ever issuing a new code.
+    await resendCodeAction({ email: creds.email, locale });
     setBusy(false);
-    setResendNote("If that address can receive a code, a new one is on its way.");
+    setResendNote("If that address is waiting on a code, a new one is on its way.");
   }
 
   if (sent) {

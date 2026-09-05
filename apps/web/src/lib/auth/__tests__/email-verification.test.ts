@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 vi.mock("@/lib/db/client", () => ({
   prisma: {
-    user: { update: vi.fn() },
+    user: { update: vi.fn(), findUnique: vi.fn() },
     emailVerificationCode: {
       updateMany: vi.fn(),
       create: vi.fn(),
@@ -19,9 +19,11 @@ import {
   mintCode,
   storeAndSendCode,
   checkVerificationCode,
+  resendVerificationCode,
   CODE_REJECTED,
   MAX_ATTEMPTS,
 } from "@/lib/auth/email-verification";
+import { __resetRateLimits } from "@/lib/security/rate-limit";
 import { generateCode } from "@/lib/tokens/verification-code";
 
 const mock = <T,>(fn: T) => fn as unknown as ReturnType<typeof vi.fn>;
@@ -30,6 +32,7 @@ const future = () => new Date(Date.now() + 60_000);
 
 beforeEach(() => {
   vi.clearAllMocks();
+  __resetRateLimits();
   mock(prisma.emailVerificationCode.updateMany).mockResolvedValue({ count: 1 });
   mock(prisma.emailVerificationCode.create).mockResolvedValue({ id: "c1" });
   mock(prisma.emailVerificationCode.update).mockResolvedValue({ id: "c1" });
@@ -159,5 +162,74 @@ describe("checkVerificationCode", () => {
     const res = await checkVerificationCode("a@x.com", "12345");
     expect(res.ok).toBe(false);
     expect(prisma.emailVerificationCode.findFirst).not.toHaveBeenCalled();
+  });
+});
+
+describe("resendVerificationCode", () => {
+  /**
+   * The bug this exists for: re-running signup to "send a new code" cannot
+   * work, because the first submit created the account. The second call finds
+   * it present, takes the existing-address branch, and mails "you already have
+   * an account" — no new code, and a baffling message for someone who signed up
+   * a minute ago. Anyone whose code expired had no way back.
+   */
+  it("issues a NEW code for an account still waiting to be verified", async () => {
+    mock(prisma.user.findUnique).mockResolvedValue({
+      id: "u1",
+      status: "active",
+      emailVerified: null,
+    });
+
+    await resendVerificationCode("a@x.com");
+
+    expect(prisma.emailVerificationCode.create).toHaveBeenCalledTimes(1);
+    const sent = mock(sendEmail).mock.calls[0][0];
+    expect(sent.subject).toMatch(/verification code/i);
+    expect(sent.subject).not.toMatch(/already have an account/i);
+  });
+
+  it("supersedes the previous code, so only the newest one works", async () => {
+    mock(prisma.user.findUnique).mockResolvedValue({
+      id: "u1",
+      status: "active",
+      emailVerified: null,
+    });
+
+    await resendVerificationCode("a@x.com");
+
+    expect(mock(prisma.emailVerificationCode.updateMany).mock.calls[0][0].where).toMatchObject({
+      email: "a@x.com",
+      usedAt: null,
+      supersededAt: null,
+    });
+  });
+
+  it("sends nothing for an unknown address, a verified account, or a suspended one", async () => {
+    for (const user of [
+      null,
+      { id: "u1", status: "active", emailVerified: new Date() },
+      { id: "u1", status: "suspended", emailVerified: null },
+    ]) {
+      vi.clearAllMocks();
+      __resetRateLimits();
+      mock(prisma.user.findUnique).mockResolvedValue(user);
+      await resendVerificationCode("a@x.com");
+      expect(sendEmail).not.toHaveBeenCalled();
+      expect(prisma.emailVerificationCode.create).not.toHaveBeenCalled();
+    }
+  });
+
+  it("shares one mail budget with signup, so it cannot mail someone more often", async () => {
+    mock(prisma.user.findUnique).mockResolvedValue({
+      id: "u1",
+      status: "active",
+      emailVerified: null,
+    });
+
+    for (let i = 0; i < 3; i += 1) await resendVerificationCode("a@x.com");
+    expect(mock(sendEmail).mock.calls).toHaveLength(3);
+
+    await resendVerificationCode("a@x.com");
+    expect(mock(sendEmail).mock.calls).toHaveLength(3); // capped, not 4
   });
 });

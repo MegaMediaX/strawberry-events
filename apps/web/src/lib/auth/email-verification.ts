@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db/client";
+import { rateLimit } from "@/lib/security/rate-limit";
 import { generateCode, hashCode, verifyCode } from "@/lib/tokens/verification-code";
 import { sendEmail } from "@/lib/email/service";
 import { verifyEmailCodeEmail, type Locale } from "@/lib/email/templates";
@@ -137,4 +138,54 @@ export async function checkVerificationCode(
   });
 
   return { ok: true };
+}
+
+/**
+ * Per-ADDRESS cap shared by every signup mail — the first code, the
+ * "you already have an account" notice, and every resend.
+ *
+ * One budget on purpose: if resend had its own, it would be a way to mail
+ * someone three more times per hour than signup allows, which is exactly the
+ * mailbombing the cap exists to stop.
+ */
+export const MAIL_LIMIT = 3;
+export const MAIL_WINDOW_MS = 60 * 60 * 1000;
+
+export function signupMailAllowed(email: string): boolean {
+  return rateLimit(`signup-mail:${email}`, MAIL_LIMIT, MAIL_WINDOW_MS).allowed;
+}
+
+/**
+ * Issue a replacement code for an address that is waiting on one.
+ *
+ * This exists because re-running signup could not do it. The first submit
+ * CREATES the account, so a second call finds it already present, takes the
+ * existing-address branch, and mails "you already have an account" — no new
+ * code, and a baffling message for someone who signed up a minute ago.
+ *
+ * Resolves the same way for every input: unknown address, already-verified
+ * account, suspended account, or a code actually sent. The caller is told
+ * nothing, exactly as at signup.
+ */
+export async function resendVerificationCode(
+  email: string,
+  locale: Locale = "en",
+): Promise<void> {
+  const e = email.toLowerCase().trim();
+
+  const user = await prisma.user.findUnique({ where: { email: e } });
+  // Nothing to do for an address with no account, one already verified, or a
+  // suspended one — and in all three cases the caller sees the same thing.
+  if (!user || user.emailVerified || user.status === "suspended") return;
+
+  // Budget is checked AFTER eligibility, so it is only ever spent on a mail
+  // that is actually going out. Checking first would let anyone burn an
+  // address's hourly allowance by asking for codes it was never going to get.
+  if (!signupMailAllowed(e)) return;
+
+  try {
+    await storeAndSendCode(user.id, e, await mintCode(), locale);
+  } catch (err) {
+    console.error("[verify] resend failed:", (err as Error).message);
+  }
 }

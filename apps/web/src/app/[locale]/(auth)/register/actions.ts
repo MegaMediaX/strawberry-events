@@ -3,7 +3,11 @@
 import { rateLimit } from "@/lib/security/rate-limit";
 import { clientIp } from "@/lib/security/client-ip";
 import { registerAttendee } from "@/lib/auth/register";
-import { checkVerificationCode, CODE_REJECTED } from "@/lib/auth/email-verification";
+import {
+  checkVerificationCode,
+  resendVerificationCode,
+  CODE_REJECTED,
+} from "@/lib/auth/email-verification";
 import type { Locale } from "@/lib/email/templates";
 
 export interface RegisterAccountResult {
@@ -60,4 +64,21 @@ export async function verifyEmailAction(values: {
     return { ok: false, error: CODE_REJECTED };
   }
   return checkVerificationCode(values.email, values.code);
+}
+
+/**
+ * Ask for a replacement code. Always resolves the same way — see
+ * resendVerificationCode; the per-address mail cap is shared with signup, so
+ * this cannot be used to mail someone more often than signing up would.
+ */
+export async function resendCodeAction(values: {
+  email: string;
+  locale?: string;
+}): Promise<RegisterAccountResult> {
+  const ip = await clientIp();
+  if (!rateLimit(`resend-code:${ip}`, 5, 5 * 60_000).allowed) {
+    return { ok: true };
+  }
+  await resendVerificationCode(values.email, toLocale(values.locale));
+  return { ok: true };
 }
