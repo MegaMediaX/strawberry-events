@@ -271,6 +271,94 @@ model EmailVerificationCode {
   @@map("email_verification_codes")
 }
 
+/// One act of attaching registrations to an account, or detaching them.
+///
+/// This exists because the merge notice is email-only: a second channel was
+/// declined, and on the email-claim path that notice lands in the very mailbox
+/// the claimant controls. So when a merge is disputed, this table is the ONLY
+/// account of what happened. It is not telemetry — it is the mitigation.
+///
+/// Deliberately NOT an enum for `actorType`/`proofType`. Postgres cannot drop
+/// an enum value, and both of these will gain values as the claim paths land;
+/// a CHECK constraint can be widened and narrowed, an enum only widened.
+model AccountMergeEvent {
+  id String @id @default(cuid())
+
+  /// The account the orders were attached to. On a reversal this still names
+  /// the account they were taken FROM — the event is the attachment, and its
+  /// reversal is recorded on the same row rather than as a second event, so
+  /// there is exactly one row per set of orders that ever moved together.
+  userId String
+
+  /// self_claim | staff_override — who acted, not who benefited.
+  actorType   String
+  /// The operator, when actorType is staff_override. Null for self-claims.
+  actorUserId String?
+
+  /// How ownership was established: admin_override for a manual link, and the
+  /// claim proofs once those paths exist (magic_link, email_code, phone_code).
+  proofType String
+
+  /// Which rule of the merge decision table fired, for self-claims. Null for
+  /// manual links, where the rule was a person.
+  matchRule String?
+
+  /// Required for staff actions and free text on purpose: the operator's own
+  /// account of why, which is what a complaint file actually needs.
+  reason String?
+
+  /// Resolved through lib/security/client-ip.ts, never the request header.
+  ip String?
+
+  createdAt DateTime @default(now())
+
+  /// Until when this can be reversed without a fresh decision. Stored rather
+  /// than computed so shortening the window later cannot silently re-open
+  /// events that had already closed.
+  reverseDeadline DateTime
+
+  reversedAt       DateTime?
+  reversedByUserId String?
+  /// Why it was reversed — the half of the story an audit needs most.
+  reversedReason   String?
+
+  entities AccountMergeEventEntity[]
+
+  @@index([userId])
+  @@index([createdAt])
+  @@index([reversedAt, reverseDeadline])
+  @@map("account_merge_events")
+}
+
+/// One row per thing that moved, carrying where it came FROM.
+///
+/// `previousUserId` is what makes an un-merge mechanical rather than forensic.
+/// Note `AttendeeOrder.userId` is onDelete: SetNull, so deleting the account is
+/// NOT an un-merge — it detaches every order the user ever held, including ones
+/// this event never touched.
+model AccountMergeEventEntity {
+  id           String @id @default(cuid())
+  mergeEventId String
+
+  /// attendee_order | waitlist_entry. A CHECK, not an enum, for the same
+  /// reason as above.
+  entityType String
+  entityId   String
+
+  /// The owner before this event. Null means it was unowned, which is the
+  /// normal case for a first claim.
+  previousUserId String?
+
+  mergeEvent AccountMergeEvent @relation(fields: [mergeEventId], references: [id], onDelete: Cascade)
+
+  /// Makes re-running the same link idempotent instead of double-recording.
+  @@unique([mergeEventId, entityType, entityId])
+  /// Answers "what has ever happened to this order" in one lookup — the
+  /// question an operator actually asks at a door.
+  @@index([entityId])
+  @@map("account_merge_event_entities")
+}
+
 // ---------------------------------------------------------------------------
 // Organizations & membership (multi-organizer isolation)
 // ---------------------------------------------------------------------------
