@@ -230,7 +230,14 @@ export default async function RegistrationsPage({
               <tr key={r.id} className="border-b border-border">
                 <td className="py-2">{r.event}</td>
                 <td>{r.attendee}</td>
-                <td className="font-mono text-xs">{r.orderCode}</td>
+                <td className="font-mono text-xs">
+                  <Link
+                    href={`/${locale}/admin/registrations/${r.id}`}
+                    className="underline-offset-2 hover:underline"
+                  >
+                    {r.orderCode}
+                  </Link>
+                </td>
                 <td>{r.roleTag}</td>
                 <td>{r.method}</td>
                 <td>{STATE_LABEL[r.state] ?? r.state}</td>
