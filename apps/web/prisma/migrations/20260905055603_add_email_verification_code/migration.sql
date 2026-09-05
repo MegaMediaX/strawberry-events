@@ -1,8 +1,20 @@
--- DropIndex
-DROP INDEX "attendee_orders_attendeeName_trgm";
-
--- DropIndex
-DROP INDEX "attendee_orders_phone_trgm";
+-- Pure expand: one new table, two indexes, one foreign key. Nothing existing
+-- is altered or dropped.
+--
+-- `prisma migrate diff` generated two DROP INDEX statements above this table
+-- and they have been removed by hand. They targeted
+-- "attendee_orders_attendeeName_trgm" and "attendee_orders_phone_trgm" — the
+-- GIN trigram indexes created in 20260612000000_add_trgm_fuzzy_search, which
+-- are what keep typo-tolerant attendee search fast at the door.
+--
+-- Prisma's schema language cannot express `gin_trgm_ops`, so those indexes are
+-- invisible to schema.prisma and EVERY generated diff will read them as drift
+-- and propose dropping them again. Check the top of any future generated
+-- migration for exactly this, and delete it.
+--
+-- Dropping them does not fail, and does not show up in a migration that
+-- "applies cleanly" — search simply gets slow later, with nothing pointing back
+-- to here.
 
 -- CreateTable
 CREATE TABLE "email_verification_codes" (
