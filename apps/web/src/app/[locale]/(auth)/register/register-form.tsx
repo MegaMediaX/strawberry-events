@@ -2,14 +2,16 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
+import { signIn } from "next-auth/react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { registerAction } from "./actions";
+import { registerAction, verifyEmailAction } from "./actions";
 
 const schema = z
   .object({
@@ -23,17 +25,26 @@ const schema = z
 type FormValues = z.infer<typeof schema>;
 
 /**
- * Deliberately identical whether the address was free or already had an
- * account — the same shape `forgot-password` uses, and for the same reason.
+ * Shown whether or not an account was created. A taken address receives "you
+ * already have an account" rather than a code, so the box below simply never
+ * accepts one — which is what keeps the two cases indistinguishable from here.
  */
-const NEUTRAL = "Check your inbox. We've emailed you a link to sign in.";
+const SENT = "We've emailed you a 6-digit code. It expires in 10 minutes.";
 
 export function RegisterForm({ locale }: { locale: string }) {
+  const router = useRouter();
   const [error, setError] = useState<string | null>(null);
+  const [codeError, setCodeError] = useState<string | null>(null);
   const [sent, setSent] = useState(false);
+  const [code, setCode] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [resendNote, setResendNote] = useState<string | null>(null);
+  const [creds, setCreds] = useState<{ email: string; password: string } | null>(null);
+
   const {
     register,
     handleSubmit,
+    getValues,
     formState: { errors, isSubmitting },
   } = useForm<FormValues>({ resolver: zodResolver(schema) });
 
@@ -46,23 +57,88 @@ export function RegisterForm({ locale }: { locale: string }) {
       setError(res.error ?? "Registration failed.");
       return;
     }
+    setCreds({ email: values.email, password: values.password });
     setSent(true);
+  }
+
+  async function onVerify() {
+    setCodeError(null);
+    setResendNote(null);
+    if (!creds) return;
+    setBusy(true);
+    const res = await verifyEmailAction({ email: creds.email, code });
+    setBusy(false);
+    if (!res.ok) {
+      setCodeError(res.error ?? "That code isn't right.");
+      return;
+    }
+    // The address is proved, so signing in here gives back the convenience the
+    // neutral flow had to remove — without the oracle, because reaching this
+    // point requires a code that only the mailbox owner received.
+    const signin = await signIn("credentials", {
+      email: creds.email,
+      password: creds.password,
+      redirect: false,
+    });
+    if (signin?.error) {
+      router.push(`/${locale}/login`);
+      return;
+    }
+    router.push(`/${locale}/my-registrations`);
+    router.refresh();
+  }
+
+  async function onResend() {
+    setCodeError(null);
+    setBusy(true);
+    // Re-runs the same action, which supersedes the previous code. No separate
+    // endpoint, so it inherits both the per-IP and per-address limits already
+    // guarding signup rather than opening a new way to mail someone.
+    await registerAction({ ...getValues(), locale });
+    setBusy(false);
+    setResendNote("If that address can receive a code, a new one is on its way.");
   }
 
   if (sent) {
     return (
       <Card>
         <CardHeader>
-          <CardTitle>Almost there</CardTitle>
+          <CardTitle>Check your inbox</CardTitle>
         </CardHeader>
         <CardContent className="flex flex-col gap-4">
-          <p className="text-sm text-muted-foreground">{NEUTRAL}</p>
-          <Link
-            href={`/${locale}/login`}
-            className="text-sm font-medium text-primary underline-offset-4 hover:underline"
-          >
-            Go to sign in
-          </Link>
+          <p className="text-sm text-muted-foreground">{SENT}</p>
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="code">6-digit code</Label>
+            <Input
+              id="code"
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              maxLength={6}
+              value={code}
+              onChange={(ev) => setCode(ev.target.value.replace(/\D/g, ""))}
+            />
+            {codeError && <p className="text-sm text-destructive">{codeError}</p>}
+            {resendNote && <p className="text-sm text-muted-foreground">{resendNote}</p>}
+          </div>
+          <Button onClick={onVerify} disabled={busy || code.length !== 6}>
+            Verify
+          </Button>
+          <div className="flex items-center justify-between text-sm">
+            <button
+              type="button"
+              onClick={onResend}
+              disabled={busy}
+              className="text-primary underline-offset-4 hover:underline disabled:opacity-50"
+            >
+              Send a new code
+            </button>
+            <Link
+              href={`/${locale}/login`}
+              className="font-medium text-primary underline-offset-4 hover:underline"
+            >
+              Go to sign in
+            </Link>
+          </div>
         </CardContent>
       </Card>
     );
