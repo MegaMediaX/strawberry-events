@@ -16,6 +16,11 @@ vi.mock("@/lib/security/order-lookup", () => ({ allowOrderCodeLookup: vi.fn() })
 vi.mock("@/components/public/attendee-state-view", () => ({ AttendeeStateView: () => null }));
 vi.mock("@/components/public/resend-ticket-link", () => ({ ResendTicketLink: () => null }));
 vi.mock("@/components/public/too-many-requests", () => ({ TooManyRequests: () => null }));
+// The claim banner is a client component that imports a Server Action, which
+// pulls in `server-only`. Stubbed for the same reason as the views above: this
+// file is about WHAT each route hands the view, not about rendering either one.
+vi.mock("../t/[token]/claim-banner", () => ({ ClaimBanner: () => null }));
+vi.mock("@/lib/auth/session", () => ({ getSessionContext: vi.fn().mockResolvedValue(null) }));
 
 import { getOrderByCode, getOrderByToken } from "@/lib/registration/access";
 import { allowOrderCodeLookup } from "@/lib/security/order-lookup";
@@ -28,6 +33,24 @@ const mock = <T,>(fn: T) => fn as unknown as ReturnType<typeof vi.fn>;
 
 type Rendered = { type: unknown; props: Record<string, unknown> };
 const asElement = (node: unknown) => node as unknown as Rendered;
+
+/**
+ * The ticket page renders the claim banner next to the view, so the view is no
+ * longer the root element. Reaching for it by type keeps these assertions about
+ * the QR boundary rather than about page layout — this test should not fail
+ * again just because something else is rendered beside the ticket.
+ */
+function findByType(node: unknown, type: unknown): Rendered | null {
+  const el = asElement(node);
+  if (!el || typeof el !== "object") return null;
+  if (el.type === type) return el;
+  const kids = el.props?.children;
+  for (const child of Array.isArray(kids) ? kids : [kids]) {
+    const hit = child ? findByType(child, type) : null;
+    if (hit) return hit;
+  }
+  return null;
+}
 
 const order = {
   orderCode: "3XKQ7",
@@ -90,11 +113,16 @@ describe("confirmation page (addressed by guessable order code)", () => {
 describe("magic-link page (HMAC-signed token)", () => {
   it("is the one surface that grants QR authorization", async () => {
     mock(getOrderByToken).mockResolvedValue(order);
-    const el = asElement(
+    const view = findByType(
       await GuestTicketPage({ params: Promise.resolve({ locale: "en", token: "M1RB.sig" }) }),
+      AttendeeStateView,
     );
-    expect(el.type).toBe(AttendeeStateView);
-    expect(el.props.canRevealTicket).toBe(true);
+    expect(view).not.toBeNull();
+    expect(view!.props.canRevealTicket).toBe(true);
+    // The secret reaches the view and nothing else on the page.
+    expect((view!.props.order as { pretixSecret?: string }).pretixSecret).toBe(
+      "pretix-position-secret-abc123",
+    );
   });
 
   it("404s on a tampered token without rendering the view", async () => {
