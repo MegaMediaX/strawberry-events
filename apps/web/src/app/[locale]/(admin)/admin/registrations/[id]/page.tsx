@@ -8,6 +8,8 @@ import { subEventScope } from "@/lib/auth/org-scope";
 import { centsToPrice } from "@/lib/pretix/mappers";
 import { QrCodeDisplay } from "@/components/public/qr-code-display";
 import { CancelRegistrationButton } from "./cancel-registration-button";
+import { getOrderForOperator } from "@/lib/merge/admin";
+import { LinkPanel } from "./link-panel";
 
 export const dynamic = "force-dynamic";
 
@@ -46,6 +48,17 @@ export default async function RegistrationDetailPage({
     notFound();
   }
   const o = d.order;
+
+  /**
+   * This page opens for finance and workshop_organiser too, but neither may
+   * change who owns a registration — so the section is not merely disabled for
+   * them, it is never rendered. `getOrderForOperator` would throw for those
+   * roles, which is the point: the guard lives in the service and the UI simply
+   * does not ask.
+   */
+  const mayMerge =
+    hasAnyRole(session, ["super_admin", "organizer_admin"]) && !session.impersonating;
+  const ownership = mayMerge ? await getOrderForOperator(session, id) : null;
 
   return (
     <div className="mx-auto max-w-3xl">
@@ -159,6 +172,47 @@ export default async function RegistrationDetailPage({
           )}
         </section>
       </div>
+      {ownership ? (
+        <section className="mt-8 rounded-md border border-border p-4">
+          <h2 className="text-sm font-semibold">Linked account</h2>
+          {ownership.order.user ? (
+            <p className="mt-1 text-sm">
+              <span className="font-medium">{ownership.order.user.email}</span>
+              {ownership.order.user.emailVerified ? "" : " · address not verified"}
+            </p>
+          ) : (
+            <p className="mt-1 text-sm text-muted-foreground">
+              Not linked to an account. The attendee reaches this registration through the link in
+              their confirmation email.
+            </p>
+          )}
+
+          <LinkPanel
+            locale={locale}
+            orderId={id}
+            isLinked={Boolean(ownership.order.userId)}
+            currentEmail={ownership.order.user?.email ?? null}
+          />
+
+          {ownership.history.length > 0 && (
+            <>
+              <h3 className="mt-5 text-sm font-semibold">Link history</h3>
+              <ul className="mt-2 flex flex-col gap-2">
+                {ownership.history.map((h) => (
+                  <li key={h.eventId} className="text-xs text-muted-foreground">
+                    {h.at.toISOString().slice(0, 16).replace("T", " ")} UTC ·{" "}
+                    {h.actorType === "staff_override" ? "organiser" : "attendee claim"} ·{" "}
+                    {h.proofType}
+                    {h.reason ? ` — ${h.reason}` : ""}
+                    {h.reversedAt ? " · reversed" : ""}
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
+        </section>
+      ) : null}
+
     </div>
   );
 }

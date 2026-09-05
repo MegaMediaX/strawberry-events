@@ -70,6 +70,9 @@ export default async function AdminLayout({
             )}
             <NavItem href={`${base}/registrations`} label="Registrations" icon="Users" />
             {isAdmin && (
+              <NavItem href={`${base}/merges`} label="Account links" icon="Link2" />
+            )}
+            {isAdmin && (
               <NavItem href={`${base}/users`} label="Users" icon="UserCog" />
             )}
             {!sessionScoped && (
