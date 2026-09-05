@@ -164,6 +164,58 @@ export async function unlinkOrder(
 }
 
 /**
+ * Ids of the newest ledger events this operator may see, scoped IN THE QUERY.
+ *
+ * The obvious version — read the newest N events, then filter by organisation
+ * in JS — is wrong in a way that hides the audit trail rather than leaking it.
+ * A busier neighbour fills the whole window with their own events and this
+ * organisation's ledger renders EMPTY. Measured: with 120 events in one org and
+ * 1 in another, the smaller org saw 0 of 121.
+ *
+ * That is not a cosmetic paging bug. This table is the only account of a
+ * disputed link, so a screen that silently shows nothing is the failure mode
+ * the ledger exists to prevent.
+ *
+ * Only super_admin and organizer_admin reach these functions and both have
+ * org-wide event access, so membership organisation ids are the correct scope —
+ * no per-event narrowing is needed here (canAccessEvent still runs per order
+ * when the rows are rendered, which keeps this honest if MERGE_ROLES widens).
+ *
+ * Raw SQL because `AccountMergeEventEntity.entityId` is a bare string with no
+ * foreign key to attendee_orders, so Prisma cannot express this join.
+ */
+async function visibleEventIds(session: SessionContext, take: number): Promise<string[]> {
+  if (session.isSuperAdmin) {
+    const rows = await prisma.accountMergeEvent.findMany({
+      orderBy: { createdAt: "desc" },
+      take,
+      select: { id: true },
+    });
+    return rows.map((r) => r.id);
+  }
+
+  const orgIds = [...new Set(session.memberships.map((m) => m.organizationId))];
+  if (orgIds.length === 0) return [];
+
+  const rows = await prisma.$queryRaw<{ id: string }[]>`
+    SELECT e.id
+    FROM account_merge_events e
+    WHERE EXISTS (
+      SELECT 1
+      FROM account_merge_event_entities en
+      JOIN attendee_orders o ON o.id = en."entityId"
+      JOIN event_mappings m ON m.id = o."eventMappingId"
+      WHERE en."mergeEventId" = e.id
+        AND en."entityType" = 'attendee_order'
+        AND m."organizationId" = ANY(${orgIds}::text[])
+    )
+    ORDER BY e."createdAt" DESC
+    LIMIT ${take}
+  `;
+  return rows.map((r) => r.id);
+}
+
+/**
  * The ledger, newest first, limited to events touching events this operator may
  * see. Filtering happens after the read because an event's scope lives on the
  * registrations it moved, not on the event row.
@@ -171,12 +223,14 @@ export async function unlinkOrder(
 export async function listMergeEvents(session: SessionContext, take = 100) {
   assertMayMerge(session);
 
+  const ids = await visibleEventIds(session, take);
+  if (ids.length === 0) return [];
+
   const events = await prisma.accountMergeEvent.findMany({
+    where: { id: { in: ids } },
     orderBy: { createdAt: "desc" },
-    take,
     include: { entities: true },
   });
-  if (events.length === 0) return [];
 
   const orderIds = [...new Set(events.flatMap((e) => e.entities.map((x) => x.entityId)))];
   const orders = await prisma.attendeeOrder.findMany({
@@ -241,8 +295,13 @@ export async function reverseFromLedger(
 ): Promise<OperatorResult> {
   assertMayMerge(session);
 
-  const visible = await listMergeEvents(session, 500);
-  if (!visible.some((e) => e.id === params.eventId)) {
+  /**
+   * Authorize THIS event, rather than asking whether it appears in a page of
+   * recent ones. The window version refused a legitimate reversal whenever the
+   * event had aged out of the newest N — the 30-day window says an event is
+   * reversible, so paging must not be what decides it.
+   */
+  if (!(await eventIsVisible(session, params.eventId))) {
     return { ok: false, error: "No such event." };
   }
 
@@ -252,4 +311,26 @@ export async function reverseFromLedger(
     reason: params.reason,
   });
   return { ok: res.ok, error: res.error };
+}
+
+/** The same scope test as `visibleEventIds`, for one event and no paging. */
+async function eventIsVisible(session: SessionContext, eventId: string): Promise<boolean> {
+  if (session.isSuperAdmin) {
+    return (await prisma.accountMergeEvent.count({ where: { id: eventId } })) > 0;
+  }
+  const orgIds = [...new Set(session.memberships.map((m) => m.organizationId))];
+  if (orgIds.length === 0) return false;
+
+  const rows = await prisma.$queryRaw<{ ok: boolean }[]>`
+    SELECT EXISTS (
+      SELECT 1
+      FROM account_merge_event_entities en
+      JOIN attendee_orders o ON o.id = en."entityId"
+      JOIN event_mappings m ON m.id = o."eventMappingId"
+      WHERE en."mergeEventId" = ${eventId}
+        AND en."entityType" = 'attendee_order'
+        AND m."organizationId" = ANY(${orgIds}::text[])
+    ) AS ok
+  `;
+  return rows[0]?.ok === true;
 }

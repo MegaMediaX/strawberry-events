@@ -173,4 +173,59 @@ describe.skipIf(!run)("merge admin (integration)", () => {
     expect(res.ok).toBe(false);
     expect((await prisma.attendeeOrder.findUnique({ where: { id: orderInB } }))?.userId).toBe(attendee);
   });
+
+  /**
+   * The ledger must be scoped by the QUERY, not filtered after paging.
+   *
+   * Reading the newest N events globally and dropping the ones that belong to
+   * someone else means a busier neighbour fills the window and this
+   * organisation's ledger renders EMPTY. Measured before the fix: 120 events in
+   * one org, 1 in another, and the smaller org saw 0 of 121.
+   *
+   * That hides the audit trail rather than leaking it — which, for the only
+   * record of a disputed link, is the worse failure. A small page size makes
+   * the same point here without creating 120 rows.
+   */
+  it("a busier organisation cannot page this one out of its own ledger", async () => {
+    const sesA = session(adminA, orgA, "organizer_admin");
+    const sesB = session(adminB, orgB, "organizer_admin");
+
+    // Mine first, so it is the OLDEST and would fall out of a global window.
+    await admin.linkOrderByEmail(sesA, { orderId: orderInA, email: `att-${s}@t.test`, reason: "mine" });
+
+    // Two newer events belonging to the neighbour. Each LINK makes an event;
+    // an unlink only reverses the one already there, so the unlink between them
+    // is just to free the order up — without the second link this fixture would
+    // leave one neighbour event and never fill the window.
+    await admin.linkOrderByEmail(sesB, { orderId: orderInB, email: `att-${s}@t.test`, reason: "theirs 1" });
+    await admin.unlinkOrder(sesB, { orderId: orderInB, reason: "freeing it" });
+    await admin.linkOrderByEmail(sesB, { orderId: orderInB, email: `att-${s}@t.test`, reason: "theirs 2" });
+
+    // A window of 2 would be entirely theirs if scoping happened after paging.
+    const mine = await admin.listMergeEvents(sesA, 2);
+    expect(mine).toHaveLength(1);
+    expect(mine[0].orders[0].id).toBe(orderInA);
+  });
+
+  /**
+   * Reversal authorises the specific event rather than asking whether it shows
+   * up in a page of recent ones — otherwise an event that had simply aged out
+   * of the window became unreversible, while the 30-day rule said it was not.
+   */
+  it("can still reverse an event that newer activity has pushed down the list", async () => {
+    const sesA = session(adminA, orgA, "organizer_admin");
+    const sesB = session(adminB, orgB, "organizer_admin");
+
+    await admin.linkOrderByEmail(sesA, { orderId: orderInA, email: `att-${s}@t.test`, reason: "mine" });
+    const mineEvent = (await admin.listMergeEvents(sesA))[0];
+
+    for (let i = 0; i < 3; i += 1) {
+      await admin.linkOrderByEmail(sesB, { orderId: orderInB, email: `att-${s}@t.test`, reason: `n${i}` });
+      await admin.unlinkOrder(sesB, { orderId: orderInB, reason: `n${i}` });
+    }
+
+    const res = await admin.reverseFromLedger(sesA, { eventId: mineEvent.id, reason: "still mine to undo" });
+    expect(res.ok).toBe(true);
+    expect((await prisma.attendeeOrder.findUnique({ where: { id: orderInA } }))?.userId).toBeNull();
+  });
 });
