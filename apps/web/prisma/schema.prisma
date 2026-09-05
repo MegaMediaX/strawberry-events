@@ -150,29 +150,30 @@ enum WaitlistStatus {
 // ---------------------------------------------------------------------------
 
 model User {
-  id            String    @id @default(cuid())
-  email         String    @unique
-  emailVerified DateTime?
-  name          String?
-  image         String?
-  passwordHash  String?
-  status        UserStatus @default(active)
+  id             String     @id @default(cuid())
+  email          String     @unique
+  emailVerified  DateTime?
+  name           String?
+  image          String?
+  passwordHash   String?
+  status         UserStatus @default(active)
   // Session invalidation counter, frozen into each JWT at sign-in and compared
   // on every request. A password reset increments it, which is what actually
   // evicts a thief: rotating passwordHash alone leaves already-issued JWTs
   // valid until natural expiry, so a compromised account stays compromised.
-  sessionVersion Int      @default(0)
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  sessionVersion Int        @default(0)
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
 
-  accounts    Account[]
-  sessions    Session[]
-  profile     UserProfile?
-  memberships OrganizationMember[]
-  apiKeys     ApiKey[]             @relation("ApiKeyCreatedBy")
-  auditLogs   AuditLog[]
-  attendeeOrders AttendeeOrder[]
-  passwordResetTokens PasswordResetToken[]
+  accounts               Account[]
+  sessions               Session[]
+  profile                UserProfile?
+  memberships            OrganizationMember[]
+  apiKeys                ApiKey[]                @relation("ApiKeyCreatedBy")
+  auditLogs              AuditLog[]
+  attendeeOrders         AttendeeOrder[]
+  passwordResetTokens    PasswordResetToken[]
+  emailVerificationCodes EmailVerificationCode[]
 
   @@map("users")
 }
@@ -233,6 +234,43 @@ model PasswordResetToken {
   @@map("password_reset_tokens")
 }
 
+model EmailVerificationCode {
+  id           String    @id @default(cuid())
+  userId       String
+  /// The address being proved, normalised. Codes are looked up by THIS, never
+  /// by the code itself — the caller has just been told nothing about whether
+  /// an account exists, so it cannot be asked for a userId.
+  email        String
+  /// argon2id, NOT sha256.
+  ///
+  /// `reset-token.ts` uses sha256 and is right to: a 32-byte random token has
+  /// enough entropy that a fast deterministic hash gives away nothing, and the
+  /// determinism is what allows the unique-index lookup it needs.
+  ///
+  /// Neither half of that holds here. A six-digit code has 10^6 possibilities,
+  /// so a leaked sha256 is recovered offline instantly; and the lookup is by
+  /// `email`, so nothing needs the hash to be deterministic. That makes the
+  /// slow, salted primitive strictly better and free of any trade-off.
+  codeHash     String
+  /// Wrong guesses, PERSISTED. Deliberately not the in-memory rate limiter in
+  /// lib/security/rate-limit.ts: that map is wiped on every deploy, and CI
+  /// recreates the container on every merge — an attacker who can reset the
+  /// counter at will has a six-digit code with unlimited attempts.
+  attempts     Int       @default(0)
+  expiresAt    DateTime
+  usedAt       DateTime?
+  /// Set when a newer code is issued for the same (userId, email). Only one
+  /// code is ever live, so a resend cannot leave the previous one usable.
+  supersededAt DateTime?
+  createdAt    DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([email])
+  @@index([expiresAt])
+  @@map("email_verification_codes")
+}
+
 // ---------------------------------------------------------------------------
 // Organizations & membership (multi-organizer isolation)
 // ---------------------------------------------------------------------------
@@ -260,15 +298,15 @@ model Organization {
 }
 
 model OrganizationMember {
-  id               String     @id @default(cuid())
-  organizationId   String
-  userId           String
-  role             MemberRole
-  assignedEventIds String[]   @default([])
+  id                  String     @id @default(cuid())
+  organizationId      String
+  userId              String
+  role                MemberRole
+  assignedEventIds    String[]   @default([])
   /// Sub-events a workshop_organiser may see. Empty for every other role.
-  assignedSubEventIds String[] @default([])
-  createdAt        DateTime   @default(now())
-  updatedAt        DateTime   @updatedAt
+  assignedSubEventIds String[]   @default([])
+  createdAt           DateTime   @default(now())
+  updatedAt           DateTime   @updatedAt
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -279,14 +317,14 @@ model OrganizationMember {
 }
 
 model UserProfile {
-  id          String   @id @default(cuid())
-  userId      String   @unique
-  phone       String?
-  phoneCC     String?
-  company     String?
-  preferredLocale String @default("en")
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id              String   @id @default(cuid())
+  userId          String   @unique
+  phone           String?
+  phoneCC         String?
+  company         String?
+  preferredLocale String   @default("en")
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -298,62 +336,62 @@ model UserProfile {
 // ---------------------------------------------------------------------------
 
 model EventMapping {
-  id                  String       @id @default(cuid())
-  organizationId      String
-  localEventId        String       @unique
-  pretixOrganizerSlug String
-  pretixEventSlug     String
-  pretixEventId       String?
-  titleEn             String
-  titleAr             String?
-  descriptionEn       String?      @db.Text
-  descriptionAr       String?      @db.Text
-  visibility          Visibility   @default(public)
-  accountMode         AccountMode  @default(optional)
-  approvalMode        ApprovalMode @default(none)
-  autoApproveItemIds  Int[]        @default([])
-  inviteOnlyItemIds   Int[]        @default([])
-  payBeforeApproval   Boolean      @default(false)
-  itemTagMap          Json         @default("{}")
-  seatSelectionEnabled Boolean     @default(false)
-  waitlistEnabled     Boolean      @default(false)
-  badgeAutoPrint      Boolean      @default(false)
-  comingSoon          Boolean      @default(false)
+  id                   String       @id @default(cuid())
+  organizationId       String
+  localEventId         String       @unique
+  pretixOrganizerSlug  String
+  pretixEventSlug      String
+  pretixEventId        String?
+  titleEn              String
+  titleAr              String?
+  descriptionEn        String?      @db.Text
+  descriptionAr        String?      @db.Text
+  visibility           Visibility   @default(public)
+  accountMode          AccountMode  @default(optional)
+  approvalMode         ApprovalMode @default(none)
+  autoApproveItemIds   Int[]        @default([])
+  inviteOnlyItemIds    Int[]        @default([])
+  payBeforeApproval    Boolean      @default(false)
+  itemTagMap           Json         @default("{}")
+  seatSelectionEnabled Boolean      @default(false)
+  waitlistEnabled      Boolean      @default(false)
+  badgeAutoPrint       Boolean      @default(false)
+  comingSoon           Boolean      @default(false)
   // Registration "attendee type" field (Student / Company / Freelancer). When
   // enabled, the public registration Details step shows the dropdown; when
   // required, the attendee must pick one (and supply a company name if Company).
-  attendeeTypeEnabled  Boolean     @default(false)
-  attendeeTypeRequired Boolean     @default(false)
+  attendeeTypeEnabled  Boolean      @default(false)
+  attendeeTypeRequired Boolean      @default(false)
   // Mirror of the pretix `live` flag. The storefront requires visibility=public
   // AND liveOnPretix=true, so flipping local visibility alone cannot leak a draft.
   // Kept in sync by updateEvent (authoritative) and the inbound pretix webhook.
-  liveOnPretix        Boolean      @default(false)
+  liveOnPretix         Boolean      @default(false)
   // Location (all optional; storefront renders gracefully when absent). No live
   // Places API required — operators paste a Google Maps URL / embed URL.
-  venueName           String?
-  address             String?
-  city                String?
-  country             String?
-  mapUrl              String?
-  mapEmbedUrl         String?
-  latitude            Float?
-  longitude           Float?
+  venueName            String?
+  address              String?
+  city                 String?
+  country              String?
+  mapUrl               String?
+  mapEmbedUrl          String?
+  latitude             Float?
+  longitude            Float?
   // Optional WhatsApp channel/group invite link shown to attendees after they
   // register (e.g. https://whatsapp.com/channel/... or chat.whatsapp.com/...).
-  whatsappChannelUrl  String?
+  whatsappChannelUrl   String?
   // Cover photo: stored filename only (e.g. "<id>-<uuid>.webp"); the file lives
   // under the server uploads dir and is served via /media/event-cover/<file>.
   // Never a user-supplied path — generated server-side to prevent traversal.
-  coverImagePath      String?
-  createdAt           DateTime     @default(now())
-  updatedAt           DateTime     @updatedAt
+  coverImagePath       String?
+  createdAt            DateTime     @default(now())
+  updatedAt            DateTime     @updatedAt
 
   // Sub-event capacity controls (optional; null = unlimited / no cap)
-  maxAttendees         Int?
-  ticketsPerUserMain   Int  @default(1)
-  ticketsPerUserTotal  Int  @default(1)
+  maxAttendees        Int?
+  ticketsPerUserMain  Int  @default(1)
+  ticketsPerUserTotal Int  @default(1)
 
-  organization     Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organization     Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   pretixObjects    PretixObjectMapping[]
   seatMaps         SeatMap[]
   badgeTemplates   BadgeTemplate[]
@@ -375,29 +413,29 @@ model EventMapping {
 // ---------------------------------------------------------------------------
 
 model SubEvent {
-  id             String    @id @default(cuid())
+  id             String   @id @default(cuid())
   eventMappingId String
   titleEn        String
   titleAr        String?
   category       String
   location       String?
   // Short abstract shown under the title in the session picker.
-  descriptionEn  String?   @db.Text
-  descriptionAr  String?   @db.Text
+  descriptionEn  String?  @db.Text
+  descriptionAr  String?  @db.Text
   dateFrom       DateTime
   dateTo         DateTime
-  priceCents     Int       @default(0)
+  priceCents     Int      @default(0)
   maxAttendees   Int?
-  ticketsPerUser Int       @default(1)
+  ticketsPerUser Int      @default(1)
   // Opt-in sessions stay hidden in the Sessions step until the attendee ticks
   // the matching category toggle in the Tickets step (e.g. "Workshops"). The
   // gate is per-category: a category is gated when ANY of its sub-events sets
   // this. Stored per row so adding one on the go carries the flag with it.
-  requiresOptIn  Boolean   @default(false)
+  requiresOptIn  Boolean  @default(false)
   pretixItemId   Int?
   pretixQuotaId  Int?
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 
   eventMapping EventMapping @relation(fields: [eventMappingId], references: [id], onDelete: Cascade)
 
@@ -504,7 +542,7 @@ model BadgeTemplate {
   createdAt      DateTime    @default(now())
   updatedAt      DateTime    @updatedAt
 
-  eventMapping EventMapping     @relation(fields: [eventMappingId], references: [id], onDelete: Cascade)
+  eventMapping EventMapping    @relation(fields: [eventMappingId], references: [id], onDelete: Cascade)
   printLogs    BadgePrintLog[]
 
   @@unique([eventMappingId, tag])
@@ -788,55 +826,55 @@ model EmailLog {
 }
 
 model AttendeeOrder {
-  id             String              @id @default(cuid())
-  eventMappingId String
-  orderCode      String
-  email          String
-  attendeeName   String?
-  company        String?
+  id                    String                 @id @default(cuid())
+  eventMappingId        String
+  orderCode             String
+  email                 String
+  attendeeName          String?
+  company               String?
   // Optional attendee type: "student" | "company" | "freelancer". `company`
   // (above) holds the free-text company name when attendeeType = "company".
-  attendeeType   String?
+  attendeeType          String?
   /// Job title, asked under the company name and stored resolved: a preset
   /// ("CEO") or the free text typed behind "Other" — never the sentinel itself.
   /// Optional forever; the registrations taken before this column existed are
   /// not incomplete, they simply were not asked.
-  jobTitle       String?
-  phone          String?
-  phoneCC        String?
+  jobTitle              String?
+  phone                 String?
+  phoneCC               String?
   // Set ONLY when consent was actually obtained from the data subject on the
   // channel below. NULL means nobody attested consent for this row — an honest
   // "unknown", never a stand-in for "assumed".
-  consentAt      DateTime?
-  consentSource  ConsentSource          @default(web_form)
-  userId         String?
-  status         AttendeeOrderStatus    @default(pending)
-  approvalStatus AttendeeApprovalStatus @default(not_required)
-  provider       AttendeeOrderProvider  @default(manual_cod)
-  roleTag        AttendeeTag            @default(visitor)
+  consentAt             DateTime?
+  consentSource         ConsentSource          @default(web_form)
+  userId                String?
+  status                AttendeeOrderStatus    @default(pending)
+  approvalStatus        AttendeeApprovalStatus @default(not_required)
+  provider              AttendeeOrderProvider  @default(manual_cod)
+  roleTag               AttendeeTag            @default(visitor)
   /// What the role band prints when roleTag is `other`, and nothing otherwise.
   /// Stored resolved, exactly like jobTitle: never the sentinel, never a
   /// preset's name. NULL for all thirteen fixed roles — a value here without
   /// roleTag = other is a bug, not a variant.
-  roleLabel      String?
-  totalCents     Int                    @default(0)
-  pretixSecret   String? // pretix position secret (QR payload, used for check-in redeem)
-  magicLinkToken String                 @unique
+  roleLabel             String?
+  totalCents            Int                    @default(0)
+  pretixSecret          String? // pretix position secret (QR payload, used for check-in redeem)
+  magicLinkToken        String                 @unique
   // Revocation controls for the emailed ticket link. The version must match the
   // claim inside the token; legacy two-part tokens carry no claim and count as
   // 0, so the default keeps every already-mailed link working. Bumping the
   // version invalidates every link issued so far, and magicLinkRevokedAt is the
   // hard kill switch. Neither one cancels the registration.
-  magicLinkVersion   Int              @default(0)
+  magicLinkVersion      Int                    @default(0)
   /// Opaque code carried in the badge QR. Stored, never derived, so a reprint
   /// cannot invalidate a badge someone has already scanned.
-  badgeSlug          String?          @unique
+  badgeSlug             String?                @unique
   /// Takes a profile down without touching the ticket. Deliberately separate
   /// from magicLinkRevokedAt — revoking a profile must never cost someone entry.
   badgeProfileRevokedAt DateTime?
-  magicLinkRevokedAt DateTime?
-  createdAt      DateTime            @default(now())
-  updatedAt      DateTime            @updatedAt
+  magicLinkRevokedAt    DateTime?
+  createdAt             DateTime               @default(now())
+  updatedAt             DateTime               @updatedAt
 
   eventMapping EventMapping @relation(fields: [eventMappingId], references: [id], onDelete: Cascade)
   user         User?        @relation(fields: [userId], references: [id], onDelete: SetNull)
@@ -855,19 +893,19 @@ model AttendeeOrder {
 // ---------------------------------------------------------------------------
 
 model Invite {
-  id                 String      @id @default(cuid())
-  eventMappingId     String
-  email              String
-  itemIds            Int[]       @default([])
-  tag                AttendeeTag?
+  id                String       @id @default(cuid())
+  eventMappingId    String
+  email             String
+  itemIds           Int[]        @default([])
+  tag               AttendeeTag?
   // SHA-256 of the signed invite token — deterministic unique-index lookup.
   // A DB breach yields no usable invite link; the plaintext exists only in transit.
-  tokenHash          String      @unique
-  expiresAt          DateTime?
-  redeemedAt         DateTime?
-  redeemedOrderCode  String?
-  createdByUserId    String?
-  createdAt          DateTime    @default(now())
+  tokenHash         String       @unique
+  expiresAt         DateTime?
+  redeemedAt        DateTime?
+  redeemedOrderCode String?
+  createdByUserId   String?
+  createdAt         DateTime     @default(now())
 
   eventMapping EventMapping @relation(fields: [eventMappingId], references: [id], onDelete: Cascade)
 

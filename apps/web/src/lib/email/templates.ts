@@ -203,20 +203,32 @@ export function accountExistsEmail(
   };
 }
 
+
 /**
- * Sent when the signup form DID create an account. Its only job is to make the
- * neutral "check your inbox" screen true in both branches — without it that
- * screen would be a lie for new accounts, and the difference would be visible.
+ * The signup verification code.
+ *
+ * A CODE, not a link, on purpose: corporate mail scanners (Microsoft Defender,
+ * Google Safe Browsing and friends) pre-fetch every URL in an inbound message,
+ * which would verify the address before the recipient had even opened it — and
+ * this platform's audience is largely corporate. A code cannot be clicked by a
+ * scanner. It also matches the shape the claim flow will need later, so there
+ * is one ceremony and one attempt-lockout to reason about rather than two.
  */
-export function accountCreatedEmail(locale: Locale, loginUrl: string): RenderedEmail {
+export function verifyEmailCodeEmail(locale: Locale, code: string): RenderedEmail {
   if (locale === "ar") {
     return {
-      subject: "حسابك جاهز",
-      text: `تم إنشاء حسابك. لتسجيل الدخول: ${loginUrl}`,
+      subject: `رمز التحقق: ${code}`,
+      text:
+        `رمز التحقق الخاص بك هو ${code}\n` +
+        "صالح لمدة 10 دقائق.\n" +
+        "إذا لم تطلب إنشاء حساب، تجاهل هذه الرسالة — لم يتم تفعيل أي شيء.",
     };
   }
   return {
-    subject: "Your account is ready",
-    text: `Your account has been created. Sign in here: ${loginUrl}`,
+    subject: `Your verification code: ${code}`,
+    text:
+      `Your verification code is ${code}\n` +
+      "It expires in 10 minutes.\n" +
+      "If you didn't try to create an account, ignore this email — nothing has been activated.",
   };
 }

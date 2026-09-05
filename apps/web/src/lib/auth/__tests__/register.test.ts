@@ -1,7 +1,15 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 vi.mock("@/lib/db/client", () => ({
-  prisma: { user: { findUnique: vi.fn(), create: vi.fn() } },
+  prisma: {
+    user: { findUnique: vi.fn(), create: vi.fn(), update: vi.fn() },
+    emailVerificationCode: {
+      updateMany: vi.fn(),
+      create: vi.fn(),
+      findFirst: vi.fn(),
+      update: vi.fn(),
+    },
+  },
 }));
 vi.mock("@/lib/auth/password", () => ({ hashPassword: vi.fn().mockResolvedValue("argon2hash") }));
 vi.mock("@/lib/email/service", () => ({ sendEmail: vi.fn().mockResolvedValue(true) }));
@@ -19,6 +27,8 @@ beforeEach(() => {
   __resetRateLimits();
   mock(prisma.user.findUnique).mockResolvedValue(null);
   mock(prisma.user.create).mockImplementation(async ({ data }) => ({ id: "u1", ...data }));
+  mock(prisma.emailVerificationCode.updateMany).mockResolvedValue({ count: 0 });
+  mock(prisma.emailVerificationCode.create).mockResolvedValue({ id: "c1" });
   process.env.APP_URL = "https://events.example";
 });
 
@@ -87,7 +97,7 @@ describe("registerAttendee", () => {
   it("sends exactly one mail on either branch, so the screen is true both ways", async () => {
     await registerAttendee("free@x.com", "longenough1");
     expect(mock(sendEmail).mock.calls).toHaveLength(1);
-    expect(mock(sendEmail).mock.calls[0][0].subject).toMatch(/account is ready/i);
+    expect(mock(sendEmail).mock.calls[0][0].subject).toMatch(/verification code/i);
 
     vi.clearAllMocks();
     mock(prisma.user.findUnique).mockResolvedValue({ id: "existing", status: "active" });
@@ -118,21 +128,39 @@ describe("registerAttendee — work done, not just words said", () => {
    * DO. Asserting the call happens on both branches is the deterministic form
    * of that property — timing it in CI would be flaky and prove less.
    */
-  it("hashes the password on BOTH branches, so the two cost the same", async () => {
-    await registerAttendee("free@x.com", "longenough1");
-    expect(hashPassword).toHaveBeenCalledTimes(1);
-
+  /**
+   * Asserted as an EQUALITY between the branches, not a fixed number: the point
+   * is that neither branch is cheaper, and hardcoding a count would go stale the
+   * next time the flow gains or loses an argon2 call (it already gained one when
+   * signup started minting a verification code).
+   */
+  async function argon2CallsFor(kind: "free" | "taken" | "suspended") {
     vi.clearAllMocks();
-    mock(prisma.user.findUnique).mockResolvedValue({ id: "existing", status: "active" });
-    await registerAttendee("dupe@x.com", "longenough1");
-    expect(hashPassword).toHaveBeenCalledTimes(1);
-    expect(prisma.user.create).not.toHaveBeenCalled(); // hashed, then discarded
+    mock(prisma.emailVerificationCode.updateMany).mockResolvedValue({ count: 0 });
+    mock(prisma.emailVerificationCode.create).mockResolvedValue({ id: "c1" });
+    mock(prisma.user.create).mockImplementation(async ({ data }) => ({ id: "u1", ...data }));
+    mock(prisma.user.findUnique).mockResolvedValue(
+      kind === "free" ? null : { id: "existing", status: kind === "suspended" ? "suspended" : "active" },
+    );
+    await registerAttendee(`${kind}@x.com`, "longenough1");
+    return mock(hashPassword).mock.calls.length;
+  }
+
+  it("does the same argon2 work on every branch, so none is cheaper to time", async () => {
+    const free = await argon2CallsFor("free");
+    const taken = await argon2CallsFor("taken");
+    const suspended = await argon2CallsFor("suspended");
+
+    expect(free).toBeGreaterThan(0);
+    expect(taken).toBe(free);
+    expect(suspended).toBe(free);
   });
 
-  it("hashes even for a suspended account", async () => {
-    mock(prisma.user.findUnique).mockResolvedValue({ id: "existing", status: "suspended" });
-    await registerAttendee("suspended@x.com", "longenough1");
-    expect(hashPassword).toHaveBeenCalledTimes(1);
+  it("discards the work rather than creating an account for a taken address", async () => {
+    mock(prisma.user.findUnique).mockResolvedValue({ id: "existing", status: "active" });
+    await registerAttendee("dupe@x.com", "longenough1");
+    expect(hashPassword).toHaveBeenCalled();
+    expect(prisma.user.create).not.toHaveBeenCalled();
   });
 
   it("caps signup mail per address so it cannot be used to mailbomb", async () => {
