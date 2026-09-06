@@ -100,13 +100,22 @@ describe.skipIf(!run)("verify my own email (integration)", () => {
     expect(sendEmail).not.toHaveBeenCalled();
   });
 
-  it("a fresh code supersedes the previous one", async () => {
+  /**
+   * Supersession is per-FLOW now, not per address.
+   *
+   * `issueAndRead` mints a new flow each call, so these are two independent
+   * requests and both codes stay live — which is the entire point: a second
+   * person asking for a code at this address must not kill the first person's.
+   * The same-flow replacement case is covered separately below.
+   */
+  it("two separate requests each keep their own live code", async () => {
     const first = await issueAndRead(`mine-${s}@t.test`);
     const second = await issueAndRead(`mine-${s}@t.test`);
     expect(second.code).not.toBe(first.code);
 
-    expect((await ev.checkVerificationCode(`mine-${s}@t.test`, first.code, first.flow)).ok).toBe(false);
-    expect((await ev.checkVerificationCode(`mine-${s}@t.test`, second.code, second.flow)).ok).toBe(true);
+    expect((await ev.checkVerificationCode(`mine-${s}@t.test`, first.code, first.flow)).ok).toBe(true);
+    // And neither flow can reach the other's code.
+    expect((await ev.checkVerificationCode(`mine-${s}@t.test`, second.code, first.flow)).ok).toBe(false);
   });
 
   /**
@@ -209,5 +218,66 @@ describe.skipIf(!run)("verify my own email (integration)", () => {
     });
 
     expect((await ev.checkVerificationCode(`mine-${s}@t.test`, code)).ok).toBe(true);
+  });
+
+  /**
+   * The bypass the first fix missed.
+   *
+   * Requesting a code is unauthenticated, so an attacker can ask for one at
+   * someone else's address and receive a valid flow for it. Under address-wide
+   * supersession that also killed the victim's live code and rebound the address
+   * to the attacker's flow — locking the victim out without a single guess.
+   *
+   * Per-flow codes make the attacker's request cost the victim an email and
+   * nothing else.
+   */
+  it("a stranger requesting a code at your address cannot lock you out", async () => {
+    const { sendEmail } = await import("@/lib/email/service");
+
+    // You ask, and hold your own flow.
+    const mine = ev.newFlowToken().token;
+    await ev.resendVerificationCode(`mine-${s}@t.test`, "en", mine);
+    const myCode = (((sendEmail as unknown as { mock: { calls: unknown[][] } }).mock.calls.at(-1)![0]) as { text: string }).text.match(/\b(\d{6})\b/)![1];
+
+    // A stranger asks for a code at YOUR address and gets their own flow.
+    const theirs = ev.newFlowToken().token;
+    await ev.resendVerificationCode(`mine-${s}@t.test`, "en", theirs);
+    const theirCode = (((sendEmail as unknown as { mock: { calls: unknown[][] } }).mock.calls.at(-1)![0]) as { text: string }).text.match(/\b(\d{6})\b/)![1];
+
+    // They burn their own code's attempts to the limit.
+    for (let i = 0; i < 6; i += 1) {
+      expect((await ev.checkVerificationCode(`mine-${s}@t.test`, "000000", theirs)).ok).toBe(false);
+    }
+    // And they cannot guess against yours either — their flow reaches only their row.
+    expect((await ev.checkVerificationCode(`mine-${s}@t.test`, myCode, theirs)).ok).toBe(false);
+
+    // Yours still works, untouched.
+    expect((await ev.checkVerificationCode(`mine-${s}@t.test`, myCode, mine)).ok).toBe(true);
+    void theirCode;
+  });
+
+  /**
+   * The counterpart: your own resend must still replace your own code, or every
+   * click would leave another live row behind.
+   */
+  it("resending from the same flow replaces that flow's code", async () => {
+    const { sendEmail } = await import("@/lib/email/service");
+    const flow = ev.newFlowToken().token;
+
+    await ev.resendVerificationCode(`mine-${s}@t.test`, "en", flow);
+    const first = (((sendEmail as unknown as { mock: { calls: unknown[][] } }).mock.calls.at(-1)![0]) as { text: string }).text.match(/\b(\d{6})\b/)![1];
+
+    await ev.resendVerificationCode(`mine-${s}@t.test`, "en", flow);
+    const second = (((sendEmail as unknown as { mock: { calls: unknown[][] } }).mock.calls.at(-1)![0]) as { text: string }).text.match(/\b(\d{6})\b/)![1];
+
+    // Counted BEFORE verifying: a successful check consumes the code, so
+    // asserting liveness afterwards would always read zero.
+    const live = await prisma.emailVerificationCode.count({
+      where: { email: `mine-${s}@t.test`, usedAt: null, supersededAt: null },
+    });
+    expect(live).toBe(1);
+
+    expect((await ev.checkVerificationCode(`mine-${s}@t.test`, first, flow)).ok).toBe(false);
+    expect((await ev.checkVerificationCode(`mine-${s}@t.test`, second, flow)).ok).toBe(true);
   });
 });

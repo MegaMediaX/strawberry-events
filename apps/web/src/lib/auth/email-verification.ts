@@ -105,8 +105,22 @@ export async function storeAndSendCode(
 ): Promise<void> {
   const e = email.toLowerCase().trim();
 
+  /**
+   * Supersede only THIS flow's previous code, never the whole address.
+   *
+   * Address-wide supersession is what made the binding bypassable. Requesting a
+   * code is unauthenticated, so anyone could ask for one at your address; that
+   * killed the code you were holding AND rebound the address to their flow, and
+   * your browser was left with a stale token for a dead row. They locked you out
+   * without guessing at all.
+   *
+   * Scoped to the flow, each requester gets their own live code with its own
+   * attempt counter. A stranger asking for a code at your address now costs you
+   * an email and nothing else — yours keeps working. Mailbombing is still bounded
+   * by the per-address budget, which is the right place for that limit.
+   */
   await prisma.emailVerificationCode.updateMany({
-    where: { email: e, usedAt: null, supersededAt: null },
+    where: { email: e, flowHash: minted.flowHash, usedAt: null, supersededAt: null },
     data: { supersededAt: new Date() },
   });
 
@@ -142,6 +156,19 @@ export async function checkVerificationCode(
   const e = email.toLowerCase().trim();
   if (!/^\d{6}$/.test(code)) return { ok: false, error: CODE_REJECTED };
 
+  /**
+   * Find the code belonging to THIS flow.
+   *
+   * Selecting the newest row for the address was the other half of the problem:
+   * it handed whoever asked most recently the row everyone else's guesses would
+   * land on. Now a caller can only ever reach the code their own request
+   * produced, so `attempts` is per-flow by construction and no separate counter
+   * is needed.
+   *
+   * Rows with a null flowHash predate this and stay reachable — a code issued to
+   * someone mid-verification when this deploys must keep working.
+   */
+  const flowHash = flowToken ? hashFlowToken(flowToken) : null;
   const row = await prisma.emailVerificationCode.findFirst({
     where: {
       email: e,
@@ -149,23 +176,17 @@ export async function checkVerificationCode(
       supersededAt: null,
       expiresAt: { gt: new Date() },
       attempts: { lt: MAX_ATTEMPTS },
+      ...(flowHash ? { OR: [{ flowHash }, { flowHash: null }] } : { flowHash: null }),
     },
     orderBy: { createdAt: "desc" },
   });
   if (!row) return { ok: false, error: CODE_REJECTED };
 
   /**
-   * A guess that does not carry the flow token is refused WITHOUT spending an
-   * attempt.
+   * Belt and braces behind the scoped lookup above.
    *
-   * This is the whole fix. `verifyEmailAction` is unauthenticated and takes a
-   * caller-supplied address, so anyone who knew an address could spend its five
-   * guesses for five cheap requests while the owner needed a mail from a 3/hour
-   * budget to recover — the attacker won that race every time. Now only the
-   * person who asked for the code can spend it.
-   *
-   * A row with no `flowHash` predates this and is left alone: those codes were
-   * issued to people mid-flow who must not be stranded by a deploy.
+   * The `where` clause should make a mismatch unreachable; this catches the case
+   * where it is ever loosened, and costs one constant-time comparison.
    */
   if (row.flowHash && !(flowToken && flowMatches(row.flowHash, flowToken))) {
     return { ok: false, error: CODE_REJECTED };
