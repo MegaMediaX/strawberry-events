@@ -14,7 +14,7 @@ vi.mock("@/lib/email/service", () => ({ sendEmail: vi.fn().mockResolvedValue(tru
 describe.skipIf(!run)("forward-linking (integration)", () => {
   let prisma: typeof import("@/lib/db/client").prisma;
   let resolveForwardLink: typeof import("@/lib/merge/forward-link").resolveForwardLink;
-  let recordForwardLink: typeof import("@/lib/merge/forward-link").recordForwardLink;
+  let applyForwardLink: typeof import("@/lib/merge/forward-link").applyForwardLink;
 
   const s = Date.now();
   let orgId = "", mappingId = "";
@@ -22,7 +22,7 @@ describe.skipIf(!run)("forward-linking (integration)", () => {
 
   beforeAll(async () => {
     ({ prisma } = await import("@/lib/db/client"));
-    ({ resolveForwardLink, recordForwardLink } = await import("@/lib/merge/forward-link"));
+    ({ resolveForwardLink, applyForwardLink } = await import("@/lib/merge/forward-link"));
 
     orgId = (await prisma.organization.create({
       data: { name: `F${s}`, slug: `f${s}`, pretixOrganizerSlug: `pf${s}` },
@@ -98,11 +98,21 @@ describe.skipIf(!run)("forward-linking (integration)", () => {
    * The invariant that stops this being a back door: every owned registration
    * has a ledger row explaining why it is owned.
    */
-  it("records a ledger event and notifies, exactly like a claim", async () => {
+  /**
+   * Ownership and its ledger row now arrive together, from one transaction.
+   *
+   * The first version set userId in the order's own INSERT and wrote the ledger
+   * afterwards, outside any transaction — so a failed ledger write left a
+   * permanently owned registration with no record and no notice, exactly the
+   * silent back door this feature exists to close.
+   */
+  it("takes ownership and records it in the same transaction", async () => {
     const order = await makeOrder(`ver-${s}@t.test`);
-    await prisma.attendeeOrder.update({ where: { id: order.id }, data: { userId: verified } });
+    expect(order.userId).toBeNull();
 
-    await recordForwardLink({ orderId: order.id, userId: verified, locale: "en" });
+    await applyForwardLink({ orderId: order.id, userId: verified, locale: "en" });
+
+    expect((await prisma.attendeeOrder.findUnique({ where: { id: order.id } }))?.userId).toBe(verified);
 
     const entity = await prisma.accountMergeEventEntity.findFirst({
       where: { entityId: order.id },
@@ -116,15 +126,33 @@ describe.skipIf(!run)("forward-linking (integration)", () => {
       proofType: "forward_link",
       actorUserId: null,
     });
-    // Reversible on the same terms as any other link.
     expect(entity!.mergeEvent.reverseDeadline.getTime()).toBeGreaterThan(Date.now());
+  });
 
-    const { sendEmail } = await import("@/lib/email/service");
-    const calls = (sendEmail as unknown as { mock: { calls: unknown[][] } }).mock.calls;
-    expect(calls).toHaveLength(1);
-    const [msg, meta] = calls[0] as [{ to: string }, { templateType: string }];
-    expect(msg.to).toBe(`ver-${s}@t.test`);
-    expect(meta.templateType).toBe("registration_claimed");
+  /**
+   * The invariant, stated as a query rather than as prose: no registration is
+   * owned without a ledger row explaining why. This is the one an operator
+   * would run during an incident.
+   */
+  it("leaves no owned registration without a ledger row", async () => {
+    const order = await makeOrder(`ver-${s}@t.test`);
+    await applyForwardLink({ orderId: order.id, userId: verified, locale: "en" });
+
+    const owned = await prisma.attendeeOrder.findMany({
+      where: { eventMappingId: mappingId, userId: { not: null } },
+      select: { id: true },
+    });
+    for (const o of owned) {
+      const rows = await prisma.accountMergeEventEntity.count({ where: { entityId: o.id } });
+      expect(rows).toBeGreaterThan(0);
+    }
+  });
+
+  it("refuses to take ownership onto a staff account even if asked directly", async () => {
+    const order = await makeOrder(`stf-${s}@t.test`);
+    await applyForwardLink({ orderId: order.id, userId: staff, locale: "en" });
+    // The shared path refuses it, and the registration simply stays unowned.
+    expect((await prisma.attendeeOrder.findUnique({ where: { id: order.id } }))?.userId).toBeNull();
   });
 
   it("bookkeeping failure never propagates — a committed registration stays committed", async () => {
@@ -134,27 +162,46 @@ describe.skipIf(!run)("forward-linking (integration)", () => {
 
     const order = await makeOrder(`ver-${s}@t.test`);
     await expect(
-      recordForwardLink({ orderId: order.id, userId: verified, locale: "en" }),
+      applyForwardLink({ orderId: order.id, userId: verified, locale: "en" }),
     ).resolves.toBeUndefined();
   });
 
   /**
-   * The poisoning case. On a shared mailbox, whoever verified the address first
-   * receives every colleague's future registration — silently, were it not for
-   * the ledger row and the notice. Shared-mailbox merging is an accepted
-   * decision; this asserts it is at least always recorded.
+   * The poisoning case, with two registrations rather than one.
+   *
+   * The previous version of this test created a single order and linked it
+   * once, which is what the test above already does — it would have passed
+   * whether or not anything about shared mailboxes worked. On a shared mailbox
+   * whoever verified the address first receives every LATER registration made
+   * with it, which is an accepted decision as of 2026-09-06; what must hold is
+   * that each one is recorded and notified separately.
    */
-  it("a shared address links a colleague's registration too — and says so", async () => {
-    const colleague = await makeOrder(`ver-${s}@t.test`);
-    const owner = await resolveForwardLink(colleague.email);
-    expect(owner).toBe(verified);
-
-    await prisma.attendeeOrder.update({ where: { id: colleague.id }, data: { userId: owner! } });
-    await recordForwardLink({ orderId: colleague.id, userId: owner!, locale: "en" });
-
-    const events = await prisma.accountMergeEventEntity.count({ where: { entityId: colleague.id } });
-    expect(events).toBe(1);
+  it("a shared address takes a second person's registration too — each one recorded", async () => {
     const { sendEmail } = await import("@/lib/email/service");
-    expect((sendEmail as unknown as { mock: { calls: unknown[][] } }).mock.calls).toHaveLength(1);
+
+    const first = await makeOrder(`ver-${s}@t.test`);
+    const second = await makeOrder(`ver-${s}@t.test`); // a colleague, same mailbox
+
+    for (const o of [first, second]) {
+      expect(await resolveForwardLink(o.email)).toBe(verified);
+      await applyForwardLink({ orderId: o.id, userId: verified, locale: "en" });
+    }
+
+    for (const o of [first, second]) {
+      expect((await prisma.attendeeOrder.findUnique({ where: { id: o.id } }))?.userId).toBe(verified);
+      expect(await prisma.accountMergeEventEntity.count({ where: { entityId: o.id } })).toBe(1);
+    }
+
+    // Two separate notices — never one silent second link.
+    //
+    // Counted by THIS test's order codes rather than by total calls: notices are
+    // fire-and-forget, so a straggler from the previous case can land inside
+    // this one and a global count is quietly flaky.
+    await new Promise((r) => setTimeout(r, 150));
+    const calls = (sendEmail as unknown as { mock: { calls: unknown[][] } }).mock.calls;
+    const mine = calls.filter(([, meta]) =>
+      [first.orderCode, second.orderCode].includes((meta as { attendeeRef: string }).attendeeRef),
+    );
+    expect(mine).toHaveLength(2);
   });
 });

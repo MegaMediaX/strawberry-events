@@ -1,7 +1,7 @@
 import { prisma } from "@/lib/db/client";
 import { sendEmail } from "@/lib/email/service";
 import { registrationClaimedEmail, type Locale } from "@/lib/email/templates";
-import { REVERSE_WINDOW_MS } from "./ledger";
+import { linkOrdersToUser } from "./ledger";
 
 /** `ahmad@example.com` → `a•••d@example.com`. Enough to recognise, not enough to reuse. */
 function maskEmail(email: string): string {
@@ -75,49 +75,51 @@ export async function resolveForwardLink(email: string): Promise<string | null> 
 }
 
 /**
- * Record a forward link, after the registration row exists.
+ * Attach a freshly created registration to the account, and record it.
  *
- * Forward-linking would otherwise be the one way a registration becomes owned
- * with NO ledger row and NO notice — a silent back door around every rule the
- * other two paths follow. It is also the poisoning case: on a shared mailbox,
- * whoever verified the address first quietly receives every colleague's future
- * registration. So it writes the same event and sends the same notice, and the
- * invariant holds that every owned registration has a ledger entry explaining
- * why.
+ * Delegates to `linkOrdersToUser` rather than writing the ownership and the
+ * ledger row separately. The first version set `userId` in the order's own
+ * INSERT and wrote the ledger afterwards, outside any transaction — so a failed
+ * ledger write left a permanently owned registration with no record and no
+ * notice, which is precisely the silent back door this feature exists to close.
+ * The shared path does ownership and ledger in one transaction, under a row
+ * lock, and has been reviewed twice; there was no reason to hand-roll a second
+ * one.
  *
- * Best-effort and after the fact. A registration that succeeded must never be
- * reported as failed because bookkeeping or SMTP was unavailable — but the
- * failure is logged rather than swallowed.
+ * The notice is deliberately NOT awaited. `sendEmail` has no configured socket
+ * timeout, so a hung SMTP server would otherwise block the registrant's HTTP
+ * response — at a door, on top of the confirmation mail this function already
+ * waits on. Same `void` treatment the surrounding file gives its webhook
+ * emissions.
  */
-export async function recordForwardLink(params: {
+export async function applyForwardLink(params: {
   orderId: string;
   userId: string;
   locale: Locale;
 }): Promise<void> {
   const { orderId, userId, locale } = params;
   try {
-    const event = await prisma.accountMergeEvent.create({
-      data: {
-        userId,
-        // Neither a person claiming nor an operator deciding: nobody chose this
-        // one, the system inferred it from an address already proved.
-        actorType: "system",
-        actorUserId: null,
-        proofType: "forward_link",
-        matchRule: "verified_email_at_registration",
-        reverseDeadline: new Date(Date.now() + REVERSE_WINDOW_MS),
-      },
+    const res = await linkOrdersToUser({
+      orderIds: [orderId],
+      userId,
+      actor: { type: "system" },
+      proofType: "forward_link",
+      matchRule: "verified_email_at_registration",
     });
-    await prisma.accountMergeEventEntity.create({
-      data: {
-        mergeEventId: event.id,
-        entityType: "attendee_order",
-        entityId: orderId,
-        // Newly created, so it belonged to nobody a moment ago.
-        previousUserId: null,
-      },
-    });
+    if (!res.ok) {
+      // Never fatal: the registration is committed and simply stays unowned.
+      console.error("[forward-link] link refused:", res.error);
+      return;
+    }
+    void notifyForwardLink(orderId, locale);
+  } catch (err) {
+    console.error("[forward-link] link failed:", (err as Error).message);
+  }
+}
 
+/** Same notice a claim sends, to the address on the registration. */
+async function notifyForwardLink(orderId: string, locale: Locale): Promise<void> {
+  try {
     const order = await prisma.attendeeOrder.findUnique({
       where: { id: orderId },
       select: {
@@ -145,6 +147,6 @@ export async function recordForwardLink(params: {
       },
     );
   } catch (err) {
-    console.error("[forward-link] bookkeeping failed:", (err as Error).message);
+    console.error("[forward-link] notice failed:", (err as Error).message);
   }
 }

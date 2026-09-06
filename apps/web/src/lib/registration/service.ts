@@ -15,7 +15,7 @@ import {
 } from "@/lib/email/templates";
 import { requiresApproval } from "@/lib/approval/state";
 import { tagForItem } from "@/lib/checkin/eligibility";
-import { resolveForwardLink, recordForwardLink } from "@/lib/merge/forward-link";
+import { resolveForwardLink, applyForwardLink } from "@/lib/merge/forward-link";
 import { resolveRoleLabel } from "@/lib/badges/tags";
 import { holdSeats, confirmSeats, releaseSeats } from "@/lib/seats/service";
 import { emit } from "@/lib/webhooks/service";
@@ -345,7 +345,7 @@ export async function register(input: RegisterInput): Promise<RegisterResult> {
       phoneCC: data.attendee.phoneCC,
       consentAt,
       consentSource,
-      userId: linkedUserId,
+      userId: data.userId ?? null,
       status,
       approvalStatus,
       provider,
@@ -383,7 +383,7 @@ export async function register(input: RegisterInput): Promise<RegisterResult> {
    * invariant holds that every owned registration can explain why.
    */
   if (!data.userId && linkedUserId) {
-    await recordForwardLink({ orderId: created.id, userId: linkedUserId, locale: data.locale });
+    await applyForwardLink({ orderId: created.id, userId: linkedUserId, locale: data.locale });
   }
 
   // Keep the signed-in user's profile in sync with what they just entered.
