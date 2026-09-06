@@ -134,4 +134,64 @@ describe.skipIf(!run)("register integration", () => {
       }),
     ).rejects.toThrow("Event not found");
   });
+
+  /**
+   * Forward-linking, end to end through register().
+   *
+   * Two earlier reviews flagged that the resolver and the recorder were tested
+   * in isolation while the thing the feature actually IS — a real registration
+   * coming out owned — was not. A mistake in the `??` short-circuit, in the
+   * skip condition, or in which id was passed would have shipped silently,
+   * because every other test in this file registers an address with no account
+   * behind it and so never takes the linking branch at all.
+   */
+  it("a registration with a verified account's address comes out owned, with a ledger row", async () => {
+    const email = `fl-${Date.now()}@t.test`;
+    const user = await prisma.user.create({
+      data: { email, passwordHash: "x", emailVerified: new Date() },
+    });
+
+    try {
+      const res = await register({
+        eventSlug: slug,
+        locale: "en",
+        attendee: { ...attendee, email },
+        tickets: [{ itemId: 8, quantity: 1 }],
+        consentTerms: true,
+        consentPrivacy: true,
+        consentDataUse: true,
+      });
+
+      const row = await prisma.attendeeOrder.findFirst({ where: { orderCode: res.orderCode } });
+      expect(row?.userId).toBe(user.id);
+
+      // Owned AND explained: the two must never come apart.
+      const entity = await prisma.accountMergeEventEntity.findFirst({
+        where: { entityId: row!.id },
+        include: { mergeEvent: true },
+      });
+      expect(entity?.mergeEvent.actorType).toBe("system");
+      expect(entity?.mergeEvent.proofType).toBe("forward_link");
+    } finally {
+      await prisma.accountMergeEvent.deleteMany({ where: { userId: user.id } }).catch(() => {});
+      await prisma.attendeeOrder.updateMany({ where: { userId: user.id }, data: { userId: null } }).catch(() => {});
+      await prisma.user.delete({ where: { id: user.id } }).catch(() => {});
+    }
+  });
+
+  it("an address with no verified account behind it stays unowned", async () => {
+    const res = await register({
+      eventSlug: slug,
+      locale: "en",
+      attendee: { ...attendee, email: `nobody-${Date.now()}@t.test` },
+      tickets: [{ itemId: 8, quantity: 1 }],
+      consentTerms: true,
+      consentPrivacy: true,
+      consentDataUse: true,
+    });
+
+    const row = await prisma.attendeeOrder.findFirst({ where: { orderCode: res.orderCode } });
+    expect(row?.userId).toBeNull();
+    expect(await prisma.accountMergeEventEntity.count({ where: { entityId: row!.id } })).toBe(0);
+  });
 });
