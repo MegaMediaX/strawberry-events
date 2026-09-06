@@ -2,7 +2,6 @@
 
 import { revalidatePath } from "next/cache";
 import { getSessionContext } from "@/lib/auth/session";
-import { clientIp } from "@/lib/security/client-ip";
 import { rateLimit } from "@/lib/security/rate-limit";
 import { prisma } from "@/lib/db/client";
 import {
@@ -32,11 +31,9 @@ export async function sendMyVerificationCode(
   const session = await getSessionContext();
   if (!session) return { ok: false, error: "Sign in first." };
 
-  const ip = await clientIp();
   if (!rateLimit(`verify-self-send:${session.userId}`, 5, 60 * 60_000).allowed) {
     return { ok: false, error: "Too many requests. Please try again later." };
   }
-  void ip;
 
   const user = await prisma.user.findUnique({
     where: { id: session.userId },
@@ -62,8 +59,18 @@ export async function verifyMyEmail(
   const session = await getSessionContext();
   if (!session) return { ok: false, error: "Sign in first." };
 
-  const ip = await clientIp();
-  if (!rateLimit(`verify-self-check:${ip}`, 30, 5 * 60_000).allowed) {
+  /**
+   * Keyed by ACCOUNT, not by IP.
+   *
+   * The anonymous signup equivalent keys by IP because that is the only
+   * identity it has. Here the caller is signed in, and keying by IP at a
+   * physical event is actively harmful: everyone on the venue WiFi shares one
+   * egress address, so one person exhausting the bucket would stop every other
+   * attendee submitting a genuine code for the next five minutes. The real
+   * guessing limit is the 5-attempt counter on the code row anyway; this only
+   * needs to bound noise from one account.
+   */
+  if (!rateLimit(`verify-self-check:${session.userId}`, 30, 5 * 60_000).allowed) {
     return { ok: false, error: CODE_REJECTED };
   }
 
