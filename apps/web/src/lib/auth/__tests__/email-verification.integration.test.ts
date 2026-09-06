@@ -36,26 +36,26 @@ describe.skipIf(!run)("email verification (integration)", () => {
   });
 
   it("accepts the code once, then never again", async () => {
-    const minted = await mintCode();
+    const minted = await mintCode("test-flow");
     await storeAndSendCode(userId, email, minted);
 
-    const first = await checkVerificationCode(email, minted.code);
+    const first = await checkVerificationCode(email, minted.code, minted.flowToken);
     expect(first.ok).toBe(true);
 
     const user = await prisma.user.findUnique({ where: { id: userId } });
     expect(user?.emailVerified).toBeInstanceOf(Date);
 
     // Replay of the very same correct code.
-    const second = await checkVerificationCode(email, minted.code);
+    const second = await checkVerificationCode(email, minted.code, minted.flowToken);
     expect(second.ok).toBe(false);
   });
 
   it("persists wrong guesses and locks the code out at the limit", async () => {
-    const minted = await mintCode();
+    const minted = await mintCode("test-flow");
     await storeAndSendCode(userId, email, minted);
 
     for (let i = 0; i < 5; i += 1) {
-      expect((await checkVerificationCode(email, "000000")).ok).toBe(false);
+      expect((await checkVerificationCode(email, "000000", minted.flowToken)).ok).toBe(false);
     }
 
     const row = await prisma.emailVerificationCode.findFirst({
@@ -66,27 +66,27 @@ describe.skipIf(!run)("email verification (integration)", () => {
 
     // The CORRECT code is now refused: the lockout is on the row, so it holds
     // across restarts in a way the in-memory limiter could not.
-    expect((await checkVerificationCode(email, minted.code)).ok).toBe(false);
+    expect((await checkVerificationCode(email, minted.code, minted.flowToken)).ok).toBe(false);
   });
 
   it("issuing a new code kills the previous one", async () => {
-    const older = await mintCode();
+    const older = await mintCode("test-flow");
     await storeAndSendCode(userId, email, older);
 
-    const newer = await mintCode();
+    const newer = await mintCode("test-flow");
     await storeAndSendCode(userId, email, newer);
 
-    expect((await checkVerificationCode(email, older.code)).ok).toBe(false);
-    expect((await checkVerificationCode(email, newer.code)).ok).toBe(true);
+    expect((await checkVerificationCode(email, older.code, older.flowToken)).ok).toBe(false);
+    expect((await checkVerificationCode(email, newer.code, newer.flowToken)).ok).toBe(true);
   });
 
   it("only one of two concurrent submissions of the same code wins", async () => {
-    const minted = await mintCode();
+    const minted = await mintCode("test-flow");
     await storeAndSendCode(userId, email, minted);
 
     const results = await Promise.all([
-      checkVerificationCode(email, minted.code),
-      checkVerificationCode(email, minted.code),
+      checkVerificationCode(email, minted.code, minted.flowToken),
+      checkVerificationCode(email, minted.code, minted.flowToken),
     ]);
 
     expect(results.filter((r) => r.ok)).toHaveLength(1);

@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/db/client";
 import { hashPassword } from "./password";
-import { mintCode, storeAndSendCode, signupMailAllowed } from "./email-verification";
+import { mintCode, storeAndSendCode, signupMailAllowed, type CallerKind } from "./email-verification";
 import { sendEmail } from "@/lib/email/service";
 import { accountExistsEmail, type Locale } from "@/lib/email/templates";
 
@@ -33,8 +33,19 @@ export interface RegisterResult {
 export async function registerAttendee(
   email: string,
   password: string,
-  name?: string,
-  locale: Locale = "en",
+  // Explicitly `| undefined` rather than optional: a required parameter cannot
+  // follow an optional one, and flowToken below is required on purpose — a code
+  // stored against a token nobody received can never be verified.
+  name: string | undefined,
+  locale: Locale,
+  /**
+   * Minted by the caller and handed to the browser on EVERY branch, so its
+   * existence says nothing about whether an account was created. Only used when
+   * a code is actually issued.
+   */
+  flowToken: string,
+  /** Who is asking; signup is always the public, typed-address path. */
+  caller: CallerKind,
 ): Promise<RegisterResult> {
   const e = email.toLowerCase().trim();
   if (!EMAIL_RE.test(e)) return { ok: false, error: "Enter a valid email address." };
@@ -63,13 +74,13 @@ export async function registerAttendee(
    * "optimise" either of these back inside the if.
    */
   const passwordHash = await hashPassword(password);
-  const minted = await mintCode();
+  const minted = await mintCode(flowToken);
 
   if (existing) {
     // A suspended account is told nothing at all — the same silence
     // requestPasswordReset() keeps — but the caller still sees success.
     if (existing.status !== "suspended") {
-      await notify(e, accountExistsEmail(locale, loginUrl, `${appUrl}/${locale}/forgot-password`));
+      await notify(e, accountExistsEmail(locale, loginUrl, `${appUrl}/${locale}/forgot-password`), caller);
     }
     return { ok: true };
   }
@@ -78,7 +89,7 @@ export async function registerAttendee(
     data: { email: e, passwordHash, name: name?.trim() || null, emailVerified: null },
   });
 
-  if (signupMailAllowed(e)) {
+  if (signupMailAllowed(e, caller)) {
     try {
       await storeAndSendCode(user.id, e, minted, locale);
     } catch (err) {
@@ -96,8 +107,12 @@ export async function registerAttendee(
  * breaks, nobody gets a code or an account-exists mail and, without this line,
  * there is no signal anywhere that it happened.
  */
-async function notify(to: string, msg: { subject: string; text: string }): Promise<void> {
-  if (!signupMailAllowed(to)) return;
+async function notify(
+  to: string,
+  msg: { subject: string; text: string },
+  caller: CallerKind,
+): Promise<void> {
+  if (!signupMailAllowed(to, caller)) return;
   try {
     await sendEmail(
       { to, ...msg },

@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/db/client";
 import { rateLimit } from "@/lib/security/rate-limit";
+import { randomBytes, createHash, timingSafeEqual } from "node:crypto";
 import { generateCode, hashCode, verifyCode } from "@/lib/tokens/verification-code";
 import { sendEmail } from "@/lib/email/service";
 import { verifyEmailCodeEmail, type Locale } from "@/lib/email/templates";
@@ -27,9 +28,35 @@ export interface CheckResult {
   error?: string;
 }
 
+/**
+ * The handle proving you are the one who ASKED for a code.
+ *
+ * High-entropy and random, so sha256 is the right hash here for the same
+ * reason it is wrong for the six-digit code itself: nothing is guessable, and
+ * a deterministic digest is all the comparison needs.
+ */
+export function newFlowToken(): { token: string; hash: string } {
+  const token = randomBytes(32).toString("base64url");
+  return { token, hash: hashFlowToken(token) };
+}
+
+export function hashFlowToken(token: string): string {
+  return createHash("sha256").update(token).digest("hex");
+}
+
+/** Constant-time, so a mismatch cannot be found a character at a time. */
+function flowMatches(stored: string, presented: string): boolean {
+  const a = Buffer.from(stored, "hex");
+  const b = Buffer.from(hashFlowToken(presented), "hex");
+  return a.length === b.length && timingSafeEqual(a, b);
+}
+
 export interface MintedCode {
   code: string;
   codeHash: string;
+  /** Give this to the requester; its hash is what gets stored. */
+  flowToken: string;
+  flowHash: string;
 }
 
 /**
@@ -41,17 +68,35 @@ export interface MintedCode {
  * branch-dependent cost is a timing oracle, and the whole point of that flow is
  * that the two branches are indistinguishable.
  */
-export async function mintCode(): Promise<MintedCode> {
+export async function mintCode(flowToken: string): Promise<MintedCode> {
   const code = generateCode();
-  return { code, codeHash: await hashCode(code) };
+  /**
+   * The flow token is REQUIRED, not defaulted.
+   *
+   * It must be minted by the caller, because the caller is what hands it to the
+   * browser — and it has to do that on every branch, so that its existence says
+   * nothing about whether a code was issued.
+   *
+   * Minting one here as a fallback looked harmless and was not: the hash would
+   * be stored for a token nobody ever received, so the code would be
+   * permanently unverifiable and the person would simply never get in. A
+   * required parameter turns that silent trap into a compile error.
+   */
+  return {
+    code,
+    codeHash: await hashCode(code),
+    flowToken,
+    flowHash: hashFlowToken(flowToken),
+  };
 }
 
 /**
  * Store a minted code against an address and mail it.
  *
- * Any previous live code for the same address is superseded first, so exactly
- * one is ever valid: without that, a resend would leave the earlier code
- * working and quietly multiply the guessing surface with every click.
+ * This flow's previous live code is superseded first, so one flow never has two
+ * valid codes: without that, a resend would leave the earlier code working and
+ * quietly multiply the guessing surface with every click. Scoped to the flow
+ * rather than the address — see the note on the update below.
  */
 export async function storeAndSendCode(
   userId: string,
@@ -61,8 +106,22 @@ export async function storeAndSendCode(
 ): Promise<void> {
   const e = email.toLowerCase().trim();
 
+  /**
+   * Supersede only THIS flow's previous code, never the whole address.
+   *
+   * Address-wide supersession is what made the binding bypassable. Requesting a
+   * code is unauthenticated, so anyone could ask for one at your address; that
+   * killed the code you were holding AND rebound the address to their flow, and
+   * your browser was left with a stale token for a dead row. They locked you out
+   * without guessing at all.
+   *
+   * Scoped to the flow, each requester gets their own live code with its own
+   * attempt counter. A stranger asking for a code at your address now costs you
+   * an email and nothing else — yours keeps working. Mailbombing is still bounded
+   * by the per-address budget, which is the right place for that limit.
+   */
   await prisma.emailVerificationCode.updateMany({
-    where: { email: e, usedAt: null, supersededAt: null },
+    where: { email: e, flowHash: minted.flowHash, usedAt: null, supersededAt: null },
     data: { supersededAt: new Date() },
   });
 
@@ -71,6 +130,7 @@ export async function storeAndSendCode(
       userId,
       email: e,
       codeHash: minted.codeHash,
+      flowHash: minted.flowHash,
       expiresAt: new Date(Date.now() + TTL_MS),
     },
   });
@@ -92,13 +152,36 @@ export async function storeAndSendCode(
 export async function checkVerificationCode(
   email: string,
   code: string,
+  flowToken?: string | null,
 ): Promise<CheckResult> {
   const e = email.toLowerCase().trim();
   if (!/^\d{6}$/.test(code)) return { ok: false, error: CODE_REJECTED };
 
+  /**
+   * Find the code belonging to THIS flow, and ONLY this flow.
+   *
+   * An earlier version kept a compatibility branch here — rows with a null
+   * flowHash stayed reachable to any caller, so that a code issued moments
+   * before the deploy would not strand its owner. That branch reopened the very
+   * attack this file exists to stop: a null row matched whatever token the
+   * caller presented, and the recheck below is written `if (row.flowHash && …)`,
+   * so it skipped exactly those rows. Anyone holding a self-minted token could
+   * reach a stranger's code and burn its attempts.
+   *
+   * It was also protecting nobody. `email_verification_codes` in production has
+   * never held a row — checked, not assumed — and `mintCode` now always sets a
+   * flowHash, so no null row can be created. The compatibility window was
+   * hypothetical; the hole it opened was not.
+   *
+   * A guess with no flow token cannot match anything, so it is refused before
+   * the query rather than being allowed to select someone else's row.
+   */
+  if (!flowToken) return { ok: false, error: CODE_REJECTED };
+  const flowHash = hashFlowToken(flowToken);
   const row = await prisma.emailVerificationCode.findFirst({
     where: {
       email: e,
+      flowHash,
       usedAt: null,
       supersededAt: null,
       expiresAt: { gt: new Date() },
@@ -107,6 +190,18 @@ export async function checkVerificationCode(
     orderBy: { createdAt: "desc" },
   });
   if (!row) return { ok: false, error: CODE_REJECTED };
+
+  /**
+   * Belt and braces behind the scoped lookup above.
+   *
+   * The `where` clause should make a mismatch unreachable; this catches the case
+   * where it is ever loosened, and costs one constant-time comparison. Unlike
+   * the version this replaces, a null flowHash now FAILS here instead of
+   * skipping the check.
+   */
+  if (!row.flowHash || !flowMatches(row.flowHash, flowToken)) {
+    return { ok: false, error: CODE_REJECTED };
+  }
 
   if (!(await verifyCode(row.codeHash, code))) {
     // Count the miss before answering, so a burst of parallel guesses cannot
@@ -148,11 +243,63 @@ export async function checkVerificationCode(
  * someone three more times per hour than signup allows, which is exactly the
  * mailbombing the cap exists to stop.
  */
-export const MAIL_LIMIT = 3;
+export const MAIL_LIMIT = 8;
 export const MAIL_WINDOW_MS = 60 * 60 * 1000;
 
-export function signupMailAllowed(email: string): boolean {
+/**
+ * What ONE origin may spend out of that per-address ceiling.
+ *
+ * Asking for a code is unauthenticated and takes a typed address, so without
+ * this a stranger emptied the whole hourly budget in a few cheap requests — and
+ * because the budget is shared with signup and the "you already have an
+ * account" notice, that also blocked a genuine first-time registration at the
+ * address for the rest of the hour.
+ *
+ * WHAT THIS DOES NOT DO, having claimed otherwise once already: it does not
+ * guarantee the owner a mail. An earlier revision set the ceiling to 4 and
+ * this to 3 and called that a guarantee, reasoning that one origin could never
+ * take the last slot. That was wrong in the ordinary case — the owner's own
+ * signup mail takes one of the four, the stranger's three take the rest, and
+ * the owner's next resend is refused. The ceiling here is wide enough that a
+ * single origin cannot starve normal use, and no wider claim is being made:
+ * a few origins still exhaust it, and rotating within an IPv6 prefix makes
+ * "a few origins" nearly free.
+ *
+ * The real guarantee lives elsewhere, in CallerKind below — identity, not
+ * arithmetic, is what separates the owner from a stranger.
+ */
+export const MAIL_LIMIT_PER_ORIGIN = 3;
+
+/**
+ * Who is asking, and therefore which budget applies.
+ *
+ * `public` is the signup form and its resend: a typed address, so anyone can
+ * aim it at anyone, and it is charged both the per-origin cap and the shared
+ * per-address ceiling.
+ *
+ * `self` is the signed-in profile route. It can only ever mail the address on
+ * the session, so it cannot be aimed at a stranger and cannot mailbomb anyone
+ * but the caller — who is already bounded by a per-account limiter at the
+ * route. It is therefore exempt from the shared ceiling, and that exemption is
+ * the point: once you can sign in, no stranger can stop your verification mail
+ * arriving, however much of the public budget they have burned.
+ */
+export type CallerKind = { kind: "public"; origin: string } | { kind: "self" };
+
+export function signupMailAllowed(email: string, caller: CallerKind): boolean {
+  if (caller.kind === "self") return true;
+  // Origin budget FIRST. An origin already over its own limit must not get to
+  // charge the address's ceiling on its way to being refused.
+  if (!signupMailAllowedForOrigin(email, caller.origin)) return false;
   return rateLimit(`signup-mail:${email}`, MAIL_LIMIT, MAIL_WINDOW_MS).allowed;
+}
+
+export function signupMailAllowedForOrigin(email: string, origin: string): boolean {
+  return rateLimit(
+    `signup-mail-origin:${email}:${origin}`,
+    MAIL_LIMIT_PER_ORIGIN,
+    MAIL_WINDOW_MS,
+  ).allowed;
 }
 
 /**
@@ -169,7 +316,14 @@ export function signupMailAllowed(email: string): boolean {
  */
 export async function resendVerificationCode(
   email: string,
-  locale: Locale = "en",
+  locale: Locale,
+  flowToken: string,
+  /**
+   * Who is asking. Explicit rather than defaulted, for the same reason
+   * flowToken above is: the wrong value here silently removes a protection or
+   * silently removes a guarantee, and neither shows up as a failure.
+   */
+  caller: CallerKind,
 ): Promise<void> {
   const e = email.toLowerCase().trim();
 
@@ -181,10 +335,10 @@ export async function resendVerificationCode(
   // Budget is checked AFTER eligibility, so it is only ever spent on a mail
   // that is actually going out. Checking first would let anyone burn an
   // address's hourly allowance by asking for codes it was never going to get.
-  if (!signupMailAllowed(e)) return;
+  if (!signupMailAllowed(e, caller)) return;
 
   try {
-    await storeAndSendCode(user.id, e, await mintCode(), locale);
+    await storeAndSendCode(user.id, e, await mintCode(flowToken), locale);
   } catch (err) {
     console.error("[verify] resend failed:", (err as Error).message);
   }

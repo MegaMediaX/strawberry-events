@@ -6,9 +6,11 @@ import { rateLimit } from "@/lib/security/rate-limit";
 import { prisma } from "@/lib/db/client";
 import {
   resendVerificationCode,
+  newFlowToken,
   checkVerificationCode,
   CODE_REJECTED,
 } from "@/lib/auth/email-verification";
+import { setFlowCookie, readFlowCookie } from "@/lib/auth/verify-flow-cookie";
 import type { Locale } from "@/lib/email/templates";
 
 export interface VerifyResult {
@@ -44,7 +46,24 @@ export async function sendMyVerificationCode(
 
   // Shares the per-address mail cap with signup, so this cannot be used to mail
   // someone more often than signing up already could.
-  await resendVerificationCode(user.email, locale === "ar" ? "ar" : ("en" as Locale));
+  // Same reuse rule as the signup resend — see the note there.
+  const flowToken = (await readFlowCookie()) ?? newFlowToken().token;
+  await setFlowCookie(flowToken);
+  /**
+   * `self`, which exempts this from the shared per-address ceiling.
+   *
+   * The address comes from the session, so this can only ever mail the caller's
+   * own inbox — it cannot be aimed at a stranger, and the per-account limiter
+   * above already bounds how often the caller can mail themselves. Sharing the
+   * public ceiling would mean a stranger burning the signup budget could stop a
+   * signed-in user verifying, which is exactly the lockout being closed.
+   *
+   * Charging an origin here would also punish everyone behind one NAT at the
+   * venue for one person's retries.
+   */
+  await resendVerificationCode(user.email, locale === "ar" ? "ar" : ("en" as Locale), flowToken, {
+    kind: "self",
+  });
   return { ok: true };
 }
 
@@ -80,7 +99,7 @@ export async function verifyMyEmail(
   });
   if (!user) return { ok: false, error: CODE_REJECTED };
 
-  const res = await checkVerificationCode(user.email, code);
+  const res = await checkVerificationCode(user.email, code, await readFlowCookie());
   if (res.ok) revalidatePath(`/${locale}/profile`);
   return res;
 }
