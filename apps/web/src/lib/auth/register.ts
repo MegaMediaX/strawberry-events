@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/db/client";
 import { hashPassword } from "./password";
-import { mintCode, storeAndSendCode, signupMailAllowed } from "./email-verification";
+import { mintCode, storeAndSendCode, signupMailAllowed, type CallerKind } from "./email-verification";
 import { sendEmail } from "@/lib/email/service";
 import { accountExistsEmail, type Locale } from "@/lib/email/templates";
 
@@ -44,16 +44,8 @@ export async function registerAttendee(
    * a code is actually issued.
    */
   flowToken: string,
-  /**
-   * The requester's IP, or `undefined` where there is deliberately none.
-   *
-   * Explicit rather than optional, for the same reason flowToken above is: this
-   * is the only thing stopping one connection emptying a stranger's mail budget,
-   * and a call site that quietly omitted it would lose that protection with
-   * nothing to show for it. The session-authenticated profile route passes
-   * `undefined` on purpose — see the note there.
-   */
-  origin: string | undefined,
+  /** Who is asking; signup is always the public, typed-address path. */
+  caller: CallerKind,
 ): Promise<RegisterResult> {
   const e = email.toLowerCase().trim();
   if (!EMAIL_RE.test(e)) return { ok: false, error: "Enter a valid email address." };
@@ -88,7 +80,7 @@ export async function registerAttendee(
     // A suspended account is told nothing at all — the same silence
     // requestPasswordReset() keeps — but the caller still sees success.
     if (existing.status !== "suspended") {
-      await notify(e, accountExistsEmail(locale, loginUrl, `${appUrl}/${locale}/forgot-password`), origin);
+      await notify(e, accountExistsEmail(locale, loginUrl, `${appUrl}/${locale}/forgot-password`), caller);
     }
     return { ok: true };
   }
@@ -97,7 +89,7 @@ export async function registerAttendee(
     data: { email: e, passwordHash, name: name?.trim() || null, emailVerified: null },
   });
 
-  if (signupMailAllowed(e, origin)) {
+  if (signupMailAllowed(e, caller)) {
     try {
       await storeAndSendCode(user.id, e, minted, locale);
     } catch (err) {
@@ -118,9 +110,9 @@ export async function registerAttendee(
 async function notify(
   to: string,
   msg: { subject: string; text: string },
-  origin?: string,
+  caller: CallerKind,
 ): Promise<void> {
-  if (!signupMailAllowed(to, origin)) return;
+  if (!signupMailAllowed(to, caller)) return;
   try {
     await sendEmail(
       { to, ...msg },

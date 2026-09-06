@@ -61,7 +61,7 @@ describe.skipIf(!run)("verify my own email (integration)", () => {
   async function issueAndRead(email: string): Promise<{ code: string; flow: string }> {
     const { sendEmail } = await import("@/lib/email/service");
     const flow = ev.newFlowToken().token;
-    await ev.resendVerificationCode(email, "en", flow, undefined);
+    await ev.resendVerificationCode(email, "en", flow, { kind: "public", origin: "test-origin" });
     const calls = (sendEmail as unknown as { mock: { calls: unknown[][] } }).mock.calls;
     const text = (calls.at(-1)![0] as { text: string }).text;
     return { code: text.match(/\b(\d{6})\b/)![1], flow };
@@ -96,7 +96,7 @@ describe.skipIf(!run)("verify my own email (integration)", () => {
 
   it("issues nothing for an account that is already verified", async () => {
     const { sendEmail } = await import("@/lib/email/service");
-    await ev.resendVerificationCode(`done-${s}@t.test`, "en", ev.newFlowToken().token, undefined);
+    await ev.resendVerificationCode(`done-${s}@t.test`, "en", ev.newFlowToken().token, { kind: "public", origin: "test-origin" });
     expect(sendEmail).not.toHaveBeenCalled();
   });
 
@@ -130,12 +130,19 @@ describe.skipIf(!run)("verify my own email (integration)", () => {
     const { sendEmail } = await import("@/lib/email/service");
     const sent = () => (sendEmail as unknown as { mock: { calls: unknown[][] } }).mock.calls.length;
 
+    // One origin per send: this is the address ceiling, not the per-origin cap.
     for (let i = 0; i < ev.MAIL_LIMIT; i += 1) {
-      await ev.resendVerificationCode(`mine-${s}@t.test`, "en", ev.newFlowToken().token, undefined);
+      await ev.resendVerificationCode(`mine-${s}@t.test`, "en", ev.newFlowToken().token, {
+        kind: "public",
+        origin: `10.0.0.${i}`,
+      });
     }
     expect(sent()).toBe(ev.MAIL_LIMIT);
 
-    await ev.resendVerificationCode(`mine-${s}@t.test`, "en", ev.newFlowToken().token, undefined);
+    await ev.resendVerificationCode(`mine-${s}@t.test`, "en", ev.newFlowToken().token, {
+      kind: "public",
+      origin: "10.0.0.99",
+    });
     expect(sent()).toBe(ev.MAIL_LIMIT);
   });
 
@@ -145,9 +152,14 @@ describe.skipIf(!run)("verify my own email (integration)", () => {
    * Asking for a code is unauthenticated and takes a typed address, so a
    * stranger could spend a victim's whole hourly mail budget in three cheap
    * requests — and because that budget is shared with signup, it also blocked a
-   * genuine first-time registration at the address. No guessing, repeatable
-   * every hour. The per-origin cap sits strictly under the ceiling, so one
-   * connection can never take the last slot.
+   * genuine first-time registration at the address.
+   *
+   * This asserts what the cap actually delivers: one origin cannot starve the
+   * address. It deliberately does NOT assert that the owner is guaranteed a
+   * mail on this path. An earlier revision claimed exactly that, on the
+   * arithmetic that a per-origin cap below the ceiling leaves a slot spare — and
+   * it was false as soon as the owner's own signup mail took a slot first. The
+   * guarantee is in the `self` test below instead, where identity makes it true.
    */
   it("one origin cannot spend the whole address budget", async () => {
     const { sendEmail } = await import("@/lib/email/service");
@@ -155,12 +167,12 @@ describe.skipIf(!run)("verify my own email (integration)", () => {
 
     // A stranger, hammering from one address, far past their own cap.
     for (let i = 0; i < ev.MAIL_LIMIT + 3; i += 1) {
-      await ev.resendVerificationCode(`mine-${s}@t.test`, "en", ev.newFlowToken().token, "203.0.113.9");
+      await ev.resendVerificationCode(`mine-${s}@t.test`, "en", ev.newFlowToken().token, { kind: "public", origin: "203.0.113.9" });
     }
     expect(sent()).toBe(ev.MAIL_LIMIT_PER_ORIGIN);
 
     // The owner, from their own connection, still gets a code.
-    await ev.resendVerificationCode(`mine-${s}@t.test`, "en", ev.newFlowToken().token, "198.51.100.4");
+    await ev.resendVerificationCode(`mine-${s}@t.test`, "en", ev.newFlowToken().token, { kind: "public", origin: "198.51.100.4" });
     expect(sent()).toBe(ev.MAIL_LIMIT_PER_ORIGIN + 1);
   });
 
@@ -171,7 +183,7 @@ describe.skipIf(!run)("verify my own email (integration)", () => {
   it("many origins still cannot exceed the address ceiling", async () => {
     const { sendEmail } = await import("@/lib/email/service");
     for (let i = 0; i < 12; i += 1) {
-      await ev.resendVerificationCode(`mine-${s}@t.test`, "en", ev.newFlowToken().token, `192.0.2.${i}`);
+      await ev.resendVerificationCode(`mine-${s}@t.test`, "en", ev.newFlowToken().token, { kind: "public", origin: `192.0.2.${i}` });
     }
     expect((sendEmail as unknown as { mock: { calls: unknown[][] } }).mock.calls).toHaveLength(ev.MAIL_LIMIT);
   });
@@ -191,7 +203,7 @@ describe.skipIf(!run)("verify my own email (integration)", () => {
   it("a stranger's guesses cannot spend the code's attempts", async () => {
     const { sendEmail } = await import("@/lib/email/service");
     const flow = ev.newFlowToken().token;
-    await ev.resendVerificationCode(`mine-${s}@t.test`, "en", flow, undefined);
+    await ev.resendVerificationCode(`mine-${s}@t.test`, "en", flow, { kind: "public", origin: "test-origin" });
     const text = ((sendEmail as unknown as { mock: { calls: unknown[][] } }).mock.calls.at(-1)![0] as { text: string }).text;
     const code = text.match(/\b(\d{6})\b/)![1];
 
@@ -218,7 +230,7 @@ describe.skipIf(!run)("verify my own email (integration)", () => {
    */
   it("still locks out after five wrong guesses from the real requester", async () => {
     const flow = ev.newFlowToken().token;
-    await ev.resendVerificationCode(`mine-${s}@t.test`, "en", flow, undefined);
+    await ev.resendVerificationCode(`mine-${s}@t.test`, "en", flow, { kind: "public", origin: "test-origin" });
 
     for (let i = 0; i < 5; i += 1) {
       expect((await ev.checkVerificationCode(`mine-${s}@t.test`, "000000", flow)).ok).toBe(false);
@@ -233,9 +245,9 @@ describe.skipIf(!run)("verify my own email (integration)", () => {
 
   it("a flow token from one request cannot spend another request's code", async () => {
     const stale = ev.newFlowToken().token;
-    await ev.resendVerificationCode(`mine-${s}@t.test`, "en", stale, undefined);
+    await ev.resendVerificationCode(`mine-${s}@t.test`, "en", stale, { kind: "public", origin: "test-origin" });
     // A fresh request supersedes it and issues a new flow.
-    await ev.resendVerificationCode(`mine-${s}@t.test`, "en", ev.newFlowToken().token, undefined);
+    await ev.resendVerificationCode(`mine-${s}@t.test`, "en", ev.newFlowToken().token, { kind: "public", origin: "test-origin" });
 
     for (let i = 0; i < 3; i += 1) {
       await ev.checkVerificationCode(`mine-${s}@t.test`, "000000", stale);
@@ -318,12 +330,12 @@ describe.skipIf(!run)("verify my own email (integration)", () => {
 
     // You ask, and hold your own flow.
     const mine = ev.newFlowToken().token;
-    await ev.resendVerificationCode(`mine-${s}@t.test`, "en", mine, undefined);
+    await ev.resendVerificationCode(`mine-${s}@t.test`, "en", mine, { kind: "public", origin: "test-origin" });
     const myCode = (((sendEmail as unknown as { mock: { calls: unknown[][] } }).mock.calls.at(-1)![0]) as { text: string }).text.match(/\b(\d{6})\b/)![1];
 
     // A stranger asks for a code at YOUR address and gets their own flow.
     const theirs = ev.newFlowToken().token;
-    await ev.resendVerificationCode(`mine-${s}@t.test`, "en", theirs, undefined);
+    await ev.resendVerificationCode(`mine-${s}@t.test`, "en", theirs, { kind: "public", origin: "test-origin" });
     const theirCode = (((sendEmail as unknown as { mock: { calls: unknown[][] } }).mock.calls.at(-1)![0]) as { text: string }).text.match(/\b(\d{6})\b/)![1];
 
     // They burn their own code's attempts to the limit.
@@ -346,10 +358,10 @@ describe.skipIf(!run)("verify my own email (integration)", () => {
     const { sendEmail } = await import("@/lib/email/service");
     const flow = ev.newFlowToken().token;
 
-    await ev.resendVerificationCode(`mine-${s}@t.test`, "en", flow, undefined);
+    await ev.resendVerificationCode(`mine-${s}@t.test`, "en", flow, { kind: "public", origin: "test-origin" });
     const first = (((sendEmail as unknown as { mock: { calls: unknown[][] } }).mock.calls.at(-1)![0]) as { text: string }).text.match(/\b(\d{6})\b/)![1];
 
-    await ev.resendVerificationCode(`mine-${s}@t.test`, "en", flow, undefined);
+    await ev.resendVerificationCode(`mine-${s}@t.test`, "en", flow, { kind: "public", origin: "test-origin" });
     const second = (((sendEmail as unknown as { mock: { calls: unknown[][] } }).mock.calls.at(-1)![0]) as { text: string }).text.match(/\b(\d{6})\b/)![1];
 
     // Counted BEFORE verifying: a successful check consumes the code, so
@@ -361,5 +373,34 @@ describe.skipIf(!run)("verify my own email (integration)", () => {
 
     expect((await ev.checkVerificationCode(`mine-${s}@t.test`, first, flow)).ok).toBe(false);
     expect((await ev.checkVerificationCode(`mine-${s}@t.test`, second, flow)).ok).toBe(true);
+  });
+
+  /**
+   * The guarantee that survives contact with an attacker.
+   *
+   * Rate limits cannot tell the owner of an address from a stranger who typed
+   * it, so no arithmetic on the public budget can promise the owner a mail —
+   * that was the mistake in the revision before this one. A session can tell
+   * them apart. The profile route mails only the address on the session, so it
+   * cannot be aimed at anyone else and is exempt from the public ceiling.
+   *
+   * So: burn the entire public budget from many origins, then confirm a
+   * signed-in request still sends.
+   */
+  it("a signed-in request still sends after strangers exhaust the public budget", async () => {
+    const { sendEmail } = await import("@/lib/email/service");
+    const sent = () => (sendEmail as unknown as { mock: { calls: unknown[][] } }).mock.calls.length;
+
+    for (let i = 0; i < ev.MAIL_LIMIT + 6; i += 1) {
+      await ev.resendVerificationCode(`mine-${s}@t.test`, "en", ev.newFlowToken().token, {
+        kind: "public",
+        origin: `192.0.2.${i}`,
+      });
+    }
+    // The public ceiling is spent, exactly as an attacker would leave it.
+    expect(sent()).toBe(ev.MAIL_LIMIT);
+
+    await ev.resendVerificationCode(`mine-${s}@t.test`, "en", ev.newFlowToken().token, { kind: "self" });
+    expect(sent()).toBe(ev.MAIL_LIMIT + 1);
   });
 });

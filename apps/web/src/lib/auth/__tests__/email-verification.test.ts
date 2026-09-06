@@ -230,7 +230,7 @@ describe("resendVerificationCode", () => {
       emailVerified: null,
     });
 
-    await resendVerificationCode("a@x.com", "en", "test-flow", undefined);
+    await resendVerificationCode("a@x.com", "en", "test-flow", { kind: "public", origin: "test-origin" });
 
     expect(prisma.emailVerificationCode.create).toHaveBeenCalledTimes(1);
     const sent = mock(sendEmail).mock.calls[0][0];
@@ -245,7 +245,7 @@ describe("resendVerificationCode", () => {
       emailVerified: null,
     });
 
-    await resendVerificationCode("a@x.com", "en", "test-flow", undefined);
+    await resendVerificationCode("a@x.com", "en", "test-flow", { kind: "public", origin: "test-origin" });
 
     const where = mock(prisma.emailVerificationCode.updateMany).mock.calls[0][0].where;
     expect(where).toMatchObject({ email: "a@x.com", usedAt: null, supersededAt: null });
@@ -261,7 +261,7 @@ describe("resendVerificationCode", () => {
       vi.clearAllMocks();
       __resetRateLimits();
       mock(prisma.user.findUnique).mockResolvedValue(user);
-      await resendVerificationCode("a@x.com", "en", "test-flow", undefined);
+      await resendVerificationCode("a@x.com", "en", "test-flow", { kind: "public", origin: "test-origin" });
       expect(sendEmail).not.toHaveBeenCalled();
       expect(prisma.emailVerificationCode.create).not.toHaveBeenCalled();
     }
@@ -274,10 +274,15 @@ describe("resendVerificationCode", () => {
       emailVerified: null,
     });
 
-    for (let i = 0; i < MAIL_LIMIT; i += 1) await resendVerificationCode("a@x.com", "en", "test-flow", undefined);
+    // A DIFFERENT origin each time, so this measures the address ceiling and
+    // not the per-origin cap — they are separate limits and a single-origin
+    // loop would stop at the smaller one while appearing to test the larger.
+    for (let i = 0; i < MAIL_LIMIT; i += 1) {
+      await resendVerificationCode("a@x.com", "en", "test-flow", { kind: "public", origin: `10.0.0.${i}` });
+    }
     expect(mock(sendEmail).mock.calls).toHaveLength(MAIL_LIMIT);
 
-    await resendVerificationCode("a@x.com", "en", "test-flow", undefined);
+    await resendVerificationCode("a@x.com", "en", "test-flow", { kind: "public", origin: "10.0.0.99" });
     expect(mock(sendEmail).mock.calls).toHaveLength(MAIL_LIMIT); // capped
 
     // Sending with no origin charges only the ceiling — the per-origin cap is a

@@ -51,7 +51,7 @@ export async function registerAction(values: {
     values.name,
     toLocale(values.locale),
     flow.token,
-    await clientIp(),
+    { kind: "public", origin: await clientIp() },
   );
   return { ok: res.ok, error: res.error };
 }
@@ -108,6 +108,9 @@ export async function resendCodeAction(values: {
    */
   const flowToken = (await readFlowCookie()) ?? newFlowToken().token;
   await setFlowCookie(flowToken);
-  await resendVerificationCode(values.email, toLocale(values.locale), flowToken, ip);
+  await resendVerificationCode(values.email, toLocale(values.locale), flowToken, {
+    kind: "public",
+    origin: ip,
+  });
   return { ok: true };
 }

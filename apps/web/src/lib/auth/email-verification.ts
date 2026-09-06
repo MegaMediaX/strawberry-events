@@ -243,46 +243,57 @@ export async function checkVerificationCode(
  * someone three more times per hour than signup allows, which is exactly the
  * mailbombing the cap exists to stop.
  */
-export const MAIL_LIMIT = 4;
+export const MAIL_LIMIT = 8;
 export const MAIL_WINDOW_MS = 60 * 60 * 1000;
 
 /**
  * What ONE origin may spend out of that per-address ceiling.
  *
- * The ceiling alone was a denial of service, not a defence. Asking for a code
- * is unauthenticated and takes a typed address, so three cheap requests from
- * anyone emptied a stranger's hourly budget — and because the budget is shared
- * with signup and with the "you already have an account" notice, it also
- * blocked a genuine first-time signup at that address for the rest of the hour.
- * No guessing, no live code needed, repeatable every hour. That was a more
- * durable lockout than the attempt-burning bug this file was changed to fix.
+ * Asking for a code is unauthenticated and takes a typed address, so without
+ * this a stranger emptied the whole hourly budget in a few cheap requests — and
+ * because the budget is shared with signup and the "you already have an
+ * account" notice, that also blocked a genuine first-time registration at the
+ * address for the rest of the hour.
  *
- * Keeping this strictly below MAIL_LIMIT is the whole point: a single origin
- * can never take the last slot, so the address owner always has at least one
- * mail available from their own connection.
+ * WHAT THIS DOES NOT DO, having claimed otherwise once already: it does not
+ * guarantee the owner a mail. An earlier revision set the ceiling to 4 and
+ * this to 3 and called that a guarantee, reasoning that one origin could never
+ * take the last slot. That was wrong in the ordinary case — the owner's own
+ * signup mail takes one of the four, the stranger's three take the rest, and
+ * the owner's next resend is refused. The ceiling here is wide enough that a
+ * single origin cannot starve normal use, and no wider claim is being made:
+ * a few origins still exhaust it, and rotating within an IPv6 prefix makes
+ * "a few origins" nearly free.
  *
- * Stated plainly, because the previous version of this fix overclaimed: an
- * attacker with two or more addresses to send from can still exhaust the
- * ceiling. Any per-recipient cap is a lever of exactly this kind — removing it
- * would trade this for unbounded mailbombing. This raises the cost of the
- * lockout from one connection to several; it does not eliminate it.
+ * The real guarantee lives elsewhere, in CallerKind below — identity, not
+ * arithmetic, is what separates the owner from a stranger.
  */
 export const MAIL_LIMIT_PER_ORIGIN = 3;
 
-export function signupMailAllowed(email: string, origin?: string): boolean {
+/**
+ * Who is asking, and therefore which budget applies.
+ *
+ * `public` is the signup form and its resend: a typed address, so anyone can
+ * aim it at anyone, and it is charged both the per-origin cap and the shared
+ * per-address ceiling.
+ *
+ * `self` is the signed-in profile route. It can only ever mail the address on
+ * the session, so it cannot be aimed at a stranger and cannot mailbomb anyone
+ * but the caller — who is already bounded by a per-account limiter at the
+ * route. It is therefore exempt from the shared ceiling, and that exemption is
+ * the point: once you can sign in, no stranger can stop your verification mail
+ * arriving, however much of the public budget they have burned.
+ */
+export type CallerKind = { kind: "public"; origin: string } | { kind: "self" };
+
+export function signupMailAllowed(email: string, caller: CallerKind): boolean {
+  if (caller.kind === "self") return true;
   // Origin budget FIRST. An origin already over its own limit must not get to
-  // charge the address's ceiling on its way to being refused — otherwise the
-  // per-origin cap would still leak the whole address budget away.
-  if (origin && !signupMailAllowedForOrigin(email, origin)) return false;
+  // charge the address's ceiling on its way to being refused.
+  if (!signupMailAllowedForOrigin(email, caller.origin)) return false;
   return rateLimit(`signup-mail:${email}`, MAIL_LIMIT, MAIL_WINDOW_MS).allowed;
 }
 
-/**
- * The per-origin half, kept separate so it can be reasoned about on its own.
- *
- * Callers reach it through signupMailAllowed; it is exported for the tests that
- * pin the two limits against each other.
- */
 export function signupMailAllowedForOrigin(email: string, origin: string): boolean {
   return rateLimit(
     `signup-mail-origin:${email}:${origin}`,
@@ -308,15 +319,11 @@ export async function resendVerificationCode(
   locale: Locale,
   flowToken: string,
   /**
-   * The requester's IP, or `undefined` where there is deliberately none.
-   *
-   * Explicit rather than optional, for the same reason flowToken above is: this
-   * is the only thing stopping one connection emptying a stranger's mail budget,
-   * and a call site that quietly omitted it would lose that protection with
-   * nothing to show for it. The session-authenticated profile route passes
-   * `undefined` on purpose — see the note there.
+   * Who is asking. Explicit rather than defaulted, for the same reason
+   * flowToken above is: the wrong value here silently removes a protection or
+   * silently removes a guarantee, and neither shows up as a failure.
    */
-  origin: string | undefined,
+  caller: CallerKind,
 ): Promise<void> {
   const e = email.toLowerCase().trim();
 
@@ -328,7 +335,7 @@ export async function resendVerificationCode(
   // Budget is checked AFTER eligibility, so it is only ever spent on a mail
   // that is actually going out. Checking first would let anyone burn an
   // address's hourly allowance by asking for codes it was never going to get.
-  if (!signupMailAllowed(e, origin)) return;
+  if (!signupMailAllowed(e, caller)) return;
 
   try {
     await storeAndSendCode(user.id, e, await mintCode(flowToken), locale);
