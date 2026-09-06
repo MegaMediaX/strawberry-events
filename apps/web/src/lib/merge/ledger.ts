@@ -8,8 +8,14 @@ import { prisma } from "@/lib/db/client";
  */
 export const REVERSE_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
 
-export type ActorType = "self_claim" | "staff_override";
-export type ProofType = "admin_override" | "magic_link" | "email_code" | "phone_code";
+/** `system` is forward-linking: nobody chose it, the address was already proved. */
+export type ActorType = "self_claim" | "staff_override" | "system";
+export type ProofType =
+  | "admin_override"
+  | "magic_link"
+  | "email_code"
+  | "phone_code"
+  | "forward_link";
 
 export interface Actor {
   type: ActorType;

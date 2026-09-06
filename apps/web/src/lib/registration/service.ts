@@ -15,6 +15,7 @@ import {
 } from "@/lib/email/templates";
 import { requiresApproval } from "@/lib/approval/state";
 import { tagForItem } from "@/lib/checkin/eligibility";
+import { resolveForwardLink, applyForwardLink } from "@/lib/merge/forward-link";
 import { resolveRoleLabel } from "@/lib/badges/tags";
 import { holdSeats, confirmSeats, releaseSeats } from "@/lib/seats/service";
 import { emit } from "@/lib/webhooks/service";
@@ -312,7 +313,19 @@ export async function register(input: RegisterInput): Promise<RegisterResult> {
   const roleLabelResolution = resolveRoleLabel(resolvedRoleTag, data.roleLabel);
   const resolvedRoleLabel = roleLabelResolution.ok ? roleLabelResolution.value : null;
 
-  await prisma.attendeeOrder.create({
+  /**
+   * Who this registration belongs to.
+   *
+   * An explicit userId (a signed-in registrant, or the API) always wins. Only
+   * when there is none do we infer one from an address already verified on an
+   * account — that is the whole of forward-linking: after someone has an
+   * account, everything they register for afterwards belongs to it without a
+   * claim. Never throws; ownership being undecidable must not fail a
+   * registration.
+   */
+  const linkedUserId = data.userId ?? (await resolveForwardLink(data.attendee.email));
+
+  const created = await prisma.attendeeOrder.create({
     data: {
       eventMappingId: event.id,
       orderCode: order.code,
@@ -362,6 +375,15 @@ export async function register(input: RegisterInput): Promise<RegisterResult> {
     } catch (err) {
       console.error("[register] invite redemption finalize failed:", (err as Error).message);
     }
+  }
+
+  /**
+   * Forward-linking must not be the one way a registration becomes owned with
+   * no ledger row and no notice. Same event, same notice as a claim, so the
+   * invariant holds that every owned registration can explain why.
+   */
+  if (!data.userId && linkedUserId) {
+    await applyForwardLink({ orderId: created.id, userId: linkedUserId, locale: data.locale });
   }
 
   // Keep the signed-in user's profile in sync with what they just entered.
