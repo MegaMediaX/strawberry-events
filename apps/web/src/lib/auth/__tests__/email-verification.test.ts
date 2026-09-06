@@ -56,7 +56,7 @@ describe("generateCode", () => {
 
 describe("storeAndSendCode", () => {
   it("supersedes any live code for the address before issuing a new one", async () => {
-    const minted = await mintCode();
+    const minted = await mintCode("test-flow");
     await storeAndSendCode("u1", "A@X.com", minted);
 
     const supersede = mock(prisma.emailVerificationCode.updateMany).mock.calls[0][0];
@@ -69,7 +69,7 @@ describe("storeAndSendCode", () => {
   });
 
   it("never stores or mails the code in a recoverable form", async () => {
-    const minted = await mintCode();
+    const minted = await mintCode("test-flow");
     await storeAndSendCode("u1", "a@x.com", minted);
 
     const stored = mock(prisma.emailVerificationCode.create).mock.calls[0][0].data.codeHash;
@@ -87,7 +87,7 @@ describe("checkVerificationCode", () => {
   }
 
   it("accepts the right code and marks the address verified", async () => {
-    const minted = await mintCode();
+    const minted = await mintCode("test-flow");
     mock(prisma.emailVerificationCode.findFirst).mockResolvedValue(liveRow(minted.codeHash));
 
     const res = await checkVerificationCode("a@x.com", minted.code);
@@ -99,7 +99,7 @@ describe("checkVerificationCode", () => {
   });
 
   it("counts a wrong guess against the row, not against memory", async () => {
-    const minted = await mintCode();
+    const minted = await mintCode("test-flow");
     mock(prisma.emailVerificationCode.findFirst).mockResolvedValue(liveRow(minted.codeHash));
 
     const res = await checkVerificationCode("a@x.com", "000000");
@@ -129,7 +129,7 @@ describe("checkVerificationCode", () => {
   });
 
   it("is single-use — the claim, not the read, is what enforces it", async () => {
-    const minted = await mintCode();
+    const minted = await mintCode("test-flow");
     mock(prisma.emailVerificationCode.findFirst).mockResolvedValue(liveRow(minted.codeHash));
     // A concurrent request won the claim first.
     mock(prisma.emailVerificationCode.updateMany).mockResolvedValue({ count: 0 });
@@ -140,7 +140,7 @@ describe("checkVerificationCode", () => {
   });
 
   it("answers every failure with one identical string", async () => {
-    const minted = await mintCode();
+    const minted = await mintCode("test-flow");
 
     mock(prisma.emailVerificationCode.findFirst).mockResolvedValue(null);
     const noCode = await checkVerificationCode("nobody@x.com", "123456");
@@ -180,7 +180,7 @@ describe("resendVerificationCode", () => {
       emailVerified: null,
     });
 
-    await resendVerificationCode("a@x.com");
+    await resendVerificationCode("a@x.com", "en", "test-flow");
 
     expect(prisma.emailVerificationCode.create).toHaveBeenCalledTimes(1);
     const sent = mock(sendEmail).mock.calls[0][0];
@@ -195,7 +195,7 @@ describe("resendVerificationCode", () => {
       emailVerified: null,
     });
 
-    await resendVerificationCode("a@x.com");
+    await resendVerificationCode("a@x.com", "en", "test-flow");
 
     expect(mock(prisma.emailVerificationCode.updateMany).mock.calls[0][0].where).toMatchObject({
       email: "a@x.com",
@@ -213,7 +213,7 @@ describe("resendVerificationCode", () => {
       vi.clearAllMocks();
       __resetRateLimits();
       mock(prisma.user.findUnique).mockResolvedValue(user);
-      await resendVerificationCode("a@x.com");
+      await resendVerificationCode("a@x.com", "en", "test-flow");
       expect(sendEmail).not.toHaveBeenCalled();
       expect(prisma.emailVerificationCode.create).not.toHaveBeenCalled();
     }
@@ -226,10 +226,10 @@ describe("resendVerificationCode", () => {
       emailVerified: null,
     });
 
-    for (let i = 0; i < 3; i += 1) await resendVerificationCode("a@x.com");
+    for (let i = 0; i < 3; i += 1) await resendVerificationCode("a@x.com", "en", "test-flow");
     expect(mock(sendEmail).mock.calls).toHaveLength(3);
 
-    await resendVerificationCode("a@x.com");
+    await resendVerificationCode("a@x.com", "en", "test-flow");
     expect(mock(sendEmail).mock.calls).toHaveLength(3); // capped, not 4
   });
 });

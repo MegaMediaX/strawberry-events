@@ -33,14 +33,17 @@ export interface RegisterResult {
 export async function registerAttendee(
   email: string,
   password: string,
-  name?: string,
-  locale: Locale = "en",
+  // Explicitly `| undefined` rather than optional: a required parameter cannot
+  // follow an optional one, and flowToken below is required on purpose — a code
+  // stored against a token nobody received can never be verified.
+  name: string | undefined,
+  locale: Locale,
   /**
    * Minted by the caller and handed to the browser on EVERY branch, so its
    * existence says nothing about whether an account was created. Only used when
    * a code is actually issued.
    */
-  flowToken?: string,
+  flowToken: string,
 ): Promise<RegisterResult> {
   const e = email.toLowerCase().trim();
   if (!EMAIL_RE.test(e)) return { ok: false, error: "Enter a valid email address." };

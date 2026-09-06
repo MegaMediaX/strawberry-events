@@ -36,7 +36,7 @@ describe.skipIf(!run)("email verification (integration)", () => {
   });
 
   it("accepts the code once, then never again", async () => {
-    const minted = await mintCode();
+    const minted = await mintCode("test-flow");
     await storeAndSendCode(userId, email, minted);
 
     const first = await checkVerificationCode(email, minted.code, minted.flowToken);
@@ -51,7 +51,7 @@ describe.skipIf(!run)("email verification (integration)", () => {
   });
 
   it("persists wrong guesses and locks the code out at the limit", async () => {
-    const minted = await mintCode();
+    const minted = await mintCode("test-flow");
     await storeAndSendCode(userId, email, minted);
 
     for (let i = 0; i < 5; i += 1) {
@@ -70,10 +70,10 @@ describe.skipIf(!run)("email verification (integration)", () => {
   });
 
   it("issuing a new code kills the previous one", async () => {
-    const older = await mintCode();
+    const older = await mintCode("test-flow");
     await storeAndSendCode(userId, email, older);
 
-    const newer = await mintCode();
+    const newer = await mintCode("test-flow");
     await storeAndSendCode(userId, email, newer);
 
     expect((await checkVerificationCode(email, older.code, older.flowToken)).ok).toBe(false);
@@ -81,7 +81,7 @@ describe.skipIf(!run)("email verification (integration)", () => {
   });
 
   it("only one of two concurrent submissions of the same code wins", async () => {
-    const minted = await mintCode();
+    const minted = await mintCode("test-flow");
     await storeAndSendCode(userId, email, minted);
 
     const results = await Promise.all([

@@ -96,7 +96,7 @@ describe.skipIf(!run)("verify my own email (integration)", () => {
 
   it("issues nothing for an account that is already verified", async () => {
     const { sendEmail } = await import("@/lib/email/service");
-    await ev.resendVerificationCode(`done-${s}@t.test`);
+    await ev.resendVerificationCode(`done-${s}@t.test`, "en", ev.newFlowToken().token);
     expect(sendEmail).not.toHaveBeenCalled();
   });
 
@@ -115,10 +115,10 @@ describe.skipIf(!run)("verify my own email (integration)", () => {
    */
   it("is capped on the same budget as signup mail", async () => {
     const { sendEmail } = await import("@/lib/email/service");
-    for (let i = 0; i < 3; i += 1) await ev.resendVerificationCode(`mine-${s}@t.test`);
+    for (let i = 0; i < 3; i += 1) await ev.resendVerificationCode(`mine-${s}@t.test`, "en", ev.newFlowToken().token);
     expect((sendEmail as unknown as { mock: { calls: unknown[][] } }).mock.calls).toHaveLength(3);
 
-    await ev.resendVerificationCode(`mine-${s}@t.test`);
+    await ev.resendVerificationCode(`mine-${s}@t.test`, "en", ev.newFlowToken().token);
     expect((sendEmail as unknown as { mock: { calls: unknown[][] } }).mock.calls).toHaveLength(3);
   });
 
@@ -199,7 +199,7 @@ describe.skipIf(!run)("verify my own email (integration)", () => {
    */
   it("a code issued before flow binding existed still verifies", async () => {
     const { sendEmail } = await import("@/lib/email/service");
-    await ev.resendVerificationCode(`mine-${s}@t.test`);
+    await ev.resendVerificationCode(`mine-${s}@t.test`, "en", ev.newFlowToken().token);
     const text = ((sendEmail as unknown as { mock: { calls: unknown[][] } }).mock.calls.at(-1)![0] as { text: string }).text;
     const code = text.match(/\b(\d{6})\b/)![1];
 

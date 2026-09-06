@@ -68,14 +68,26 @@ export interface MintedCode {
  * branch-dependent cost is a timing oracle, and the whole point of that flow is
  * that the two branches are indistinguishable.
  */
-export async function mintCode(flowToken?: string): Promise<MintedCode> {
+export async function mintCode(flowToken: string): Promise<MintedCode> {
   const code = generateCode();
-  // The flow is minted by the CALLER when there is one, so that the caller can
-  // hand the same token to the browser on every branch. Minting it here would
-  // make its existence depend on whether a code was issued, which is the fact
-  // registerAttendee refuses to reveal.
-  const flow = flowToken ? { token: flowToken, hash: hashFlowToken(flowToken) } : newFlowToken();
-  return { code, codeHash: await hashCode(code), flowToken: flow.token, flowHash: flow.hash };
+  /**
+   * The flow token is REQUIRED, not defaulted.
+   *
+   * It must be minted by the caller, because the caller is what hands it to the
+   * browser — and it has to do that on every branch, so that its existence says
+   * nothing about whether a code was issued.
+   *
+   * Minting one here as a fallback looked harmless and was not: the hash would
+   * be stored for a token nobody ever received, so the code would be
+   * permanently unverifiable and the person would simply never get in. A
+   * required parameter turns that silent trap into a compile error.
+   */
+  return {
+    code,
+    codeHash: await hashCode(code),
+    flowToken,
+    flowHash: hashFlowToken(flowToken),
+  };
 }
 
 /**
@@ -220,8 +232,8 @@ export function signupMailAllowed(email: string): boolean {
  */
 export async function resendVerificationCode(
   email: string,
-  locale: Locale = "en",
-  flowToken?: string,
+  locale: Locale,
+  flowToken: string,
 ): Promise<void> {
   const e = email.toLowerCase().trim();
 

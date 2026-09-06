@@ -34,7 +34,7 @@ beforeEach(() => {
 
 describe("registerAttendee", () => {
   it("creates a role-less account with a hashed password and no email verification", async () => {
-    const res = await registerAttendee("New@X.com", "longenough1", "Jane");
+    const res = await registerAttendee("New@X.com", "longenough1", "Jane", "en", "test-flow");
     expect(res).toEqual({ ok: true });
     const data = mock(prisma.user.create).mock.calls[0][0].data;
     expect(data.email).toBe("new@x.com"); // normalized
@@ -44,14 +44,14 @@ describe("registerAttendee", () => {
   });
 
   it("rejects a weak password before any DB call", async () => {
-    const res = await registerAttendee("a@b.com", "short");
+    const res = await registerAttendee("a@b.com", "short", undefined, "en", "test-flow");
     expect(res.ok).toBe(false);
     expect(prisma.user.findUnique).not.toHaveBeenCalled();
     expect(prisma.user.create).not.toHaveBeenCalled();
   });
 
   it("rejects an invalid email", async () => {
-    const res = await registerAttendee("not-an-email", "longenough1");
+    const res = await registerAttendee("not-an-email", "longenough1", undefined, "en", "test-flow");
     expect(res.ok).toBe(false);
     expect(prisma.user.create).not.toHaveBeenCalled();
   });
@@ -62,11 +62,11 @@ describe("registerAttendee", () => {
    * form a membership oracle for any address an attacker chose to type.
    */
   it("answers a taken address exactly as it answers a free one", async () => {
-    const free = await registerAttendee("free@x.com", "longenough1");
+    const free = await registerAttendee("free@x.com", "longenough1", undefined, "en", "test-flow");
 
     vi.clearAllMocks();
     mock(prisma.user.findUnique).mockResolvedValue({ id: "existing", status: "active" });
-    const taken = await registerAttendee("dupe@x.com", "longenough1");
+    const taken = await registerAttendee("dupe@x.com", "longenough1", undefined, "en", "test-flow");
 
     expect(taken).toEqual(free);
     expect(taken).toEqual({ ok: true });
@@ -75,18 +75,18 @@ describe("registerAttendee", () => {
 
   it("never creates a second account for a taken address", async () => {
     mock(prisma.user.findUnique).mockResolvedValue({ id: "existing", status: "active" });
-    await registerAttendee("dupe@x.com", "longenough1");
+    await registerAttendee("dupe@x.com", "longenough1", undefined, "en", "test-flow");
     expect(prisma.user.create).not.toHaveBeenCalled();
   });
 
   it("does not leak the result through the userId either", async () => {
-    const res = await registerAttendee("new@x.com", "longenough1");
+    const res = await registerAttendee("new@x.com", "longenough1", undefined, "en", "test-flow");
     expect("userId" in res).toBe(false);
   });
 
   it("tells the mailbox owner, not the submitter, that the account exists", async () => {
     mock(prisma.user.findUnique).mockResolvedValue({ id: "existing", status: "active" });
-    await registerAttendee("dupe@x.com", "longenough1");
+    await registerAttendee("dupe@x.com", "longenough1", undefined, "en", "test-flow");
 
     const [email] = mock(sendEmail).mock.calls[0];
     expect(email.to).toBe("dupe@x.com");
@@ -95,19 +95,19 @@ describe("registerAttendee", () => {
   });
 
   it("sends exactly one mail on either branch, so the screen is true both ways", async () => {
-    await registerAttendee("free@x.com", "longenough1");
+    await registerAttendee("free@x.com", "longenough1", undefined, "en", "test-flow");
     expect(mock(sendEmail).mock.calls).toHaveLength(1);
     expect(mock(sendEmail).mock.calls[0][0].subject).toMatch(/verification code/i);
 
     vi.clearAllMocks();
     mock(prisma.user.findUnique).mockResolvedValue({ id: "existing", status: "active" });
-    await registerAttendee("dupe@x.com", "longenough1");
+    await registerAttendee("dupe@x.com", "longenough1", undefined, "en", "test-flow");
     expect(mock(sendEmail).mock.calls).toHaveLength(1);
   });
 
   it("stays silent for a suspended account but still answers success", async () => {
     mock(prisma.user.findUnique).mockResolvedValue({ id: "existing", status: "suspended" });
-    const res = await registerAttendee("suspended@x.com", "longenough1");
+    const res = await registerAttendee("suspended@x.com", "longenough1", undefined, "en", "test-flow");
     expect(res).toEqual({ ok: true });
     expect(sendEmail).not.toHaveBeenCalled();
     expect(prisma.user.create).not.toHaveBeenCalled();
@@ -115,7 +115,7 @@ describe("registerAttendee", () => {
 
   it("still answers success when the mail transport throws", async () => {
     mock(sendEmail).mockRejectedValueOnce(new Error("smtp down"));
-    const res = await registerAttendee("new@x.com", "longenough1");
+    const res = await registerAttendee("new@x.com", "longenough1", undefined, "en", "test-flow");
     expect(res).toEqual({ ok: true });
   });
 });
@@ -142,7 +142,7 @@ describe("registerAttendee — work done, not just words said", () => {
     mock(prisma.user.findUnique).mockResolvedValue(
       kind === "free" ? null : { id: "existing", status: kind === "suspended" ? "suspended" : "active" },
     );
-    await registerAttendee(`${kind}@x.com`, "longenough1");
+    await registerAttendee(`${kind}@x.com`, "longenough1", undefined, "en", "test-flow");
     return mock(hashPassword).mock.calls.length;
   }
 
@@ -158,7 +158,7 @@ describe("registerAttendee — work done, not just words said", () => {
 
   it("discards the work rather than creating an account for a taken address", async () => {
     mock(prisma.user.findUnique).mockResolvedValue({ id: "existing", status: "active" });
-    await registerAttendee("dupe@x.com", "longenough1");
+    await registerAttendee("dupe@x.com", "longenough1", undefined, "en", "test-flow");
     expect(hashPassword).toHaveBeenCalled();
     expect(prisma.user.create).not.toHaveBeenCalled();
   });
@@ -167,19 +167,19 @@ describe("registerAttendee — work done, not just words said", () => {
     for (let i = 0; i < 3; i += 1) {
       vi.clearAllMocks();
       mock(prisma.user.findUnique).mockResolvedValue({ id: "existing", status: "active" });
-      await registerAttendee("victim@x.com", "longenough1");
+      await registerAttendee("victim@x.com", "longenough1", undefined, "en", "test-flow");
       expect(sendEmail).toHaveBeenCalledTimes(1);
     }
 
     vi.clearAllMocks();
     mock(prisma.user.findUnique).mockResolvedValue({ id: "existing", status: "active" });
-    await registerAttendee("victim@x.com", "longenough1");
+    await registerAttendee("victim@x.com", "longenough1", undefined, "en", "test-flow");
     expect(sendEmail).not.toHaveBeenCalled();
 
     // A different address is unaffected — the cap is per victim, not global.
     vi.clearAllMocks();
     mock(prisma.user.findUnique).mockResolvedValue({ id: "existing", status: "active" });
-    await registerAttendee("someone-else@x.com", "longenough1");
+    await registerAttendee("someone-else@x.com", "longenough1", undefined, "en", "test-flow");
     expect(sendEmail).toHaveBeenCalledTimes(1);
   });
 
@@ -187,7 +187,7 @@ describe("registerAttendee — work done, not just words said", () => {
     const spy = vi.spyOn(console, "error").mockImplementation(() => {});
     mock(sendEmail).mockRejectedValueOnce(new Error("smtp down"));
 
-    const res = await registerAttendee("new@x.com", "longenough1");
+    const res = await registerAttendee("new@x.com", "longenough1", undefined, "en", "test-flow");
 
     expect(res).toEqual({ ok: true }); // caller still learns nothing
     expect(spy).toHaveBeenCalled();
