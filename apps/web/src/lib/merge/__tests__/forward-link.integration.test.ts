@@ -99,14 +99,14 @@ describe.skipIf(!run)("forward-linking (integration)", () => {
    * has a ledger row explaining why it is owned.
    */
   /**
-   * Ownership and its ledger row now arrive together, from one transaction.
+   * Deliberately NOT named "in the same transaction" any more.
    *
-   * The first version set userId in the order's own INSERT and wrote the ledger
-   * afterwards, outside any transaction — so a failed ledger write left a
-   * permanently owned registration with no record and no notice, exactly the
-   * silent back door this feature exists to close.
+   * This only inspects end state after a success, and the old non-atomic code
+   * produced exactly the same end state on the happy path — so the name claimed
+   * more than the assertions deliver. Atomicity is demonstrated by the
+   * both-or-neither test below, where the link is refused mid-flight.
    */
-  it("takes ownership and records it in the same transaction", async () => {
+  it("takes ownership and records it, with the right provenance", async () => {
     const order = await makeOrder(`ver-${s}@t.test`);
     expect(order.userId).toBeNull();
 
@@ -142,17 +142,32 @@ describe.skipIf(!run)("forward-linking (integration)", () => {
       where: { eventMappingId: mappingId, userId: { not: null } },
       select: { id: true },
     });
+    // Without this the loop below runs zero times and the test reports green
+    // having asserted nothing — which is exactly what a silent linking failure
+    // would produce.
+    expect(owned).toHaveLength(1);
     for (const o of owned) {
       const rows = await prisma.accountMergeEventEntity.count({ where: { entityId: o.id } });
       expect(rows).toBeGreaterThan(0);
     }
   });
 
-  it("refuses to take ownership onto a staff account even if asked directly", async () => {
+  /**
+   * Both-or-neither, on the failure path.
+   *
+   * This is where atomicity is actually observable: the link is refused after
+   * the transaction has begun, and what must be true afterwards is that NEITHER
+   * the ownership NOR a ledger row survives. The old code, which set userId in
+   * the order's own INSERT before writing any ledger row, could not satisfy
+   * this — the ownership would already be committed.
+   */
+  it("a refused link leaves neither ownership nor a ledger row", async () => {
     const order = await makeOrder(`stf-${s}@t.test`);
     await applyForwardLink({ orderId: order.id, userId: staff, locale: "en" });
-    // The shared path refuses it, and the registration simply stays unowned.
+
     expect((await prisma.attendeeOrder.findUnique({ where: { id: order.id } }))?.userId).toBeNull();
+    expect(await prisma.accountMergeEventEntity.count({ where: { entityId: order.id } })).toBe(0);
+    expect(await prisma.accountMergeEvent.count({ where: { userId: staff } })).toBe(0);
   });
 
   it("bookkeeping failure never propagates — a committed registration stays committed", async () => {
@@ -197,11 +212,12 @@ describe.skipIf(!run)("forward-linking (integration)", () => {
     // Counted by THIS test's order codes rather than by total calls: notices are
     // fire-and-forget, so a straggler from the previous case can land inside
     // this one and a global count is quietly flaky.
-    await new Promise((r) => setTimeout(r, 150));
-    const calls = (sendEmail as unknown as { mock: { calls: unknown[][] } }).mock.calls;
-    const mine = calls.filter(([, meta]) =>
-      [first.orderCode, second.orderCode].includes((meta as { attendeeRef: string }).attendeeRef),
-    );
-    expect(mine).toHaveLength(2);
+    const mineSoFar = () =>
+      (sendEmail as unknown as { mock: { calls: unknown[][] } }).mock.calls.filter(([, meta]) =>
+        [first.orderCode, second.orderCode].includes((meta as { attendeeRef: string }).attendeeRef),
+      );
+    // Polled rather than slept: a fixed delay is a guess about how slow the
+    // runner is, and under-counts on a loaded one.
+    await vi.waitFor(() => expect(mineSoFar()).toHaveLength(2));
   });
 });
