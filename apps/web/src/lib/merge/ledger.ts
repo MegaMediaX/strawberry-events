@@ -241,6 +241,24 @@ export async function reverseMergeEvent(params: {
     if (!event) return { ok: false, error: "No such event.", linked: 0 };
     if (event.reversedAt) return { ok: false, error: "Already reversed.", linked: 0 };
 
+    /**
+     * The window was written down and never checked.
+     *
+     * `reverseDeadline` was stored at link time and read in exactly two places,
+     * both of which only decide whether to RENDER a button. `reverseAction` is
+     * a real HTTP endpoint, so a hidden button is not a gate — a rule stated in
+     * admin.ts one file away and not followed here. Past the window a link is
+     * unlinked on its own terms, as a new decision with its own record, rather
+     * than by reopening one somebody made a month ago.
+     */
+    if (event.reverseDeadline <= new Date()) {
+      return {
+        ok: false,
+        error: "That link is past its 30-day reversal window. Unlink the registration instead.",
+        linked: 0,
+      };
+    }
+
     const orderEntities = event.entities.filter((e) => e.entityType === "attendee_order");
 
     /**

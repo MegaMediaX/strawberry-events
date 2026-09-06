@@ -2,6 +2,7 @@ import { prisma } from "@/lib/db/client";
 import { canAccessEvent } from "@/lib/auth/org-scope";
 import { hasAnyRole, ForbiddenError } from "@/lib/auth/guards";
 import type { SessionContext } from "@/lib/auth/types";
+import { record } from "@/lib/audit/service";
 import { linkOrdersToUser, reverseMergeEvent, orderLinkHistory } from "./ledger";
 
 /**
@@ -95,6 +96,28 @@ export async function linkOrderByEmail(
     proofType: "admin_override",
     reason: params.reason,
   });
+
+  /**
+   * The ledger is the detailed record; this is the one an investigator opens.
+   *
+   * README states every decision is audited through lib/audit/service.record,
+   * and mark-paid, approvals and API keys all do. Ownership changes did not —
+   * so /admin/audit, with its actor and impersonation filters, was blind to the
+   * most contested class of change in the system. Fire-and-forget, exactly as
+   * the other callers do: an audit write must never fail the action it records.
+   */
+  if (res.ok) {
+    void record({
+      organizationId: scoped.order.eventMapping.organizationId,
+      eventMappingId: scoped.order.eventMappingId,
+      actorUserId: session.userId,
+      action: "registration.linked",
+      entityType: "attendee_order",
+      entityId: scoped.order.id,
+      after: { linkedTo: email, reason: params.reason },
+      ipAddress: params.ip ?? null,
+    });
+  }
   return { ok: res.ok, error: res.error };
 }
 
@@ -131,6 +154,7 @@ export async function unlinkOrder(
       actor: { type: "staff_override", userId: session.userId, ip: params.ip },
       reason: params.reason,
     });
+    if (res.ok) auditUnlink(session, scoped, params);
     return { ok: res.ok, error: res.error };
   }
 
@@ -196,7 +220,26 @@ export async function unlinkOrder(
     throw err;
   }
 
+  auditUnlink(session, scoped, params);
   return { ok: true };
+}
+
+/** Shared by both unlink branches so neither can quietly skip the audit trail. */
+function auditUnlink(
+  session: SessionContext,
+  scoped: { order: { id: string; eventMappingId: string; eventMapping: { organizationId: string } } },
+  params: { reason: string; ip?: string },
+) {
+  void record({
+    organizationId: scoped.order.eventMapping.organizationId,
+    eventMappingId: scoped.order.eventMappingId,
+    actorUserId: session.userId,
+    action: "registration.unlinked",
+    entityType: "attendee_order",
+    entityId: scoped.order.id,
+    after: { reason: params.reason },
+    ipAddress: params.ip ?? null,
+  });
 }
 
 /**
@@ -367,6 +410,17 @@ export async function reverseFromLedger(
     actor: { type: "staff_override", userId: session.userId, ip: params.ip },
     reason: params.reason,
   });
+
+  if (res.ok) {
+    void record({
+      actorUserId: session.userId,
+      action: "registration.link_reversed",
+      entityType: "account_merge_event",
+      entityId: params.eventId,
+      after: { reason: params.reason, restored: res.linked },
+      ipAddress: params.ip ?? null,
+    });
+  }
   return { ok: res.ok, error: res.error };
 }
 
