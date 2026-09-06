@@ -52,18 +52,24 @@ describe.skipIf(!run)("verify my own email (integration)", () => {
     await prisma.user.deleteMany({ where: { id: { in: [mine, theirs, already] } } }).catch(() => {});
   });
 
-  /** Reading the code out of the mail is how a real user gets it. */
-  async function issueAndRead(email: string): Promise<string> {
+  /**
+   * Reading the code out of the mail is how a real user gets it — and the flow
+   * token is what their browser holds from having asked. Both are needed now:
+   * a guess without the flow is refused so a stranger cannot spend the
+   * attempts, which is the point of the binding.
+   */
+  async function issueAndRead(email: string): Promise<{ code: string; flow: string }> {
     const { sendEmail } = await import("@/lib/email/service");
-    await ev.resendVerificationCode(email);
+    const flow = ev.newFlowToken().token;
+    await ev.resendVerificationCode(email, "en", flow);
     const calls = (sendEmail as unknown as { mock: { calls: unknown[][] } }).mock.calls;
     const text = (calls.at(-1)![0] as { text: string }).text;
-    return text.match(/\b(\d{6})\b/)![1];
+    return { code: text.match(/\b(\d{6})\b/)![1], flow };
   }
 
   it("verifies the account the code was issued for", async () => {
-    const code = await issueAndRead(`mine-${s}@t.test`);
-    const res = await ev.checkVerificationCode(`mine-${s}@t.test`, code);
+    const { code, flow } = await issueAndRead(`mine-${s}@t.test`);
+    const res = await ev.checkVerificationCode(`mine-${s}@t.test`, code, flow);
 
     expect(res.ok).toBe(true);
     const user = await prisma.user.findUnique({ where: { id: mine } });
@@ -77,9 +83,11 @@ describe.skipIf(!run)("verify my own email (integration)", () => {
    * while claiming to be someone else.
    */
   it("a code issued for one account cannot verify another", async () => {
-    const mineCode = await issueAndRead(`mine-${s}@t.test`);
+    const { code: mineCode, flow } = await issueAndRead(`mine-${s}@t.test`);
 
-    const res = await ev.checkVerificationCode(`theirs-${s}@t.test`, mineCode);
+    // Even holding the flow for their OWN request, it is worthless against
+    // another account's code.
+    const res = await ev.checkVerificationCode(`theirs-${s}@t.test`, mineCode, flow);
     expect(res.ok).toBe(false);
 
     const other = await prisma.user.findUnique({ where: { id: theirs } });
@@ -95,10 +103,10 @@ describe.skipIf(!run)("verify my own email (integration)", () => {
   it("a fresh code supersedes the previous one", async () => {
     const first = await issueAndRead(`mine-${s}@t.test`);
     const second = await issueAndRead(`mine-${s}@t.test`);
-    expect(second).not.toBe(first);
+    expect(second.code).not.toBe(first.code);
 
-    expect((await ev.checkVerificationCode(`mine-${s}@t.test`, first)).ok).toBe(false);
-    expect((await ev.checkVerificationCode(`mine-${s}@t.test`, second)).ok).toBe(true);
+    expect((await ev.checkVerificationCode(`mine-${s}@t.test`, first.code, first.flow)).ok).toBe(false);
+    expect((await ev.checkVerificationCode(`mine-${s}@t.test`, second.code, second.flow)).ok).toBe(true);
   });
 
   /**
@@ -112,5 +120,94 @@ describe.skipIf(!run)("verify my own email (integration)", () => {
 
     await ev.resendVerificationCode(`mine-${s}@t.test`);
     expect((sendEmail as unknown as { mock: { calls: unknown[][] } }).mock.calls).toHaveLength(3);
+  });
+
+  /**
+   * The attack this exists to stop.
+   *
+   * `verifyEmailAction` is unauthenticated and takes a caller-supplied address,
+   * so anyone who knew an address could submit five wrong codes and spend the
+   * live code's attempts. Burning cost five cheap requests; recovering cost the
+   * owner a mail from a 3/hour budget — the attacker won that race every time,
+   * indefinitely.
+   *
+   * A guess without the flow token is now refused WITHOUT consuming an attempt,
+   * so the counter can only ever be spent by whoever asked for the code.
+   */
+  it("a stranger's guesses cannot spend the code's attempts", async () => {
+    const { sendEmail } = await import("@/lib/email/service");
+    const flow = ev.newFlowToken().token;
+    await ev.resendVerificationCode(`mine-${s}@t.test`, "en", flow);
+    const text = ((sendEmail as unknown as { mock: { calls: unknown[][] } }).mock.calls.at(-1)![0] as { text: string }).text;
+    const code = text.match(/\b(\d{6})\b/)![1];
+
+    // Ten guesses from someone with no flow token — twice the lockout.
+    for (let i = 0; i < 10; i += 1) {
+      const res = await ev.checkVerificationCode(`mine-${s}@t.test`, "000000");
+      expect(res.ok).toBe(false);
+    }
+
+    const row = await prisma.emailVerificationCode.findFirst({
+      where: { email: `mine-${s}@t.test`, usedAt: null },
+      orderBy: { createdAt: "desc" },
+    });
+    expect(row?.attempts).toBe(0);
+
+    // And the owner's real code still works.
+    expect((await ev.checkVerificationCode(`mine-${s}@t.test`, code, flow)).ok).toBe(true);
+  });
+
+  /**
+   * The counter still has to work for the person who DOES hold the flow —
+   * otherwise this would have traded a denial of service for unlimited
+   * guessing at six digits.
+   */
+  it("still locks out after five wrong guesses from the real requester", async () => {
+    const flow = ev.newFlowToken().token;
+    await ev.resendVerificationCode(`mine-${s}@t.test`, "en", flow);
+
+    for (let i = 0; i < 5; i += 1) {
+      expect((await ev.checkVerificationCode(`mine-${s}@t.test`, "000000", flow)).ok).toBe(false);
+    }
+
+    const row = await prisma.emailVerificationCode.findFirst({
+      where: { email: `mine-${s}@t.test`, usedAt: null },
+      orderBy: { createdAt: "desc" },
+    });
+    expect(row?.attempts).toBe(5);
+  });
+
+  it("a flow token from one request cannot spend another request's code", async () => {
+    const stale = ev.newFlowToken().token;
+    await ev.resendVerificationCode(`mine-${s}@t.test`, "en", stale);
+    // A fresh request supersedes it and issues a new flow.
+    await ev.resendVerificationCode(`mine-${s}@t.test`, "en", ev.newFlowToken().token);
+
+    for (let i = 0; i < 3; i += 1) {
+      await ev.checkVerificationCode(`mine-${s}@t.test`, "000000", stale);
+    }
+    const row = await prisma.emailVerificationCode.findFirst({
+      where: { email: `mine-${s}@t.test`, usedAt: null },
+      orderBy: { createdAt: "desc" },
+    });
+    expect(row?.attempts).toBe(0);
+  });
+
+  /**
+   * Anyone mid-verification when this deploys holds a code with no flow bound
+   * to it. Those must keep working, or the fix strands the people it protects.
+   */
+  it("a code issued before flow binding existed still verifies", async () => {
+    const { sendEmail } = await import("@/lib/email/service");
+    await ev.resendVerificationCode(`mine-${s}@t.test`);
+    const text = ((sendEmail as unknown as { mock: { calls: unknown[][] } }).mock.calls.at(-1)![0] as { text: string }).text;
+    const code = text.match(/\b(\d{6})\b/)![1];
+
+    await prisma.emailVerificationCode.updateMany({
+      where: { email: `mine-${s}@t.test`, usedAt: null },
+      data: { flowHash: null },
+    });
+
+    expect((await ev.checkVerificationCode(`mine-${s}@t.test`, code)).ok).toBe(true);
   });
 });

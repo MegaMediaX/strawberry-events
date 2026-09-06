@@ -1,15 +1,21 @@
 "use server";
 
+import { cookies } from "next/headers";
+
 import { revalidatePath } from "next/cache";
 import { getSessionContext } from "@/lib/auth/session";
 import { rateLimit } from "@/lib/security/rate-limit";
 import { prisma } from "@/lib/db/client";
 import {
   resendVerificationCode,
+  newFlowToken,
   checkVerificationCode,
   CODE_REJECTED,
 } from "@/lib/auth/email-verification";
 import type { Locale } from "@/lib/email/templates";
+
+/** Same handle the signup flow uses; see the note there. */
+const FLOW_COOKIE = "verify_flow";
 
 export interface VerifyResult {
   ok: boolean;
@@ -44,7 +50,15 @@ export async function sendMyVerificationCode(
 
   // Shares the per-address mail cap with signup, so this cannot be used to mail
   // someone more often than signing up already could.
-  await resendVerificationCode(user.email, locale === "ar" ? "ar" : ("en" as Locale));
+  const flow = newFlowToken();
+  (await cookies()).set(FLOW_COOKIE, flow.token, {
+    httpOnly: true,
+    sameSite: "lax",
+    secure: process.env.NODE_ENV === "production",
+    path: "/",
+    maxAge: 15 * 60,
+  });
+  await resendVerificationCode(user.email, locale === "ar" ? "ar" : ("en" as Locale), flow.token);
   return { ok: true };
 }
 
@@ -80,7 +94,8 @@ export async function verifyMyEmail(
   });
   if (!user) return { ok: false, error: CODE_REJECTED };
 
-  const res = await checkVerificationCode(user.email, code);
+  const flow = (await cookies()).get(FLOW_COOKIE)?.value ?? null;
+  const res = await checkVerificationCode(user.email, code, flow);
   if (res.ok) revalidatePath(`/${locale}/profile`);
   return res;
 }

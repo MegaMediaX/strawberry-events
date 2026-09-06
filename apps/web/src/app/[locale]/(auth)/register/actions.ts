@@ -1,8 +1,11 @@
 "use server";
 
+import { cookies } from "next/headers";
+
 import { rateLimit } from "@/lib/security/rate-limit";
 import { clientIp } from "@/lib/security/client-ip";
 import { registerAttendee } from "@/lib/auth/register";
+import { newFlowToken } from "@/lib/auth/email-verification";
 import {
   checkVerificationCode,
   resendVerificationCode,
@@ -13,6 +16,32 @@ import type { Locale } from "@/lib/email/templates";
 export interface RegisterAccountResult {
   ok: boolean;
   error?: string;
+}
+
+/**
+ * Where the flow token lives between asking for a code and typing it.
+ *
+ * httpOnly so page scripts cannot read it, and short-lived because the code it
+ * accompanies lasts ten minutes. It is set on BOTH signup branches — a cookie
+ * that appeared only when an account was created would answer, from the browser
+ * rather than the response body, the very question registerAttendee refuses to
+ * answer.
+ */
+const FLOW_COOKIE = "verify_flow";
+
+async function setFlowCookie(token: string): Promise<void> {
+  const jar = await cookies();
+  jar.set(FLOW_COOKIE, token, {
+    httpOnly: true,
+    sameSite: "lax",
+    secure: process.env.NODE_ENV === "production",
+    path: "/",
+    maxAge: 15 * 60,
+  });
+}
+
+async function readFlowCookie(): Promise<string | null> {
+  return (await cookies()).get(FLOW_COOKIE)?.value ?? null;
 }
 
 function toLocale(v: string | undefined): Locale {
@@ -38,11 +67,17 @@ export async function registerAction(values: {
   if (values.password !== values.confirm) {
     return { ok: false, error: "Passwords do not match." };
   }
+  // Minted here and handed to the browser regardless of which branch runs, so
+  // the cookie's presence reveals nothing the response body conceals.
+  const flow = newFlowToken();
+  await setFlowCookie(flow.token);
+
   const res = await registerAttendee(
     values.email,
     values.password,
     values.name,
     toLocale(values.locale),
+    flow.token,
   );
   return { ok: res.ok, error: res.error };
 }
@@ -63,7 +98,7 @@ export async function verifyEmailAction(values: {
   if (!rateLimit(`verify-email:${ip}`, 30, 5 * 60_000).allowed) {
     return { ok: false, error: CODE_REJECTED };
   }
-  return checkVerificationCode(values.email, values.code);
+  return checkVerificationCode(values.email, values.code, await readFlowCookie());
 }
 
 /**
@@ -79,6 +114,8 @@ export async function resendCodeAction(values: {
   if (!rateLimit(`resend-code:${ip}`, 5, 5 * 60_000).allowed) {
     return { ok: true };
   }
-  await resendVerificationCode(values.email, toLocale(values.locale));
+  const flow = newFlowToken();
+  await setFlowCookie(flow.token);
+  await resendVerificationCode(values.email, toLocale(values.locale), flow.token);
   return { ok: true };
 }

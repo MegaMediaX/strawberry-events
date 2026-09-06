@@ -252,6 +252,20 @@ model EmailVerificationCode {
   /// `email`, so nothing needs the hash to be deterministic. That makes the
   /// slow, salted primitive strictly better and free of any trade-off.
   codeHash     String
+  /// SHA-256 of the flow token handed to whoever REQUESTED this code.
+  ///
+  /// Without it, anyone who knows an address could spend its five guesses:
+  /// `verifyEmailAction` is unauthenticated and takes a caller-supplied email,
+  /// so burning a code cost five cheap requests while recovering from it cost
+  /// the owner a mail from a 3/hour budget. The attacker won that race every
+  /// time.
+  ///
+  /// A guess that does not carry the matching token is refused WITHOUT
+  /// consuming an attempt, so only the person who asked for the code can spend
+  /// it. Nullable because codes issued before this column existed have no flow
+  /// bound to them and must keep working.
+  flowHash String?
+
   /// Wrong guesses, PERSISTED. Deliberately not the in-memory rate limiter in
   /// lib/security/rate-limit.ts: that map is wiped on every deploy, and CI
   /// recreates the container on every merge — an attacker who can reset the

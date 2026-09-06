@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/db/client";
 import { rateLimit } from "@/lib/security/rate-limit";
+import { randomBytes, createHash, timingSafeEqual } from "node:crypto";
 import { generateCode, hashCode, verifyCode } from "@/lib/tokens/verification-code";
 import { sendEmail } from "@/lib/email/service";
 import { verifyEmailCodeEmail, type Locale } from "@/lib/email/templates";
@@ -27,9 +28,35 @@ export interface CheckResult {
   error?: string;
 }
 
+/**
+ * The handle proving you are the one who ASKED for a code.
+ *
+ * High-entropy and random, so sha256 is the right hash here for the same
+ * reason it is wrong for the six-digit code itself: nothing is guessable, and
+ * a deterministic digest is all the comparison needs.
+ */
+export function newFlowToken(): { token: string; hash: string } {
+  const token = randomBytes(32).toString("base64url");
+  return { token, hash: hashFlowToken(token) };
+}
+
+export function hashFlowToken(token: string): string {
+  return createHash("sha256").update(token).digest("hex");
+}
+
+/** Constant-time, so a mismatch cannot be found a character at a time. */
+function flowMatches(stored: string, presented: string): boolean {
+  const a = Buffer.from(stored, "hex");
+  const b = Buffer.from(hashFlowToken(presented), "hex");
+  return a.length === b.length && timingSafeEqual(a, b);
+}
+
 export interface MintedCode {
   code: string;
   codeHash: string;
+  /** Give this to the requester; its hash is what gets stored. */
+  flowToken: string;
+  flowHash: string;
 }
 
 /**
@@ -41,9 +68,14 @@ export interface MintedCode {
  * branch-dependent cost is a timing oracle, and the whole point of that flow is
  * that the two branches are indistinguishable.
  */
-export async function mintCode(): Promise<MintedCode> {
+export async function mintCode(flowToken?: string): Promise<MintedCode> {
   const code = generateCode();
-  return { code, codeHash: await hashCode(code) };
+  // The flow is minted by the CALLER when there is one, so that the caller can
+  // hand the same token to the browser on every branch. Minting it here would
+  // make its existence depend on whether a code was issued, which is the fact
+  // registerAttendee refuses to reveal.
+  const flow = flowToken ? { token: flowToken, hash: hashFlowToken(flowToken) } : newFlowToken();
+  return { code, codeHash: await hashCode(code), flowToken: flow.token, flowHash: flow.hash };
 }
 
 /**
@@ -71,6 +103,7 @@ export async function storeAndSendCode(
       userId,
       email: e,
       codeHash: minted.codeHash,
+      flowHash: minted.flowHash,
       expiresAt: new Date(Date.now() + TTL_MS),
     },
   });
@@ -92,6 +125,7 @@ export async function storeAndSendCode(
 export async function checkVerificationCode(
   email: string,
   code: string,
+  flowToken?: string | null,
 ): Promise<CheckResult> {
   const e = email.toLowerCase().trim();
   if (!/^\d{6}$/.test(code)) return { ok: false, error: CODE_REJECTED };
@@ -107,6 +141,23 @@ export async function checkVerificationCode(
     orderBy: { createdAt: "desc" },
   });
   if (!row) return { ok: false, error: CODE_REJECTED };
+
+  /**
+   * A guess that does not carry the flow token is refused WITHOUT spending an
+   * attempt.
+   *
+   * This is the whole fix. `verifyEmailAction` is unauthenticated and takes a
+   * caller-supplied address, so anyone who knew an address could spend its five
+   * guesses for five cheap requests while the owner needed a mail from a 3/hour
+   * budget to recover — the attacker won that race every time. Now only the
+   * person who asked for the code can spend it.
+   *
+   * A row with no `flowHash` predates this and is left alone: those codes were
+   * issued to people mid-flow who must not be stranded by a deploy.
+   */
+  if (row.flowHash && !(flowToken && flowMatches(row.flowHash, flowToken))) {
+    return { ok: false, error: CODE_REJECTED };
+  }
 
   if (!(await verifyCode(row.codeHash, code))) {
     // Count the miss before answering, so a burst of parallel guesses cannot
@@ -170,6 +221,7 @@ export function signupMailAllowed(email: string): boolean {
 export async function resendVerificationCode(
   email: string,
   locale: Locale = "en",
+  flowToken?: string,
 ): Promise<void> {
   const e = email.toLowerCase().trim();
 
@@ -184,7 +236,7 @@ export async function resendVerificationCode(
   if (!signupMailAllowed(e)) return;
 
   try {
-    await storeAndSendCode(user.id, e, await mintCode(), locale);
+    await storeAndSendCode(user.id, e, await mintCode(flowToken), locale);
   } catch (err) {
     console.error("[verify] resend failed:", (err as Error).message);
   }

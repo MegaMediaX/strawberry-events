@@ -35,6 +35,12 @@ export async function registerAttendee(
   password: string,
   name?: string,
   locale: Locale = "en",
+  /**
+   * Minted by the caller and handed to the browser on EVERY branch, so its
+   * existence says nothing about whether an account was created. Only used when
+   * a code is actually issued.
+   */
+  flowToken?: string,
 ): Promise<RegisterResult> {
   const e = email.toLowerCase().trim();
   if (!EMAIL_RE.test(e)) return { ok: false, error: "Enter a valid email address." };
@@ -63,7 +69,7 @@ export async function registerAttendee(
    * "optimise" either of these back inside the if.
    */
   const passwordHash = await hashPassword(password);
-  const minted = await mintCode();
+  const minted = await mintCode(flowToken);
 
   if (existing) {
     // A suspended account is told nothing at all — the same silence
