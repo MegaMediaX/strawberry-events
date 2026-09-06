@@ -289,4 +289,52 @@ describe.skipIf(!run)("merge admin (integration)", () => {
     expect(await prisma.accountMergeEvent.count({ where: { userId: attendee } })).toBe(0);
     expect((await prisma.attendeeOrder.findUnique({ where: { id: orderInA } }))?.userId).toBe(attendee);
   });
+
+  /**
+   * The window was written down and never checked. `reverseDeadline` was read
+   * only to decide whether to render a button, and `reverseAction` is a real
+   * HTTP endpoint — a rule this codebase states one file away and did not
+   * follow here.
+   */
+  it("refuses to reverse an event past its 30-day window", async () => {
+    const sesA = session(adminA, orgA, "organizer_admin");
+    await admin.linkOrderByEmail(sesA, { orderId: orderInA, email: `att-${s}@t.test`, reason: "link" });
+    const event = (await admin.listMergeEvents(sesA))[0];
+
+    // Age it out.
+    await prisma.accountMergeEvent.update({
+      where: { id: event.id },
+      data: { reverseDeadline: new Date(Date.now() - 1000) },
+    });
+
+    const res = await admin.reverseFromLedger(sesA, { eventId: event.id, reason: "too late" });
+    expect(res.ok).toBe(false);
+    expect(res.error).toMatch(/window/i);
+    // Still linked: a refused reversal must change nothing.
+    expect((await prisma.attendeeOrder.findUnique({ where: { id: orderInA } }))?.userId).toBe(attendee);
+  });
+
+  /**
+   * README: "All decisions audited. Central writer: lib/audit/service.record."
+   * Ownership changes were the exception, so /admin/audit was blind to the most
+   * contested class of change in the system.
+   */
+  it("writes an audit entry for a link and for an unlink", async () => {
+    const sesA = session(adminA, orgA, "organizer_admin");
+
+    await admin.linkOrderByEmail(sesA, { orderId: orderInA, email: `att-${s}@t.test`, reason: "desk" });
+    await admin.unlinkOrder(sesA, { orderId: orderInA, reason: "wrong person" });
+
+    // record() is fire-and-forget, so give it a tick to land.
+    await new Promise((r) => setTimeout(r, 150));
+
+    const entries = await prisma.auditLog.findMany({
+      where: { entityId: orderInA },
+      orderBy: { createdAt: "asc" },
+    });
+    const actions = entries.map((e) => e.action);
+    expect(actions).toContain("registration.linked");
+    expect(actions).toContain("registration.unlinked");
+    expect(entries.every((e) => e.actorUserId === adminA)).toBe(true);
+  });
 });
