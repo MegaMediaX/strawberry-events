@@ -5,6 +5,7 @@ import { getSessionContext } from "@/lib/auth/session";
 import { clientIp } from "@/lib/security/client-ip";
 import { rateLimit } from "@/lib/security/rate-limit";
 import { claimOrderFromToken, type ClaimResult } from "@/lib/merge/claim";
+import type { Locale } from "@/lib/email/templates";
 
 /**
  * The token comes from the page's own URL, and is re-verified inside
@@ -26,7 +27,10 @@ export async function claimTicketAction(
     return { ok: false, error: "Too many attempts. Please wait a minute and try again." };
   }
 
-  const res = await claimOrderFromToken(session, token, ip);
+  // The notice goes to the ORDER's address, so it follows the locale the
+  // claimant is reading in — the closest signal available until the order
+  // carries its own preference.
+  const res = await claimOrderFromToken(session, token, ip, (locale === "ar" ? "ar" : "en") as Locale);
   if (res.ok) {
     revalidatePath(`/${locale}/t/${token}`);
     revalidatePath(`/${locale}/my-registrations`);

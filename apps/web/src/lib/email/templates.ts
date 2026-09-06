@@ -232,3 +232,46 @@ export function verifyEmailCodeEmail(locale: Locale, code: string): RenderedEmai
       "If you didn't try to create an account, ignore this email — nothing has been activated.",
   };
 }
+
+/**
+ * Sent to the address ON THE REGISTRATION whenever it is attached to an
+ * account — never only to the claimant.
+ *
+ * CLAUDE.md records that a second notification channel was declined and that
+ * "the merge notice is email-only", accepting the risk that whoever controls a
+ * corporate mailbox can delete the only warning. That risk was accepted against
+ * a control that did not exist: nothing sent a notice at all. This is it.
+ *
+ * It matters most in the case nobody attacks on purpose. Ticket links never
+ * expire, by deliberate design, so a forwarded confirmation email — to an
+ * assistant, a colleague, an events alias — can be opened months later by
+ * someone who then owns the registration permanently. Without this mail, the
+ * person it belonged to is never told.
+ *
+ * The claiming address is MASKED. The recipient needs to recognise it or fail
+ * to; they do not need a stranger's full address, and on a shared mailbox that
+ * would hand one colleague another's.
+ */
+export function registrationClaimedEmail(
+  locale: Locale,
+  params: { orderCode: string; eventName: string; maskedEmail: string },
+): RenderedEmail {
+  const { orderCode, eventName, maskedEmail } = params;
+
+  if (locale === "ar") {
+    return {
+      subject: `تم ربط تسجيلك (${orderCode}) بحساب`,
+      text:
+        `تم ربط تسجيلك في ${eventName} (رمز الطلب ${orderCode}) بحساب على ${maskedEmail}.\n\n` +
+        "تذكرتك ورمز الدخول لم يتغيّرا.\n\n" +
+        "إذا لم تكن أنت — مثلاً إذا حوّلت رسالة تذكرتك إلى شخص آخر — رُدّ على هذه الرسالة وسنلغي الربط.",
+    };
+  }
+  return {
+    subject: `Your registration ${orderCode} was linked to an account`,
+    text:
+      `Your registration for ${eventName} (order ${orderCode}) was just linked to an account for ${maskedEmail}.\n\n` +
+      "Your ticket and entry QR code have not changed.\n\n" +
+      "If this wasn't you — for example if you forwarded your ticket email to someone — reply to this message and we will unlink it.",
+  };
+}

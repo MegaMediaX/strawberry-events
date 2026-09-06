@@ -327,6 +327,7 @@ export async function orderLinkHistory(orderId: string, take = 50) {
     reason: e.mergeEvent.reason,
     at: e.mergeEvent.createdAt,
     reversedAt: e.mergeEvent.reversedAt,
+    reversedByUserId: e.mergeEvent.reversedByUserId,
     reversedReason: e.mergeEvent.reversedReason,
     reversedCount: e.mergeEvent.reversedCount,
     reversible: !e.mergeEvent.reversedAt && e.mergeEvent.reverseDeadline > new Date(),
