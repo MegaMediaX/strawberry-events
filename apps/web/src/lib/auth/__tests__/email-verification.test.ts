@@ -22,6 +22,9 @@ import {
   resendVerificationCode,
   CODE_REJECTED,
   MAX_ATTEMPTS,
+  MAIL_LIMIT,
+  MAIL_LIMIT_PER_ORIGIN,
+  hashFlowToken,
 } from "@/lib/auth/email-verification";
 import { __resetRateLimits } from "@/lib/security/rate-limit";
 import { generateCode } from "@/lib/tokens/verification-code";
@@ -55,12 +58,20 @@ describe("generateCode", () => {
 });
 
 describe("storeAndSendCode", () => {
-  it("supersedes any live code for the address before issuing a new one", async () => {
+  it("supersedes this FLOW's live code, not every live code for the address", async () => {
     const minted = await mintCode("test-flow");
     await storeAndSendCode("u1", "A@X.com", minted);
 
     const supersede = mock(prisma.emailVerificationCode.updateMany).mock.calls[0][0];
     expect(supersede.where).toMatchObject({ email: "a@x.com", usedAt: null, supersededAt: null });
+    /**
+     * The assertion that actually distinguishes the fix from the bug.
+     *
+     * `toMatchObject` ignores extra keys, so the line above passed just as
+     * happily when this cleared every live code for the address — which is what
+     * let a stranger's request kill the code you were holding. Pin the key.
+     */
+    expect(supersede.where.flowHash).toBe(minted.flowHash);
     expect(supersede.data.supersededAt).toBeInstanceOf(Date);
 
     // ...and only then creates the replacement, so two codes are never live.
@@ -82,15 +93,24 @@ describe("storeAndSendCode", () => {
 });
 
 describe("checkVerificationCode", () => {
+  /**
+   * The token every row in this file is issued to.
+   *
+   * A fixture without a flowHash would be rejected by the flow guard before
+   * reaching whatever the test is actually about — so each case would still go
+   * red or green, but for a reason unrelated to its name.
+   */
+  const FLOW = "test-flow";
+
   function liveRow(codeHash: string, over: Record<string, unknown> = {}) {
-    return { id: "c1", userId: "u1", email: "a@x.com", codeHash, attempts: 0, expiresAt: future(), usedAt: null, supersededAt: null, ...over };
+    return { id: "c1", userId: "u1", email: "a@x.com", codeHash, flowHash: hashFlowToken(FLOW), attempts: 0, expiresAt: future(), usedAt: null, supersededAt: null, ...over };
   }
 
   it("accepts the right code and marks the address verified", async () => {
     const minted = await mintCode("test-flow");
     mock(prisma.emailVerificationCode.findFirst).mockResolvedValue(liveRow(minted.codeHash));
 
-    const res = await checkVerificationCode("a@x.com", minted.code);
+    const res = await checkVerificationCode("a@x.com", minted.code, FLOW);
     expect(res.ok).toBe(true);
     expect(mock(prisma.user.update).mock.calls[0][0]).toMatchObject({
       where: { id: "u1" },
@@ -102,7 +122,7 @@ describe("checkVerificationCode", () => {
     const minted = await mintCode("test-flow");
     mock(prisma.emailVerificationCode.findFirst).mockResolvedValue(liveRow(minted.codeHash));
 
-    const res = await checkVerificationCode("a@x.com", "000000");
+    const res = await checkVerificationCode("a@x.com", "000000", FLOW);
     expect(res.ok).toBe(false);
     // The attempt counter has to survive a container restart — the in-memory
     // limiter is wiped on every deploy, and CI recreates the container on
@@ -114,9 +134,37 @@ describe("checkVerificationCode", () => {
     expect(prisma.user.update).not.toHaveBeenCalled();
   });
 
+  /**
+   * The compatibility branch this replaces accepted a guess with NO flow token
+   * against any row whose flowHash was null, which is how a stranger reached
+   * someone else's code. There is no such branch now: no token, no lookup.
+   */
+  it("refuses a guess that carries no flow token, without even looking", async () => {
+    mock(prisma.emailVerificationCode.findFirst).mockResolvedValue(liveRow("unused"));
+
+    const res = await checkVerificationCode("a@x.com", "123456");
+
+    expect(res.ok).toBe(false);
+    expect(prisma.emailVerificationCode.findFirst).not.toHaveBeenCalled();
+    expect(prisma.emailVerificationCode.update).not.toHaveBeenCalled();
+  });
+
+  it("refuses a row whose flowHash does not match the token presented", async () => {
+    const minted = await mintCode(FLOW);
+    mock(prisma.emailVerificationCode.findFirst).mockResolvedValue(
+      liveRow(minted.codeHash, { flowHash: hashFlowToken("someone-elses-flow") }),
+    );
+
+    // Even with the correct code, and even though the query returned a row.
+    const res = await checkVerificationCode("a@x.com", minted.code, FLOW);
+
+    expect(res.ok).toBe(false);
+    expect(prisma.user.update).not.toHaveBeenCalled();
+  });
+
   it("looks up by address and excludes spent, superseded, expired and locked rows", async () => {
     mock(prisma.emailVerificationCode.findFirst).mockResolvedValue(null);
-    await checkVerificationCode("A@X.com ", "123456");
+    await checkVerificationCode("A@X.com ", "123456", FLOW);
 
     const where = mock(prisma.emailVerificationCode.findFirst).mock.calls[0][0].where;
     expect(where.email).toBe("a@x.com"); // normalised
@@ -124,6 +172,8 @@ describe("checkVerificationCode", () => {
     expect(where.supersededAt).toBeNull();
     expect(where.expiresAt).toHaveProperty("gt");
     expect(where.attempts).toEqual({ lt: MAX_ATTEMPTS });
+    // Scoped to the flow, which is what stops one caller reaching another's row.
+    expect(where.flowHash).toBe(hashFlowToken(FLOW));
     // Never by codeHash: that would let anyone sweep the live code space.
     expect("codeHash" in where).toBe(false);
   });
@@ -134,7 +184,7 @@ describe("checkVerificationCode", () => {
     // A concurrent request won the claim first.
     mock(prisma.emailVerificationCode.updateMany).mockResolvedValue({ count: 0 });
 
-    const res = await checkVerificationCode("a@x.com", minted.code);
+    const res = await checkVerificationCode("a@x.com", minted.code, FLOW);
     expect(res.ok).toBe(false);
     expect(prisma.user.update).not.toHaveBeenCalled();
   });
@@ -143,15 +193,15 @@ describe("checkVerificationCode", () => {
     const minted = await mintCode("test-flow");
 
     mock(prisma.emailVerificationCode.findFirst).mockResolvedValue(null);
-    const noCode = await checkVerificationCode("nobody@x.com", "123456");
+    const noCode = await checkVerificationCode("nobody@x.com", "123456", FLOW);
 
     mock(prisma.emailVerificationCode.findFirst).mockResolvedValue(liveRow(minted.codeHash));
-    const wrong = await checkVerificationCode("a@x.com", "000000");
+    const wrong = await checkVerificationCode("a@x.com", "000000", FLOW);
 
-    const malformed = await checkVerificationCode("a@x.com", "abc");
+    const malformed = await checkVerificationCode("a@x.com", "abc", FLOW);
 
     mock(prisma.emailVerificationCode.findFirst).mockResolvedValue(null);
-    const locked = await checkVerificationCode("a@x.com", "123456");
+    const locked = await checkVerificationCode("a@x.com", "123456", FLOW);
 
     for (const r of [noCode, wrong, malformed, locked]) {
       expect(r).toEqual({ ok: false, error: CODE_REJECTED });
@@ -159,7 +209,7 @@ describe("checkVerificationCode", () => {
   });
 
   it("rejects a malformed code without touching the database", async () => {
-    const res = await checkVerificationCode("a@x.com", "12345");
+    const res = await checkVerificationCode("a@x.com", "12345", FLOW);
     expect(res.ok).toBe(false);
     expect(prisma.emailVerificationCode.findFirst).not.toHaveBeenCalled();
   });
@@ -180,7 +230,7 @@ describe("resendVerificationCode", () => {
       emailVerified: null,
     });
 
-    await resendVerificationCode("a@x.com", "en", "test-flow");
+    await resendVerificationCode("a@x.com", "en", "test-flow", undefined);
 
     expect(prisma.emailVerificationCode.create).toHaveBeenCalledTimes(1);
     const sent = mock(sendEmail).mock.calls[0][0];
@@ -188,20 +238,18 @@ describe("resendVerificationCode", () => {
     expect(sent.subject).not.toMatch(/already have an account/i);
   });
 
-  it("supersedes the previous code, so only the newest one works", async () => {
+  it("supersedes the previous code OF THAT FLOW, so one flow never has two", async () => {
     mock(prisma.user.findUnique).mockResolvedValue({
       id: "u1",
       status: "active",
       emailVerified: null,
     });
 
-    await resendVerificationCode("a@x.com", "en", "test-flow");
+    await resendVerificationCode("a@x.com", "en", "test-flow", undefined);
 
-    expect(mock(prisma.emailVerificationCode.updateMany).mock.calls[0][0].where).toMatchObject({
-      email: "a@x.com",
-      usedAt: null,
-      supersededAt: null,
-    });
+    const where = mock(prisma.emailVerificationCode.updateMany).mock.calls[0][0].where;
+    expect(where).toMatchObject({ email: "a@x.com", usedAt: null, supersededAt: null });
+    expect(where.flowHash).toBe(hashFlowToken("test-flow"));
   });
 
   it("sends nothing for an unknown address, a verified account, or a suspended one", async () => {
@@ -213,7 +261,7 @@ describe("resendVerificationCode", () => {
       vi.clearAllMocks();
       __resetRateLimits();
       mock(prisma.user.findUnique).mockResolvedValue(user);
-      await resendVerificationCode("a@x.com", "en", "test-flow");
+      await resendVerificationCode("a@x.com", "en", "test-flow", undefined);
       expect(sendEmail).not.toHaveBeenCalled();
       expect(prisma.emailVerificationCode.create).not.toHaveBeenCalled();
     }
@@ -226,10 +274,15 @@ describe("resendVerificationCode", () => {
       emailVerified: null,
     });
 
-    for (let i = 0; i < 3; i += 1) await resendVerificationCode("a@x.com", "en", "test-flow");
-    expect(mock(sendEmail).mock.calls).toHaveLength(3);
+    for (let i = 0; i < MAIL_LIMIT; i += 1) await resendVerificationCode("a@x.com", "en", "test-flow", undefined);
+    expect(mock(sendEmail).mock.calls).toHaveLength(MAIL_LIMIT);
 
-    await resendVerificationCode("a@x.com", "en", "test-flow");
-    expect(mock(sendEmail).mock.calls).toHaveLength(3); // capped, not 4
+    await resendVerificationCode("a@x.com", "en", "test-flow", undefined);
+    expect(mock(sendEmail).mock.calls).toHaveLength(MAIL_LIMIT); // capped
+
+    // Sending with no origin charges only the ceiling — the per-origin cap is a
+    // property of the caller, and the lib is called without one from the
+    // session-authenticated profile route.
+    expect(MAIL_LIMIT_PER_ORIGIN).toBeLessThan(MAIL_LIMIT);
   });
 });

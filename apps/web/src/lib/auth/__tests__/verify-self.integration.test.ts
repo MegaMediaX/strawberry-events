@@ -61,7 +61,7 @@ describe.skipIf(!run)("verify my own email (integration)", () => {
   async function issueAndRead(email: string): Promise<{ code: string; flow: string }> {
     const { sendEmail } = await import("@/lib/email/service");
     const flow = ev.newFlowToken().token;
-    await ev.resendVerificationCode(email, "en", flow);
+    await ev.resendVerificationCode(email, "en", flow, undefined);
     const calls = (sendEmail as unknown as { mock: { calls: unknown[][] } }).mock.calls;
     const text = (calls.at(-1)![0] as { text: string }).text;
     return { code: text.match(/\b(\d{6})\b/)![1], flow };
@@ -96,7 +96,7 @@ describe.skipIf(!run)("verify my own email (integration)", () => {
 
   it("issues nothing for an account that is already verified", async () => {
     const { sendEmail } = await import("@/lib/email/service");
-    await ev.resendVerificationCode(`done-${s}@t.test`, "en", ev.newFlowToken().token);
+    await ev.resendVerificationCode(`done-${s}@t.test`, "en", ev.newFlowToken().token, undefined);
     expect(sendEmail).not.toHaveBeenCalled();
   });
 
@@ -121,14 +121,59 @@ describe.skipIf(!run)("verify my own email (integration)", () => {
   /**
    * Shares the per-address budget with signup, so this route cannot be used to
    * mail someone more often than signing up already could.
+   *
+   * Pinned to the constant rather than a literal: the ceiling was raised when
+   * the per-origin cap went in beneath it, and a hard-coded 3 here would have
+   * turned that into a failing test rather than the deliberate change it was.
    */
   it("is capped on the same budget as signup mail", async () => {
     const { sendEmail } = await import("@/lib/email/service");
-    for (let i = 0; i < 3; i += 1) await ev.resendVerificationCode(`mine-${s}@t.test`, "en", ev.newFlowToken().token);
-    expect((sendEmail as unknown as { mock: { calls: unknown[][] } }).mock.calls).toHaveLength(3);
+    const sent = () => (sendEmail as unknown as { mock: { calls: unknown[][] } }).mock.calls.length;
 
-    await ev.resendVerificationCode(`mine-${s}@t.test`, "en", ev.newFlowToken().token);
-    expect((sendEmail as unknown as { mock: { calls: unknown[][] } }).mock.calls).toHaveLength(3);
+    for (let i = 0; i < ev.MAIL_LIMIT; i += 1) {
+      await ev.resendVerificationCode(`mine-${s}@t.test`, "en", ev.newFlowToken().token, undefined);
+    }
+    expect(sent()).toBe(ev.MAIL_LIMIT);
+
+    await ev.resendVerificationCode(`mine-${s}@t.test`, "en", ev.newFlowToken().token, undefined);
+    expect(sent()).toBe(ev.MAIL_LIMIT);
+  });
+
+  /**
+   * The lockout the per-flow fix did NOT close, and the reason this cap exists.
+   *
+   * Asking for a code is unauthenticated and takes a typed address, so a
+   * stranger could spend a victim's whole hourly mail budget in three cheap
+   * requests — and because that budget is shared with signup, it also blocked a
+   * genuine first-time registration at the address. No guessing, repeatable
+   * every hour. The per-origin cap sits strictly under the ceiling, so one
+   * connection can never take the last slot.
+   */
+  it("one origin cannot spend the whole address budget", async () => {
+    const { sendEmail } = await import("@/lib/email/service");
+    const sent = () => (sendEmail as unknown as { mock: { calls: unknown[][] } }).mock.calls.length;
+
+    // A stranger, hammering from one address, far past their own cap.
+    for (let i = 0; i < ev.MAIL_LIMIT + 3; i += 1) {
+      await ev.resendVerificationCode(`mine-${s}@t.test`, "en", ev.newFlowToken().token, "203.0.113.9");
+    }
+    expect(sent()).toBe(ev.MAIL_LIMIT_PER_ORIGIN);
+
+    // The owner, from their own connection, still gets a code.
+    await ev.resendVerificationCode(`mine-${s}@t.test`, "en", ev.newFlowToken().token, "198.51.100.4");
+    expect(sent()).toBe(ev.MAIL_LIMIT_PER_ORIGIN + 1);
+  });
+
+  /**
+   * The other half, and the reason the per-origin cap is not simply "raise the
+   * ceiling": spreading across origins must NOT buy more mail to one inbox.
+   */
+  it("many origins still cannot exceed the address ceiling", async () => {
+    const { sendEmail } = await import("@/lib/email/service");
+    for (let i = 0; i < 12; i += 1) {
+      await ev.resendVerificationCode(`mine-${s}@t.test`, "en", ev.newFlowToken().token, `192.0.2.${i}`);
+    }
+    expect((sendEmail as unknown as { mock: { calls: unknown[][] } }).mock.calls).toHaveLength(ev.MAIL_LIMIT);
   });
 
   /**
@@ -146,7 +191,7 @@ describe.skipIf(!run)("verify my own email (integration)", () => {
   it("a stranger's guesses cannot spend the code's attempts", async () => {
     const { sendEmail } = await import("@/lib/email/service");
     const flow = ev.newFlowToken().token;
-    await ev.resendVerificationCode(`mine-${s}@t.test`, "en", flow);
+    await ev.resendVerificationCode(`mine-${s}@t.test`, "en", flow, undefined);
     const text = ((sendEmail as unknown as { mock: { calls: unknown[][] } }).mock.calls.at(-1)![0] as { text: string }).text;
     const code = text.match(/\b(\d{6})\b/)![1];
 
@@ -173,7 +218,7 @@ describe.skipIf(!run)("verify my own email (integration)", () => {
    */
   it("still locks out after five wrong guesses from the real requester", async () => {
     const flow = ev.newFlowToken().token;
-    await ev.resendVerificationCode(`mine-${s}@t.test`, "en", flow);
+    await ev.resendVerificationCode(`mine-${s}@t.test`, "en", flow, undefined);
 
     for (let i = 0; i < 5; i += 1) {
       expect((await ev.checkVerificationCode(`mine-${s}@t.test`, "000000", flow)).ok).toBe(false);
@@ -188,9 +233,9 @@ describe.skipIf(!run)("verify my own email (integration)", () => {
 
   it("a flow token from one request cannot spend another request's code", async () => {
     const stale = ev.newFlowToken().token;
-    await ev.resendVerificationCode(`mine-${s}@t.test`, "en", stale);
+    await ev.resendVerificationCode(`mine-${s}@t.test`, "en", stale, undefined);
     // A fresh request supersedes it and issues a new flow.
-    await ev.resendVerificationCode(`mine-${s}@t.test`, "en", ev.newFlowToken().token);
+    await ev.resendVerificationCode(`mine-${s}@t.test`, "en", ev.newFlowToken().token, undefined);
 
     for (let i = 0; i < 3; i += 1) {
       await ev.checkVerificationCode(`mine-${s}@t.test`, "000000", stale);
@@ -203,21 +248,56 @@ describe.skipIf(!run)("verify my own email (integration)", () => {
   });
 
   /**
-   * Anyone mid-verification when this deploys holds a code with no flow bound
-   * to it. Those must keep working, or the fix strands the people it protects.
+   * This asserted the OPPOSITE one revision ago, and the reversal is the fix.
+   *
+   * A compatibility branch kept null-flowHash rows reachable so a code issued
+   * moments before the deploy would not strand its owner. But "reachable" had no
+   * owner attached: the row matched whatever token the caller presented, and the
+   * recheck was written `if (row.flowHash && …)`, so it skipped exactly these
+   * rows. The grace window WAS the bypass.
+   *
+   * It was also protecting nobody — the production table has never held a row —
+   * so the branch is gone and a null flowHash is now unreachable by anyone.
    */
-  it("a code issued before flow binding existed still verifies", async () => {
-    const { sendEmail } = await import("@/lib/email/service");
-    await ev.resendVerificationCode(`mine-${s}@t.test`, "en", ev.newFlowToken().token);
-    const text = ((sendEmail as unknown as { mock: { calls: unknown[][] } }).mock.calls.at(-1)![0] as { text: string }).text;
-    const code = text.match(/\b(\d{6})\b/)![1];
-
+  it("a code with no flow bound to it is unreachable, not universally reachable", async () => {
+    const { code, flow } = await issueAndRead(`mine-${s}@t.test`);
     await prisma.emailVerificationCode.updateMany({
       where: { email: `mine-${s}@t.test`, usedAt: null },
       data: { flowHash: null },
     });
 
-    expect((await ev.checkVerificationCode(`mine-${s}@t.test`, code)).ok).toBe(true);
+    // Not by the flow that requested it, not by a caller with no flow at all.
+    expect((await ev.checkVerificationCode(`mine-${s}@t.test`, code, flow)).ok).toBe(false);
+    expect((await ev.checkVerificationCode(`mine-${s}@t.test`, code)).ok).toBe(false);
+  });
+
+  /**
+   * The attack the grace branch reopened, stated as a test.
+   *
+   * A stranger mints a flow of their own — trivially, by asking for a code at
+   * any address they like — and aims it at a victim's null-flow row. Under the
+   * branch this reached the row and burned the victim's five attempts, which is
+   * precisely the bug the whole PR exists to close.
+   */
+  it("a stranger's own flow token cannot reach a code that has no flow bound", async () => {
+    const { code } = await issueAndRead(`mine-${s}@t.test`);
+    await prisma.emailVerificationCode.updateMany({
+      where: { email: `mine-${s}@t.test`, usedAt: null },
+      data: { flowHash: null },
+    });
+
+    const strangersOwnFlow = ev.newFlowToken().token;
+    for (let i = 0; i < 10; i += 1) {
+      await ev.checkVerificationCode(`mine-${s}@t.test`, "000000", strangersOwnFlow);
+    }
+    // Even the correct code, presented on a flow that did not request it.
+    expect((await ev.checkVerificationCode(`mine-${s}@t.test`, code, strangersOwnFlow)).ok).toBe(false);
+
+    const row = await prisma.emailVerificationCode.findFirst({
+      where: { email: `mine-${s}@t.test`, usedAt: null },
+      orderBy: { createdAt: "desc" },
+    });
+    expect(row?.attempts).toBe(0);
   });
 
   /**
@@ -228,20 +308,22 @@ describe.skipIf(!run)("verify my own email (integration)", () => {
    * supersession that also killed the victim's live code and rebound the address
    * to the attacker's flow — locking the victim out without a single guess.
    *
-   * Per-flow codes make the attacker's request cost the victim an email and
-   * nothing else.
+   * Per-flow codes stop the attacker touching the victim's CODE. They do not,
+   * on their own, stop the attacker spending the victim's mail budget — that is
+   * what the per-origin cap above is for, and claiming otherwise here was this
+   * PR's third wrong claim in a row.
    */
   it("a stranger requesting a code at your address cannot lock you out", async () => {
     const { sendEmail } = await import("@/lib/email/service");
 
     // You ask, and hold your own flow.
     const mine = ev.newFlowToken().token;
-    await ev.resendVerificationCode(`mine-${s}@t.test`, "en", mine);
+    await ev.resendVerificationCode(`mine-${s}@t.test`, "en", mine, undefined);
     const myCode = (((sendEmail as unknown as { mock: { calls: unknown[][] } }).mock.calls.at(-1)![0]) as { text: string }).text.match(/\b(\d{6})\b/)![1];
 
     // A stranger asks for a code at YOUR address and gets their own flow.
     const theirs = ev.newFlowToken().token;
-    await ev.resendVerificationCode(`mine-${s}@t.test`, "en", theirs);
+    await ev.resendVerificationCode(`mine-${s}@t.test`, "en", theirs, undefined);
     const theirCode = (((sendEmail as unknown as { mock: { calls: unknown[][] } }).mock.calls.at(-1)![0]) as { text: string }).text.match(/\b(\d{6})\b/)![1];
 
     // They burn their own code's attempts to the limit.
@@ -264,10 +346,10 @@ describe.skipIf(!run)("verify my own email (integration)", () => {
     const { sendEmail } = await import("@/lib/email/service");
     const flow = ev.newFlowToken().token;
 
-    await ev.resendVerificationCode(`mine-${s}@t.test`, "en", flow);
+    await ev.resendVerificationCode(`mine-${s}@t.test`, "en", flow, undefined);
     const first = (((sendEmail as unknown as { mock: { calls: unknown[][] } }).mock.calls.at(-1)![0]) as { text: string }).text.match(/\b(\d{6})\b/)![1];
 
-    await ev.resendVerificationCode(`mine-${s}@t.test`, "en", flow);
+    await ev.resendVerificationCode(`mine-${s}@t.test`, "en", flow, undefined);
     const second = (((sendEmail as unknown as { mock: { calls: unknown[][] } }).mock.calls.at(-1)![0]) as { text: string }).text.match(/\b(\d{6})\b/)![1];
 
     // Counted BEFORE verifying: a successful check consumes the code, so

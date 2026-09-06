@@ -1,11 +1,10 @@
 "use server";
 
-import { cookies } from "next/headers";
-
 import { rateLimit } from "@/lib/security/rate-limit";
 import { clientIp } from "@/lib/security/client-ip";
 import { registerAttendee } from "@/lib/auth/register";
 import { newFlowToken } from "@/lib/auth/email-verification";
+import { setFlowCookie, readFlowCookie } from "@/lib/auth/verify-flow-cookie";
 import {
   checkVerificationCode,
   resendVerificationCode,
@@ -16,32 +15,6 @@ import type { Locale } from "@/lib/email/templates";
 export interface RegisterAccountResult {
   ok: boolean;
   error?: string;
-}
-
-/**
- * Where the flow token lives between asking for a code and typing it.
- *
- * httpOnly so page scripts cannot read it, and short-lived because the code it
- * accompanies lasts ten minutes. It is set on BOTH signup branches — a cookie
- * that appeared only when an account was created would answer, from the browser
- * rather than the response body, the very question registerAttendee refuses to
- * answer.
- */
-const FLOW_COOKIE = "verify_flow";
-
-async function setFlowCookie(token: string): Promise<void> {
-  const jar = await cookies();
-  jar.set(FLOW_COOKIE, token, {
-    httpOnly: true,
-    sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
-    path: "/",
-    maxAge: 15 * 60,
-  });
-}
-
-async function readFlowCookie(): Promise<string | null> {
-  return (await cookies()).get(FLOW_COOKIE)?.value ?? null;
 }
 
 function toLocale(v: string | undefined): Locale {
@@ -78,6 +51,7 @@ export async function registerAction(values: {
     values.name,
     toLocale(values.locale),
     flow.token,
+    await clientIp(),
   );
   return { ok: res.ok, error: res.error };
 }
@@ -103,8 +77,13 @@ export async function verifyEmailAction(values: {
 
 /**
  * Ask for a replacement code. Always resolves the same way — see
- * resendVerificationCode; the per-address mail cap is shared with signup, so
- * this cannot be used to mail someone more often than signing up would.
+ * resendVerificationCode.
+ *
+ * Two caps apply, and they answer different threats. The per-address ceiling is
+ * shared with signup, so this cannot be used to mail someone more often than
+ * signing up already could. The per-origin cap, charged from the IP below, is
+ * what stops a stranger emptying that ceiling: it sits strictly under it, so the
+ * address owner always keeps a mail in hand.
  */
 export async function resendCodeAction(values: {
   email: string;
@@ -114,8 +93,21 @@ export async function resendCodeAction(values: {
   if (!rateLimit(`resend-code:${ip}`, 5, 5 * 60_000).allowed) {
     return { ok: true };
   }
-  const flow = newFlowToken();
-  await setFlowCookie(flow.token);
-  await resendVerificationCode(values.email, toLocale(values.locale), flow.token);
+  /**
+   * Reuse the flow this browser already holds; only mint one when there is none.
+   *
+   * Minting a fresh token on every click meant no real caller ever resent within
+   * a flow — so the per-flow supersede in storeAndSendCode never fired in
+   * production, and each click left the previous code live but unreachable, its
+   * flowHash no longer matching the cookie the browser had just been given. The
+   * user saw the generic rejection and had no way to tell it from a typo.
+   *
+   * Reusing it also stops the cookie being overwritten on the paths that send
+   * nothing at all — ineligible address, budget spent — which used to orphan a
+   * still-valid code from the user's own earlier request.
+   */
+  const flowToken = (await readFlowCookie()) ?? newFlowToken().token;
+  await setFlowCookie(flowToken);
+  await resendVerificationCode(values.email, toLocale(values.locale), flowToken, ip);
   return { ok: true };
 }

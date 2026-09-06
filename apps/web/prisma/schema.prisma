@@ -280,6 +280,10 @@ model EmailVerificationCode {
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
+  /// Every lookup is now (email, flowHash) — see checkVerificationCode.
+  /// The bare email index stays: storeAndSendCode's supersede and the
+  /// expiry sweep still filter on it alone.
+  @@index([email, flowHash])
   @@index([email])
   @@index([expiresAt])
   @@map("email_verification_codes")

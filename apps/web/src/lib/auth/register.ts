@@ -44,6 +44,16 @@ export async function registerAttendee(
    * a code is actually issued.
    */
   flowToken: string,
+  /**
+   * The requester's IP, or `undefined` where there is deliberately none.
+   *
+   * Explicit rather than optional, for the same reason flowToken above is: this
+   * is the only thing stopping one connection emptying a stranger's mail budget,
+   * and a call site that quietly omitted it would lose that protection with
+   * nothing to show for it. The session-authenticated profile route passes
+   * `undefined` on purpose — see the note there.
+   */
+  origin: string | undefined,
 ): Promise<RegisterResult> {
   const e = email.toLowerCase().trim();
   if (!EMAIL_RE.test(e)) return { ok: false, error: "Enter a valid email address." };
@@ -78,7 +88,7 @@ export async function registerAttendee(
     // A suspended account is told nothing at all — the same silence
     // requestPasswordReset() keeps — but the caller still sees success.
     if (existing.status !== "suspended") {
-      await notify(e, accountExistsEmail(locale, loginUrl, `${appUrl}/${locale}/forgot-password`));
+      await notify(e, accountExistsEmail(locale, loginUrl, `${appUrl}/${locale}/forgot-password`), origin);
     }
     return { ok: true };
   }
@@ -87,7 +97,7 @@ export async function registerAttendee(
     data: { email: e, passwordHash, name: name?.trim() || null, emailVerified: null },
   });
 
-  if (signupMailAllowed(e)) {
+  if (signupMailAllowed(e, origin)) {
     try {
       await storeAndSendCode(user.id, e, minted, locale);
     } catch (err) {
@@ -105,8 +115,12 @@ export async function registerAttendee(
  * breaks, nobody gets a code or an account-exists mail and, without this line,
  * there is no signal anywhere that it happened.
  */
-async function notify(to: string, msg: { subject: string; text: string }): Promise<void> {
-  if (!signupMailAllowed(to)) return;
+async function notify(
+  to: string,
+  msg: { subject: string; text: string },
+  origin?: string,
+): Promise<void> {
+  if (!signupMailAllowed(to, origin)) return;
   try {
     await sendEmail(
       { to, ...msg },

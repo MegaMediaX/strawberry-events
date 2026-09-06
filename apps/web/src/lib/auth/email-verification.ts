@@ -93,9 +93,10 @@ export async function mintCode(flowToken: string): Promise<MintedCode> {
 /**
  * Store a minted code against an address and mail it.
  *
- * Any previous live code for the same address is superseded first, so exactly
- * one is ever valid: without that, a resend would leave the earlier code
- * working and quietly multiply the guessing surface with every click.
+ * This flow's previous live code is superseded first, so one flow never has two
+ * valid codes: without that, a resend would leave the earlier code working and
+ * quietly multiply the guessing surface with every click. Scoped to the flow
+ * rather than the address — see the note on the update below.
  */
 export async function storeAndSendCode(
   userId: string,
@@ -157,26 +158,34 @@ export async function checkVerificationCode(
   if (!/^\d{6}$/.test(code)) return { ok: false, error: CODE_REJECTED };
 
   /**
-   * Find the code belonging to THIS flow.
+   * Find the code belonging to THIS flow, and ONLY this flow.
    *
-   * Selecting the newest row for the address was the other half of the problem:
-   * it handed whoever asked most recently the row everyone else's guesses would
-   * land on. Now a caller can only ever reach the code their own request
-   * produced, so `attempts` is per-flow by construction and no separate counter
-   * is needed.
+   * An earlier version kept a compatibility branch here — rows with a null
+   * flowHash stayed reachable to any caller, so that a code issued moments
+   * before the deploy would not strand its owner. That branch reopened the very
+   * attack this file exists to stop: a null row matched whatever token the
+   * caller presented, and the recheck below is written `if (row.flowHash && …)`,
+   * so it skipped exactly those rows. Anyone holding a self-minted token could
+   * reach a stranger's code and burn its attempts.
    *
-   * Rows with a null flowHash predate this and stay reachable — a code issued to
-   * someone mid-verification when this deploys must keep working.
+   * It was also protecting nobody. `email_verification_codes` in production has
+   * never held a row — checked, not assumed — and `mintCode` now always sets a
+   * flowHash, so no null row can be created. The compatibility window was
+   * hypothetical; the hole it opened was not.
+   *
+   * A guess with no flow token cannot match anything, so it is refused before
+   * the query rather than being allowed to select someone else's row.
    */
-  const flowHash = flowToken ? hashFlowToken(flowToken) : null;
+  if (!flowToken) return { ok: false, error: CODE_REJECTED };
+  const flowHash = hashFlowToken(flowToken);
   const row = await prisma.emailVerificationCode.findFirst({
     where: {
       email: e,
+      flowHash,
       usedAt: null,
       supersededAt: null,
       expiresAt: { gt: new Date() },
       attempts: { lt: MAX_ATTEMPTS },
-      ...(flowHash ? { OR: [{ flowHash }, { flowHash: null }] } : { flowHash: null }),
     },
     orderBy: { createdAt: "desc" },
   });
@@ -186,9 +195,11 @@ export async function checkVerificationCode(
    * Belt and braces behind the scoped lookup above.
    *
    * The `where` clause should make a mismatch unreachable; this catches the case
-   * where it is ever loosened, and costs one constant-time comparison.
+   * where it is ever loosened, and costs one constant-time comparison. Unlike
+   * the version this replaces, a null flowHash now FAILS here instead of
+   * skipping the check.
    */
-  if (row.flowHash && !(flowToken && flowMatches(row.flowHash, flowToken))) {
+  if (!row.flowHash || !flowMatches(row.flowHash, flowToken)) {
     return { ok: false, error: CODE_REJECTED };
   }
 
@@ -232,11 +243,52 @@ export async function checkVerificationCode(
  * someone three more times per hour than signup allows, which is exactly the
  * mailbombing the cap exists to stop.
  */
-export const MAIL_LIMIT = 3;
+export const MAIL_LIMIT = 4;
 export const MAIL_WINDOW_MS = 60 * 60 * 1000;
 
-export function signupMailAllowed(email: string): boolean {
+/**
+ * What ONE origin may spend out of that per-address ceiling.
+ *
+ * The ceiling alone was a denial of service, not a defence. Asking for a code
+ * is unauthenticated and takes a typed address, so three cheap requests from
+ * anyone emptied a stranger's hourly budget — and because the budget is shared
+ * with signup and with the "you already have an account" notice, it also
+ * blocked a genuine first-time signup at that address for the rest of the hour.
+ * No guessing, no live code needed, repeatable every hour. That was a more
+ * durable lockout than the attempt-burning bug this file was changed to fix.
+ *
+ * Keeping this strictly below MAIL_LIMIT is the whole point: a single origin
+ * can never take the last slot, so the address owner always has at least one
+ * mail available from their own connection.
+ *
+ * Stated plainly, because the previous version of this fix overclaimed: an
+ * attacker with two or more addresses to send from can still exhaust the
+ * ceiling. Any per-recipient cap is a lever of exactly this kind — removing it
+ * would trade this for unbounded mailbombing. This raises the cost of the
+ * lockout from one connection to several; it does not eliminate it.
+ */
+export const MAIL_LIMIT_PER_ORIGIN = 3;
+
+export function signupMailAllowed(email: string, origin?: string): boolean {
+  // Origin budget FIRST. An origin already over its own limit must not get to
+  // charge the address's ceiling on its way to being refused — otherwise the
+  // per-origin cap would still leak the whole address budget away.
+  if (origin && !signupMailAllowedForOrigin(email, origin)) return false;
   return rateLimit(`signup-mail:${email}`, MAIL_LIMIT, MAIL_WINDOW_MS).allowed;
+}
+
+/**
+ * The per-origin half, kept separate so it can be reasoned about on its own.
+ *
+ * Callers reach it through signupMailAllowed; it is exported for the tests that
+ * pin the two limits against each other.
+ */
+export function signupMailAllowedForOrigin(email: string, origin: string): boolean {
+  return rateLimit(
+    `signup-mail-origin:${email}:${origin}`,
+    MAIL_LIMIT_PER_ORIGIN,
+    MAIL_WINDOW_MS,
+  ).allowed;
 }
 
 /**
@@ -255,6 +307,16 @@ export async function resendVerificationCode(
   email: string,
   locale: Locale,
   flowToken: string,
+  /**
+   * The requester's IP, or `undefined` where there is deliberately none.
+   *
+   * Explicit rather than optional, for the same reason flowToken above is: this
+   * is the only thing stopping one connection emptying a stranger's mail budget,
+   * and a call site that quietly omitted it would lose that protection with
+   * nothing to show for it. The session-authenticated profile route passes
+   * `undefined` on purpose — see the note there.
+   */
+  origin: string | undefined,
 ): Promise<void> {
   const e = email.toLowerCase().trim();
 
@@ -266,7 +328,7 @@ export async function resendVerificationCode(
   // Budget is checked AFTER eligibility, so it is only ever spent on a mail
   // that is actually going out. Checking first would let anyone burn an
   // address's hourly allowance by asking for codes it was never going to get.
-  if (!signupMailAllowed(e)) return;
+  if (!signupMailAllowed(e, origin)) return;
 
   try {
     await storeAndSendCode(user.id, e, await mintCode(flowToken), locale);

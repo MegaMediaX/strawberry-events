@@ -1,7 +1,5 @@
 "use server";
 
-import { cookies } from "next/headers";
-
 import { revalidatePath } from "next/cache";
 import { getSessionContext } from "@/lib/auth/session";
 import { rateLimit } from "@/lib/security/rate-limit";
@@ -12,10 +10,8 @@ import {
   checkVerificationCode,
   CODE_REJECTED,
 } from "@/lib/auth/email-verification";
+import { setFlowCookie, readFlowCookie } from "@/lib/auth/verify-flow-cookie";
 import type { Locale } from "@/lib/email/templates";
-
-/** Same handle the signup flow uses; see the note there. */
-const FLOW_COOKIE = "verify_flow";
 
 export interface VerifyResult {
   ok: boolean;
@@ -50,15 +46,19 @@ export async function sendMyVerificationCode(
 
   // Shares the per-address mail cap with signup, so this cannot be used to mail
   // someone more often than signing up already could.
-  const flow = newFlowToken();
-  (await cookies()).set(FLOW_COOKIE, flow.token, {
-    httpOnly: true,
-    sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
-    path: "/",
-    maxAge: 15 * 60,
-  });
-  await resendVerificationCode(user.email, locale === "ar" ? "ar" : ("en" as Locale), flow.token);
+  // Same reuse rule as the signup resend — see the note there.
+  const flowToken = (await readFlowCookie()) ?? newFlowToken().token;
+  await setFlowCookie(flowToken);
+  /**
+   * No origin is charged here, on purpose.
+   *
+   * The per-origin cap exists because the signup resend takes a TYPED address,
+   * so a stranger can aim it at someone else. This one takes the address from
+   * the session: you can only ever ask for a code to your own inbox, and the
+   * per-account limiter above already bounds it. Charging an origin as well
+   * would punish everyone sharing the venue WiFi for one person's retries.
+   */
+  await resendVerificationCode(user.email, locale === "ar" ? "ar" : ("en" as Locale), flowToken, undefined);
   return { ok: true };
 }
 
@@ -94,8 +94,7 @@ export async function verifyMyEmail(
   });
   if (!user) return { ok: false, error: CODE_REJECTED };
 
-  const flow = (await cookies()).get(FLOW_COOKIE)?.value ?? null;
-  const res = await checkVerificationCode(user.email, code, flow);
+  const res = await checkVerificationCode(user.email, code, await readFlowCookie());
   if (res.ok) revalidatePath(`/${locale}/profile`);
   return res;
 }
