@@ -41,15 +41,31 @@ import { linkOrdersToUser } from "./ledger";
  */
 export const SWEEP_LIMIT = 50;
 
+/**
+ * Why a sweep linked nothing, kept distinct from how much it linked.
+ *
+ * These three used to collapse into `{ linked: 0 }`, so a sweep REFUSED because
+ * a registration had been claimed by someone else in the meantime was
+ * indistinguishable from an address that simply had none — invisible to the
+ * person, and invisible in the logs to anyone asking why their history did not
+ * appear. The count alone cannot answer that question.
+ */
+export type SweepResult = {
+  linked: number;
+  outcome: "linked" | "nothing_to_link" | "refused" | "failed";
+  /** Server-side only; never shown to the caller. */
+  reason?: string;
+};
+
 export async function claimOrdersForVerifiedEmail(params: {
   userId: string;
   email: string;
   ip?: string;
   locale?: Locale;
-}): Promise<{ linked: number }> {
+}): Promise<SweepResult> {
   const { userId, ip, locale = "en" } = params;
   const email = params.email.toLowerCase().trim();
-  if (!email) return { linked: 0 };
+  if (!email) return { linked: 0, outcome: "nothing_to_link" };
 
   try {
     /**
@@ -69,7 +85,7 @@ export async function claimOrdersForVerifiedEmail(params: {
         eventMapping: { select: { titleEn: true } },
       },
     });
-    if (orders.length === 0) return { linked: 0 };
+    if (orders.length === 0) return { linked: 0, outcome: "nothing_to_link" };
 
     /**
      * One call, so the whole sweep is ONE ledger event with one entity row per
@@ -94,7 +110,17 @@ export async function claimOrdersForVerifiedEmail(params: {
       proofType: "email_code",
       matchRule: "verified_email",
     });
-    if (!res.ok || res.linked === 0) return { linked: 0 };
+    if (!res.ok || res.linked === 0) {
+      /**
+       * The ledger refused. The likeliest cause by far is the guard that stops a
+       * self-claim taking a registration someone else already owns — which on a
+       * shared mailbox means the other person got there first. Logged with the
+       * address so it can actually be answered when someone asks why their
+       * history is missing; they can still claim each one from its ticket link.
+       */
+      console.warn(`[claim-on-verify] sweep refused for ${email}: ${res.error ?? "no rows moved"}`);
+      return { linked: 0, outcome: "refused", reason: res.error };
+    }
 
     /**
      * Handed to `after()` rather than left as a bare floating promise.
@@ -116,7 +142,7 @@ export async function claimOrdersForVerifiedEmail(params: {
       void notify();
     }
 
-    return { linked: res.linked };
+    return { linked: res.linked, outcome: "linked" };
   } catch (err) {
     /**
      * Swallowed on purpose, loudly. Verification itself has already succeeded
@@ -125,7 +151,7 @@ export async function claimOrdersForVerifiedEmail(params: {
      * claimable by the ticket link, so the failure is recoverable.
      */
     console.error("[claim-on-verify] sweep failed:", (err as Error).message);
-    return { linked: 0 };
+    return { linked: 0, outcome: "failed", reason: (err as Error).message };
   }
 }
 

@@ -218,4 +218,35 @@ describe.skipIf(!run)("claim on verify (integration)", () => {
     expect(left).toHaveLength(5);
     expect(left[0].orderCode).toBe(`CAP${SWEEP_LIMIT}-${s}`);
   });
+
+  /**
+   * "Refused" and "there was nothing" are different answers to "why is my
+   * history missing", and collapsing both into `linked: 0` made the first one
+   * unanswerable — for the person and for whoever they ask.
+   *
+   * The refusal is provoked with a suspended account, which the ledger turns
+   * away for its own reasons. An owned registration would NOT work here: the
+   * caller's `userId: null` filter never selects one, so that path reports
+   * "nothing to link" and would leave this branch untested while looking
+   * covered. The first draft of this test made exactly that mistake.
+   */
+  it("distinguishes a refusal from an address that simply had none", async () => {
+    expect(await claimOrdersForVerifiedEmail({ userId: me, email: `none-${s}@t.test` }))
+      .toMatchObject({ linked: 0, outcome: "nothing_to_link" });
+
+    await mkOrder();
+    await prisma.user.update({ where: { id: me }, data: { status: "suspended" } });
+    try {
+      const refused = await claimOrdersForVerifiedEmail({ userId: me, email: mine });
+      expect(refused.linked).toBe(0);
+      expect(refused.outcome).toBe("refused");
+      expect(refused.reason).toBeTruthy();
+    } finally {
+      await prisma.user.update({ where: { id: me }, data: { status: "active" } });
+    }
+
+    // And with the account well again, the same address links normally.
+    const ok = await claimOrdersForVerifiedEmail({ userId: me, email: mine });
+    expect(ok).toMatchObject({ linked: 1, outcome: "linked" });
+  });
 });
