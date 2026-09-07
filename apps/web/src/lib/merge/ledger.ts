@@ -159,6 +159,30 @@ export async function linkOrdersToUser(params: {
         return { ok: false, error: "Those registrations must be linked by an organiser.", linked: 0 };
       }
 
+      /**
+       * A self-claim may only take a registration NOBODY owns.
+       *
+       * `movable` below excludes only rows already on the TARGET account, so
+       * without this a row owned by someone else was movable, and the
+       * compare-and-set — which compares against the owner just read under the
+       * lock — would happily overwrite it. Callers filtering on `userId: null`
+       * themselves does not help: that read is outside this transaction, so an
+       * order claimed between their query and this lock was taken anyway.
+       *
+       * Same reasoning as the blank-email guard above, and the same placement:
+       * inside the lock, so the rule holds even if a calling path is written
+       * carelessly later. An operator (`staff_override`) is deliberately still
+       * allowed to re-own — adjudicating disputes is the entire point of that
+       * path, and it leaves a reason and an actor behind.
+       */
+      if (actor.type === "self_claim" && orders.some((o) => o.userId !== null && o.userId !== userId)) {
+        return {
+          ok: false,
+          error: "Some of those registrations are already linked to another account.",
+          linked: 0,
+        };
+      }
+
       const movable = orders.filter((o) => o.userId !== userId);
       if (movable.length === 0) {
         return { ok: false, error: "Already linked to that account.", linked: 0 };

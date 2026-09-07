@@ -1,3 +1,5 @@
+import { after } from "next/server";
+
 import { prisma } from "@/lib/db/client";
 import { sendEmail } from "@/lib/email/service";
 import { registrationsClaimedEmail, type Locale } from "@/lib/email/templates";
@@ -24,6 +26,21 @@ import { linkOrdersToUser } from "./ledger";
  * CLAUDE.md: where two people share a mailbox and neither has claimed, whoever
  * verifies first takes both. The ledger row and the notice are what surface it.
  */
+/**
+ * Most registrations one verification will take at once.
+ *
+ * The live table's busiest address has 4 and the 99th percentile is 2, so this
+ * is far above anything real. It is here because registration accepts a typed
+ * address, so orders can be stacked under someone else's mailbox before they
+ * ever verify — without a cap that turns one verification into an arbitrarily
+ * large locked transaction and a single email listing every one of them.
+ *
+ * Oldest first, so a flood of freshly-created rows cannot push a person's
+ * genuine older registrations out of the window. Anything past the cap stays
+ * unowned and is still claimable from its own ticket link.
+ */
+export const SWEEP_LIMIT = 50;
+
 export async function claimOrdersForVerifiedEmail(params: {
   userId: string;
   email: string;
@@ -41,7 +58,11 @@ export async function claimOrdersForVerifiedEmail(params: {
      */
     const orders = await prisma.attendeeOrder.findMany({
       where: { email, userId: null },
+      // Chronological for the notice, which people read. linkOrdersToUser
+      // re-reads these under `ORDER BY id FOR UPDATE`, so the ledger entities
+      // are in id order — the two lists intentionally do not match.
       orderBy: { createdAt: "asc" },
+      take: SWEEP_LIMIT,
       select: {
         id: true,
         orderCode: true,
@@ -56,9 +77,15 @@ export async function claimOrdersForVerifiedEmail(params: {
      * which a per-order loop could not promise: a failure halfway would leave
      * some linked and some not, with no single record of the intent.
      *
-     * Every guard this needs already lives in linkOrdersToUser — suspended
-     * accounts, staff accounts, the row lock and compare-and-set, and the
-     * refusal to self-claim a registration with no address on it.
+     * linkOrdersToUser carries the guards that must hold under the lock:
+     * suspended accounts, staff accounts, the row lock and compare-and-set, the
+     * refusal to self-claim a registration with no address on it, and — added
+     * for this path — the refusal to self-claim one somebody else already owns.
+     *
+     * That last one is why the `userId: null` filter above is not the safety
+     * property it looks like. This read takes no lock, so an order claimed
+     * between it and the transaction would otherwise be swept up anyway; the
+     * filter narrows the candidates, the ledger enforces the rule.
      */
     const res = await linkOrdersToUser({
       orderIds: orders.map((o) => o.id),
@@ -69,9 +96,25 @@ export async function claimOrdersForVerifiedEmail(params: {
     });
     if (!res.ok || res.linked === 0) return { linked: 0 };
 
-    // Best-effort, and NOT awaited: a link that succeeded must never be undone
-    // or delayed because SMTP was slow. The ledger is the durable record.
-    void notifyClaimed(email, orders, locale);
+    /**
+     * Handed to `after()` rather than left as a bare floating promise.
+     *
+     * Still off the response path — a link that succeeded must never be undone
+     * or delayed because SMTP was slow. But a bare `void` promise has no one
+     * keeping the runtime alive once the action's own promise resolves, so the
+     * notice could be dropped mid-flight. With the merge notice being one of
+     * only two things that surface an automatic link, silently losing it is not
+     * an acceptable failure mode.
+     *
+     * `after()` throws outside a request scope, which is every unit test and
+     * any future non-request caller, so the bare call remains the fallback.
+     */
+    const notify = () => notifyClaimed(email, orders, locale);
+    try {
+      after(notify);
+    } catch {
+      void notify();
+    }
 
     return { linked: res.linked };
   } catch (err) {
@@ -96,8 +139,10 @@ async function notifyClaimed(
       {
         to: email,
         ...registrationsClaimedEmail(locale, {
-          orderCodes: orders.map((o) => o.orderCode),
-          eventNames: orders.map((o) => o.eventMapping.titleEn),
+          registrations: orders.map((o) => ({
+            orderCode: o.orderCode,
+            eventName: o.eventMapping.titleEn,
+          })),
         }),
       },
       {

@@ -14,6 +14,8 @@ vi.mock("@/lib/email/service", () => ({ sendEmail: vi.fn().mockResolvedValue(tru
 describe.skipIf(!run)("claim on verify (integration)", () => {
   let prisma: typeof import("@/lib/db/client").prisma;
   let claimOrdersForVerifiedEmail: typeof import("@/lib/merge/claim-on-verify").claimOrdersForVerifiedEmail;
+  let SWEEP_LIMIT = 0;
+  let linkOrdersToUser: typeof import("@/lib/merge/ledger").linkOrdersToUser;
 
   const s = Date.now();
   let orgId = "", mappingId = "", me = "", rival = "";
@@ -32,7 +34,8 @@ describe.skipIf(!run)("claim on verify (integration)", () => {
 
   beforeAll(async () => {
     ({ prisma } = await import("@/lib/db/client"));
-    ({ claimOrdersForVerifiedEmail } = await import("@/lib/merge/claim-on-verify"));
+    ({ claimOrdersForVerifiedEmail, SWEEP_LIMIT } = await import("@/lib/merge/claim-on-verify"));
+    ({ linkOrdersToUser } = await import("@/lib/merge/ledger"));
 
     orgId = (await prisma.organization.create({
       data: { name: `S${s}`, slug: `s${s}`, pretixOrganizerSlug: `ps${s}` },
@@ -124,10 +127,15 @@ describe.skipIf(!run)("claim on verify (integration)", () => {
     await mkOrder();
 
     await claimOrdersForVerifiedEmail({ userId: me, email: mine });
-    await new Promise((r) => setTimeout(r, 60)); // the notice is fire-and-forget
 
+    /**
+     * Polled, not slept on. The notice is scheduled off the response path, so
+     * a fixed timer here would be a race: any await later added inside
+     * notifyClaimed could push it past the deadline and fail CI with no code
+     * regression behind it.
+     */
     const calls = (sendEmail as unknown as { mock: { calls: unknown[][] } }).mock.calls;
-    expect(calls).toHaveLength(1);
+    await vi.waitFor(() => expect(calls.length).toBe(1));
     const sent = calls[0][0] as { to: string; subject: string; text: string };
     expect(sent.to).toBe(mine);
     expect(sent.subject).toMatch(/2 registrations/i);
@@ -151,5 +159,63 @@ describe.skipIf(!run)("claim on verify (integration)", () => {
 
     expect(res.linked).toBe(1);
     expect((await prisma.attendeeOrder.findUnique({ where: { id: a } }))?.userId).toBe(me);
+  });
+
+  /**
+   * The guard has to live UNDER THE LOCK, not in the caller.
+   *
+   * claimOrdersForVerifiedEmail narrows candidates with `userId: null`, but that
+   * read takes no lock — an order claimed between it and the transaction would
+   * still arrive here with an owner. So this calls the ledger directly with an
+   * owned id, which is exactly the state that race produces, and asserts the
+   * ledger itself refuses. Filtering in the caller cannot make this test pass.
+   */
+  it("the ledger refuses a self-claim on an owned registration, whatever the caller filtered", async () => {
+    const theirs = await mkOrder({ userId: rival });
+
+    const res = await linkOrdersToUser({
+      orderIds: [theirs],
+      userId: me,
+      actor: { type: "self_claim" },
+      proofType: "email_code",
+      matchRule: "verified_email",
+    });
+
+    expect(res.ok).toBe(false);
+    expect(res.linked).toBe(0);
+    expect((await prisma.attendeeOrder.findUnique({ where: { id: theirs } }))?.userId).toBe(rival);
+    // and it left no ledger event behind claiming otherwise
+    expect(await prisma.accountMergeEvent.count({ where: { userId: me } })).toBe(0);
+  });
+
+  /**
+   * Registration takes a typed address, so rows can be stacked under someone
+   * else's mailbox before they ever verify. The cap stops one verification
+   * becoming an unbounded locked transaction and a mail listing all of them.
+   */
+  it("links at most SWEEP_LIMIT, oldest first, leaving the rest claimable", async () => {
+    const base = Date.now() - 1000 * 60 * 60 * 24;
+    await prisma.attendeeOrder.createMany({
+      data: Array.from({ length: SWEEP_LIMIT + 5 }, (_, i) => ({
+        eventMappingId: mappingId,
+        orderCode: `CAP${i}-${s}`,
+        email: mine,
+        magicLinkToken: `capt-${i}-${s}`,
+        createdAt: new Date(base + i * 1000),
+      })),
+    });
+
+    const res = await claimOrdersForVerifiedEmail({ userId: me, email: mine });
+
+    expect(res.linked).toBe(SWEEP_LIMIT);
+    // The five newest are the ones left behind — a flood cannot displace the
+    // genuine older registrations.
+    const left = await prisma.attendeeOrder.findMany({
+      where: { email: mine, userId: null },
+      orderBy: { createdAt: "asc" },
+      select: { orderCode: true },
+    });
+    expect(left).toHaveLength(5);
+    expect(left[0].orderCode).toBe(`CAP${SWEEP_LIMIT}-${s}`);
   });
 });

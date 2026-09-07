@@ -265,15 +265,20 @@ export function verifyEmailCodeEmail(locale: Locale, code: string): RenderedEmai
  */
 export function registrationsClaimedEmail(
   locale: Locale,
-  params: { orderCodes: string[]; eventNames: string[] },
+  params: { registrations: { orderCode: string; eventName: string }[] },
 ): RenderedEmail {
-  const { orderCodes, eventNames } = params;
-  const n = orderCodes.length;
-  const list = orderCodes.map((c, i) => `- ${c}${eventNames[i] ? ` (${eventNames[i]})` : ""}`).join("\n");
+  const { registrations } = params;
+  const n = registrations.length;
+  const list = registrations
+    .map((r) => `- ${r.orderCode}${r.eventName ? ` (${r.eventName})` : ""}`)
+    .join("\n");
 
   if (locale === "ar") {
+    // Arabic has a DUAL. Two registrations is تسجيلين, not "2 تسجيلات" — the
+    // plural only starts at three.
+    const noun = n === 1 ? "تسجيل" : n === 2 ? "تسجيلين" : `${n} تسجيلات`;
     return {
-      subject: n === 1 ? `تم ربط تسجيل بحسابك` : `تم ربط ${n} تسجيلات بحسابك`,
+      subject: `تم ربط ${noun} بحسابك`,
       text:
         `تم تأكيد هذا البريد، ورُبطت التسجيلات التالية بحسابك:\n\n${list}\n\n` +
         "تذاكرك ورموز الدخول لم تتغيّر.\n\n" +
@@ -281,7 +286,10 @@ export function registrationsClaimedEmail(
     };
   }
   return {
-    subject: n === 1 ? "A registration was linked to your account" : `${n} registrations were linked to your account`,
+    subject:
+      n === 1
+        ? "A registration was linked to your account"
+        : `${n} registrations were linked to your account`,
     text:
       `You just verified this email address, so the registrations below were linked to your account:\n\n${list}\n\n` +
       "Your tickets and entry QR codes have not changed.\n\n" +
