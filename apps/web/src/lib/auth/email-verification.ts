@@ -23,10 +23,27 @@ export const MAX_ATTEMPTS = 5;
 export const CODE_REJECTED =
   "That code isn't right, or it's expired. Request a new one.";
 
-export interface CheckResult {
-  ok: boolean;
-  error?: string;
-}
+/**
+ * The account just verified rides on the SUCCESS branch, and a union is what
+ * makes that a guarantee rather than a hope.
+ *
+ * The caller needs the id to sweep this address's registrations onto the
+ * account, and it cannot look the user up itself: the signup verify action is
+ * unauthenticated and deliberately knows nothing about whether an account
+ * exists. With `userId?: string` on a flat interface, a success path that
+ * forgot to set it would compile, run, and silently link nothing — which is
+ * precisely the bug claim-on-verify was written to fix, reintroduced with no
+ * type error and no failing test. As a union it cannot be returned without one.
+ *
+ * `?: never` on each side keeps `res.error` and `res.userId` readable on an
+ * unnarrowed result, so callers that only check `ok` are unaffected.
+ *
+ * Actions must not pass `userId` to the client — it is for server-side
+ * follow-up work only.
+ */
+export type CheckResult =
+  | { ok: true; userId: string; error?: never }
+  | { ok: false; error: string; userId?: never };
 
 /**
  * The handle proving you are the one who ASKED for a code.
@@ -232,7 +249,7 @@ export async function checkVerificationCode(
     data: { emailVerified: new Date() },
   });
 
-  return { ok: true };
+  return { ok: true, userId: row.userId };
 }
 
 /**

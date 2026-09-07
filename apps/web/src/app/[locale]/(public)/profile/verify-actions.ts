@@ -11,6 +11,7 @@ import {
   CODE_REJECTED,
 } from "@/lib/auth/email-verification";
 import { setFlowCookie, readFlowCookie } from "@/lib/auth/verify-flow-cookie";
+import { claimOrdersForVerifiedEmail } from "@/lib/merge/claim-on-verify";
 import type { Locale } from "@/lib/email/templates";
 
 export interface VerifyResult {
@@ -100,6 +101,16 @@ export async function verifyMyEmail(
   if (!user) return { ok: false, error: CODE_REJECTED };
 
   const res = await checkVerificationCode(user.email, code, await readFlowCookie());
+
+  // Same sweep as the signup path; the address is proved the same way here.
+  if (res.ok && res.userId) {
+    await claimOrdersForVerifiedEmail({
+      userId: res.userId,
+      email: user.email,
+      locale: locale === "ar" ? "ar" : ("en" as Locale),
+    });
+  }
+
   if (res.ok) revalidatePath(`/${locale}/profile`);
-  return res;
+  return { ok: res.ok, error: res.error };
 }

@@ -252,6 +252,51 @@ export function verifyEmailCodeEmail(locale: Locale, code: string): RenderedEmai
  * to; they do not need a stranger's full address, and on a shared mailbox that
  * would hand one colleague another's.
  */
+/**
+ * One notice for a whole sweep, not one per registration.
+ *
+ * Every order in a verification sweep matched the SAME address, so a per-order
+ * notice would put N identical mails in one inbox. Listing them in a single
+ * message is also the more useful record: it says exactly what moved.
+ *
+ * No masked address here, unlike registrationClaimedEmail. On this path the
+ * claimant's address IS the order's address, so masking it would only tell the
+ * reader something they already know.
+ */
+export function registrationsClaimedEmail(
+  locale: Locale,
+  params: { registrations: { orderCode: string; eventName: string }[] },
+): RenderedEmail {
+  const { registrations } = params;
+  const n = registrations.length;
+  const list = registrations
+    .map((r) => `- ${r.orderCode}${r.eventName ? ` (${r.eventName})` : ""}`)
+    .join("\n");
+
+  if (locale === "ar") {
+    // Arabic has a DUAL. Two registrations is تسجيلين, not "2 تسجيلات" — the
+    // plural only starts at three.
+    const noun = n === 1 ? "تسجيل" : n === 2 ? "تسجيلين" : `${n} تسجيلات`;
+    return {
+      subject: `تم ربط ${noun} بحسابك`,
+      text:
+        `تم تأكيد هذا البريد، ورُبطت التسجيلات التالية بحسابك:\n\n${list}\n\n` +
+        "تذاكرك ورموز الدخول لم تتغيّر.\n\n" +
+        "إذا كان أحد هذه التسجيلات يخصّ شخصًا آخر يستخدم هذا البريد، رُدّ على هذه الرسالة وسنلغي الربط.",
+    };
+  }
+  return {
+    subject:
+      n === 1
+        ? "A registration was linked to your account"
+        : `${n} registrations were linked to your account`,
+    text:
+      `You just verified this email address, so the registrations below were linked to your account:\n\n${list}\n\n` +
+      "Your tickets and entry QR codes have not changed.\n\n" +
+      "If any of these belong to someone else who uses this mailbox, reply to this message and we will unlink it.",
+  };
+}
+
 export function registrationClaimedEmail(
   locale: Locale,
   params: { orderCode: string; eventName: string; maskedEmail: string },
