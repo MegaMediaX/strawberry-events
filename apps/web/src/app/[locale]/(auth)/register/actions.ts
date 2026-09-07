@@ -5,6 +5,7 @@ import { clientIp } from "@/lib/security/client-ip";
 import { registerAttendee } from "@/lib/auth/register";
 import { newFlowToken } from "@/lib/auth/email-verification";
 import { setFlowCookie, readFlowCookie } from "@/lib/auth/verify-flow-cookie";
+import { claimOrdersForVerifiedEmail } from "@/lib/merge/claim-on-verify";
 import {
   checkVerificationCode,
   resendVerificationCode,
@@ -67,12 +68,34 @@ export async function registerAction(values: {
 export async function verifyEmailAction(values: {
   email: string;
   code: string;
+  locale?: string;
 }): Promise<RegisterAccountResult> {
   const ip = await clientIp();
   if (!rateLimit(`verify-email:${ip}`, 30, 5 * 60_000).allowed) {
     return { ok: false, error: CODE_REJECTED };
   }
-  return checkVerificationCode(values.email, values.code, await readFlowCookie());
+  const res = await checkVerificationCode(values.email, values.code, await readFlowCookie());
+
+  /**
+   * Proving the address is what earns its registrations, so the sweep runs here
+   * rather than inside checkVerificationCode — that function is about codes,
+   * and linking orders is not its job.
+   *
+   * Awaited, so the account is already populated when the caller lands on their
+   * registrations. It never throws and never changes `res`: a sweep that failed
+   * must not turn a correct code into a rejection.
+   */
+  if (res.ok && res.userId) {
+    await claimOrdersForVerifiedEmail({
+      userId: res.userId,
+      email: values.email,
+      ip,
+      locale: toLocale(values.locale),
+    });
+  }
+
+  // `userId` is deliberately not forwarded — see CheckResult.
+  return { ok: res.ok, error: res.error };
 }
 
 /**

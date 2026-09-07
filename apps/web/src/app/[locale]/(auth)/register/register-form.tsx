@@ -65,7 +65,7 @@ export function RegisterForm({ locale }: { locale: string }) {
     setResendNote(null);
     if (!creds) return;
     setBusy(true);
-    const res = await verifyEmailAction({ email: creds.email, code });
+    const res = await verifyEmailAction({ email: creds.email, code, locale });
     setBusy(false);
     if (!res.ok) {
       setCodeError(res.error ?? "That code isn't right.");

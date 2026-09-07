@@ -252,6 +252,43 @@ export function verifyEmailCodeEmail(locale: Locale, code: string): RenderedEmai
  * to; they do not need a stranger's full address, and on a shared mailbox that
  * would hand one colleague another's.
  */
+/**
+ * One notice for a whole sweep, not one per registration.
+ *
+ * Every order in a verification sweep matched the SAME address, so a per-order
+ * notice would put N identical mails in one inbox. Listing them in a single
+ * message is also the more useful record: it says exactly what moved.
+ *
+ * No masked address here, unlike registrationClaimedEmail. On this path the
+ * claimant's address IS the order's address, so masking it would only tell the
+ * reader something they already know.
+ */
+export function registrationsClaimedEmail(
+  locale: Locale,
+  params: { orderCodes: string[]; eventNames: string[] },
+): RenderedEmail {
+  const { orderCodes, eventNames } = params;
+  const n = orderCodes.length;
+  const list = orderCodes.map((c, i) => `- ${c}${eventNames[i] ? ` (${eventNames[i]})` : ""}`).join("\n");
+
+  if (locale === "ar") {
+    return {
+      subject: n === 1 ? `تم ربط تسجيل بحسابك` : `تم ربط ${n} تسجيلات بحسابك`,
+      text:
+        `تم تأكيد هذا البريد، ورُبطت التسجيلات التالية بحسابك:\n\n${list}\n\n` +
+        "تذاكرك ورموز الدخول لم تتغيّر.\n\n" +
+        "إذا كان أحد هذه التسجيلات يخصّ شخصًا آخر يستخدم هذا البريد، رُدّ على هذه الرسالة وسنلغي الربط.",
+    };
+  }
+  return {
+    subject: n === 1 ? "A registration was linked to your account" : `${n} registrations were linked to your account`,
+    text:
+      `You just verified this email address, so the registrations below were linked to your account:\n\n${list}\n\n` +
+      "Your tickets and entry QR codes have not changed.\n\n" +
+      "If any of these belong to someone else who uses this mailbox, reply to this message and we will unlink it.",
+  };
+}
+
 export function registrationClaimedEmail(
   locale: Locale,
   params: { orderCode: string; eventName: string; maskedEmail: string },

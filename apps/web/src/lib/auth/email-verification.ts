@@ -26,6 +26,16 @@ export const CODE_REJECTED =
 export interface CheckResult {
   ok: boolean;
   error?: string;
+  /**
+   * The account just verified. Present ONLY on success.
+   *
+   * The caller needs it to sweep this address's registrations onto the account,
+   * and it cannot look the user up itself: the signup verify action is
+   * unauthenticated and deliberately knows nothing about whether an account
+   * exists. Actions must not pass this on to the client — it is for server-side
+   * follow-up work only.
+   */
+  userId?: string;
 }
 
 /**
@@ -232,7 +242,7 @@ export async function checkVerificationCode(
     data: { emailVerified: new Date() },
   });
 
-  return { ok: true };
+  return { ok: true, userId: row.userId };
 }
 
 /**

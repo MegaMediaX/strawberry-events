@@ -403,4 +403,25 @@ describe.skipIf(!run)("verify my own email (integration)", () => {
     await ev.resendVerificationCode(`mine-${s}@t.test`, "en", ev.newFlowToken().token, { kind: "self" });
     expect(sent()).toBe(ev.MAIL_LIMIT + 1);
   });
+
+  /**
+   * The seam the claim-on-verify sweep hangs off.
+   *
+   * Both verify actions need the account id to sweep that address's
+   * registrations onto it, and neither can look it up: the signup action is
+   * unauthenticated and deliberately knows nothing about whether an account
+   * exists. If this stops being returned the sweep silently stops happening —
+   * verification would still pass, and nothing else would fail.
+   */
+  it("returns the verified account id on success, and never on failure", async () => {
+    const { code, flow } = await issueAndRead(`mine-${s}@t.test`);
+
+    const bad = await ev.checkVerificationCode(`mine-${s}@t.test`, "000000", flow);
+    expect(bad.ok).toBe(false);
+    expect(bad.userId).toBeUndefined();
+
+    const good = await ev.checkVerificationCode(`mine-${s}@t.test`, code, flow);
+    expect(good.ok).toBe(true);
+    expect(good.userId).toBe(mine);
+  });
 });
