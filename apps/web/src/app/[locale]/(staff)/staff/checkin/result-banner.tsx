@@ -1,6 +1,14 @@
 "use client";
 
 export type DoorResult =
+  /**
+   * The door has no session any more.
+   *
+   * Its own state, not an `err`: the ticket in front of the operator is fine,
+   * and a red STOP against a valid attendee is both wrong and unrecoverable —
+   * nothing on that banner leads back to a sign-in.
+   */
+  | { kind: "auth"; detail: string; signInHref: string }
   | { kind: "ok"; name: string; detail: string; label?: string }
   | { kind: "warn"; name: string; detail: string; label?: string }
   | { kind: "err"; name: string; detail: string }
@@ -61,6 +69,32 @@ export function ResultBanner({
 }
 
 function BannerBody({ result }: { result: DoorResult }) {
+  if (result.kind === "auth") {
+    return (
+      <div className="flex h-[140px] items-center gap-4 rounded-xl border border-foreground bg-foreground px-6 py-4">
+        {/* Neither green nor red: this is not an outcome for the person at the
+            door, and colouring it like a refusal is what sent operators looking
+            for a problem with the attendee's ticket. */}
+        <span
+          aria-hidden
+          className="flex size-11 shrink-0 items-center justify-center rounded-full border-2 text-[22px] font-bold text-background"
+        >
+          !
+        </span>
+        <div className="min-w-0 flex-1">
+          <p className="text-[20px] leading-none font-bold text-background">SESSION ENDED</p>
+          <p className="mt-1 truncate text-[15px] text-background opacity-90">{result.detail}</p>
+        </div>
+        <a
+          href={result.signInHref}
+          className="inline-flex min-h-12 shrink-0 items-center rounded-lg bg-background px-5 text-[15px] font-semibold text-foreground"
+        >
+          Sign in again
+        </a>
+      </div>
+    );
+  }
+
   if (result.kind === "working") {
     return (
       <div className="flex h-[140px] items-center gap-4 rounded-xl border border-border bg-muted/40 px-6">

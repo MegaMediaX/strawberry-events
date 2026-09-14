@@ -89,11 +89,22 @@ export function CheckinPanel({
   eventId,
   listId,
   tickets,
+  locale,
 }: {
   eventId: string;
   listId: number;
   tickets: DoorTicket[];
+  /** For the sign-in link shown when the shift's session ends. */
+  locale: string;
 }) {
+  /**
+   * Where "Sign in again" goes when the shift's session ends.
+   *
+   * Plain /login: the sign-in form routes by role on success, so door staff
+   * land back on the staff area without this having to carry a callback the
+   * login page does not read.
+   */
+  const signInHref = `/${locale}/login`;
   const [q, setQ] = useState("");
   const [rows, setRows] = useState<AttendeeRow[]>([]);
   /**
@@ -238,6 +249,21 @@ export function CheckinPanel({
 
   const handleResult = useCallback(
     (res: CheckInResult, kind: RecentEntry["kind"]) => {
+      // Before anything else: a door with no session is not refusing anyone.
+      // Every action returns this the moment the shift's cookie expires, and
+      // routing it through the red banner told the operator that a valid
+      // attendee had been turned away — once per person, for the rest of the
+      // queue, with no way back to a sign-in.
+      if (res.authExpired) {
+        setConfirmReprint(null);
+        setResult({
+          kind: "auth",
+          detail: res.reason ?? "Your session has ended.",
+          signInHref,
+        });
+        return;
+      }
+
       if (res.ok && res.badge) {
         const b = toBadge(res.badge);
         const who = res.badge.fullName;
@@ -327,7 +353,7 @@ export function CheckinPanel({
         detail: res.reason ?? "Check-in failed — try search, or use the help desk",
       });
     },
-    [remember, thermalPrint],
+    [remember, thermalPrint, signInHref],
   );
 
   /* ----------------------------------------------------------------- actions */

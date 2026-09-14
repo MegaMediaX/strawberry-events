@@ -10,6 +10,7 @@ import { listCheckinLists, checkinCounters } from "@/lib/pretix/checkin";
 import { selectListIdForDate, venueToday } from "@/lib/checkin/select-list";
 import { VENUE_IANA_ZONE } from "@/lib/datetime/uk";
 import { CheckinPanel } from "./checkin-panel";
+import { StaffEventPicker } from "../_components/event-picker";
 
 export const dynamic = "force-dynamic";
 
@@ -24,8 +25,27 @@ export default async function CheckinPage({
   const sp = await searchParams;
   setRequestLocale(locale);
   const session = await getSessionContext();
-  if (!session || !sp.event) notFound();
+  if (!session) notFound();
 
+  // No event named: show the ones this account can open, the way the walk-in
+  // desk already does. This used to 404 — and since the attendee flow gained a
+  // not-found boundary, that 404 was the ATTENDEE's, telling door staff their
+  // link had expired and offering to browse events.
+  if (!sp.event) {
+    return (
+      <StaffEventPicker
+        session={session}
+        locale={locale}
+        basePath="staff/checkin"
+        title="Check-in"
+        hint="Choose the event you are working the door for."
+      />
+    );
+  }
+
+  // A named event that does not exist, or one this account may not open, stays
+  // a 404: there is nothing to choose from and saying which it was would answer
+  // a question the caller has not earned.
   const mapping = await prisma.eventMapping.findUnique({ where: { id: sp.event } });
   if (!mapping || !canAccessEvent(session, mapping.organizationId, mapping.localEventId)) {
     notFound();
@@ -182,7 +202,12 @@ export default async function CheckinPage({
         </nav>
       )}
       <div className="mt-4">
-        <CheckinPanel eventId={mapping.id} listId={listId} tickets={tickets} />
+        <CheckinPanel
+          eventId={mapping.id}
+          listId={listId}
+          tickets={tickets}
+          locale={locale}
+        />
       </div>
     </div>
   );

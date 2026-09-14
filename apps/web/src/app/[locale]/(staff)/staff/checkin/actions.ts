@@ -15,6 +15,32 @@ import {
   type CheckInResult,
 } from "@/lib/checkin/service";
 
+/**
+ * The one shape for "this door has no session any more".
+ *
+ * Every action opens with it, and the panel gives it its own banner rather than
+ * printing it as the reason an attendee was refused — see CheckInResult.
+ */
+const NOT_AUTHENTICATED: CheckInResult = {
+  ok: false,
+  authExpired: true,
+  reason: "Your session has ended. Sign in again to keep checking people in.",
+};
+
+/**
+ * What the door is told when something failed for reasons the door cannot see.
+ *
+ * `reason` is printed as the explanation for turning a person away, so it must
+ * be a sentence an operator can act on. It used to be `(err as Error).message`:
+ * whatever the database driver or HTTP client happened to say, clipped to one
+ * line under a headline reading STOP. The real error goes to the console, where
+ * whoever is debugging a bad morning will look for it.
+ */
+function doorFailure(err: unknown, context: string, advice: string): CheckInResult {
+  console.error(`[door] ${context} failed`, err);
+  return { ok: false, reason: advice };
+}
+
 export interface AttendeeRow {
   orderCode: string;
   email: string;
@@ -52,10 +78,14 @@ export async function checkInAction(
 ): Promise<CheckInResult> {
   try {
     const session = await getSessionContext();
-    if (!session) return { ok: false, reason: "Not authenticated" };
+    if (!session) return NOT_AUTHENTICATED;
     return await checkInOrder(session, eventId, orderCode, listId);
   } catch (err) {
-    return { ok: false, reason: (err as Error).message };
+    return doorFailure(
+      err,
+      `checkInOrder (event=${eventId}, order=${orderCode})`,
+      "Check-in failed — try again. If it keeps failing, send them to the help desk and note the order code.",
+    );
   }
 }
 
@@ -73,10 +103,14 @@ export async function scanAction(
 ): Promise<CheckInResult> {
   try {
     const session = await getSessionContext();
-    if (!session) return { ok: false, reason: "Not authenticated" };
+    if (!session) return NOT_AUTHENTICATED;
     return await checkInBySecret(session, eventId, secret, listId);
   } catch (err) {
-    return { ok: false, reason: (err as Error).message };
+    return doorFailure(
+      err,
+      `checkInBySecret (event=${eventId})`,
+      "Scan failed — try again, or find them by name.",
+    );
   }
 }
 
@@ -87,10 +121,14 @@ export async function reprintAction(
 ): Promise<CheckInResult> {
   try {
     const session = await getSessionContext();
-    if (!session) return { ok: false, reason: "Not authenticated" };
+    if (!session) return NOT_AUTHENTICATED;
     return await reprintBadge(session, eventId, orderCode);
   } catch (err) {
-    return { ok: false, reason: (err as Error).message };
+    return doorFailure(
+      err,
+      `reprintBadge (event=${eventId}, order=${orderCode})`,
+      "Reprint failed — check whether a badge came out before trying again.",
+    );
   }
 }
 
@@ -108,10 +146,14 @@ export async function correctAttendeeAction(
 ): Promise<CheckInResult> {
   try {
     const session = await getSessionContext();
-    if (!session) return { ok: false, reason: "Not authenticated" };
+    if (!session) return NOT_AUTHENTICATED;
     return await updateAttendeeDetails(session, eventId, orderCode, patch);
   } catch (err) {
-    return { ok: false, reason: (err as Error).message };
+    return doorFailure(
+      err,
+      `updateAttendeeDetails (event=${eventId}, order=${orderCode})`,
+      "Could not save the correction — check their details before trying again; it may not have saved.",
+    );
   }
 }
 
@@ -122,10 +164,11 @@ export async function attendeeForEditAction(
 ): Promise<{ ok: true; attendee: AttendeeForEdit } | { ok: false; reason: string }> {
   try {
     const session = await getSessionContext();
-    if (!session) return { ok: false, reason: "Not authenticated" };
+    if (!session) return { ok: false, reason: NOT_AUTHENTICATED.reason! };
     return { ok: true, attendee: await getAttendeeForEdit(session, eventId, orderCode) };
   } catch (err) {
-    return { ok: false, reason: (err as Error).message };
+    console.error(`[door] getAttendeeForEdit failed (event=${eventId}, order=${orderCode})`, err);
+    return { ok: false, reason: "Could not open their details — try Fix again." };
   }
 }
 
@@ -168,9 +211,9 @@ export async function walkInAndCheckInAction(
   try {
     session = await getSessionContext();
   } catch (err) {
-    return { ok: false, reason: (err as Error).message };
+    return doorFailure(err, "getSessionContext", "Could not register them — try again.");
   }
-  if (!session) return { ok: false, reason: "Not authenticated" };
+  if (!session) return NOT_AUTHENTICATED;
 
   // Strict here, lenient in register(). The operator is standing at the door
   // with the person in front of them, so an `other` with no text is a mistake
@@ -198,7 +241,11 @@ export async function walkInAndCheckInAction(
     });
     orderCode = created.orderCode;
   } catch (err) {
-    return { ok: false, reason: (err as Error).message };
+    return doorFailure(
+      err,
+      `createWalkIn (event=${eventId})`,
+      "Could not register them — search their name before retrying, in case the order was created.",
+    );
   }
 
   try {
@@ -211,9 +258,12 @@ export async function walkInAndCheckInAction(
     }
     return res;
   } catch (err) {
+    // The order EXISTS — that half succeeded — so the code stays in the message
+    // whatever went wrong afterwards. Only the cause is withheld.
+    console.error(`[door] walk-in check-in failed (event=${eventId}, order=${orderCode})`, err);
     return {
       ok: false,
-      reason: `Registered as ${orderCode}, but check-in failed: ${(err as Error).message}. Find them by name to retry.`,
+      reason: `Registered as ${orderCode}, but check-in failed. Find them by name to retry.`,
     };
   }
 }
