@@ -1,5 +1,6 @@
 import Link from "next/link";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import { centsToPrice } from "@/lib/pretix/mappers";
 
 export function MobileCtaBar({
@@ -22,9 +23,19 @@ export function MobileCtaBar({
             ? "Free"
             : `From $${centsToPrice(fromCents)}`}
       </div>
-      <Link href={`/${locale}/events/${slug}/register`}>
-        <Button disabled={soldOut}>{soldOut ? "Sold out" : "Register"}</Button>
-      </Link>
+      {/* No link when there is nothing to sell: a disabled button inside a
+          <Link> leaves the anchor focusable and Enter still navigates, which
+          walked sold-out attendees into the registration wizard. */}
+      {soldOut ? (
+        <Button disabled>Sold out</Button>
+      ) : (
+        <Link
+          href={`/${locale}/events/${slug}/register`}
+          className={cn(buttonVariants())}
+        >
+          Register
+        </Link>
+      )}
     </div>
   );
 }
