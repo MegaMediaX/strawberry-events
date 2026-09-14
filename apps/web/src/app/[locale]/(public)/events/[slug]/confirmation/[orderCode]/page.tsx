@@ -36,8 +36,6 @@ export default async function ConfirmationPage({
 
   return (
     <AttendeeStateView
-      locale={locale}
-      eventSlug={slug}
       order={toAttendeeView(order, { revealSecret: false, schedule })}
       ticketRecovery={<ResendTicketLink slug={slug} orderCode={orderCode} />}
     />

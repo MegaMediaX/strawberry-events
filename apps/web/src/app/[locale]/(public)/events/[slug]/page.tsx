@@ -31,6 +31,7 @@ export async function generateMetadata({
     event: data.event,
     dateFrom: data.dateFrom,
     dateTo: data.dateTo,
+    locale,
     path: `/${locale}/events/${slug}`,
   });
 }

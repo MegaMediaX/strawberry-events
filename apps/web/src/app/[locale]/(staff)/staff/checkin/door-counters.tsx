@@ -15,6 +15,12 @@ const POLL_MS = 30_000;
  * It is a client component so it can poll, seeded from the server render so
  * the first paint carries the real number rather than a dash.
  *
+ * The seed is only ever an INITIAL value — React keeps the state it has — so
+ * the page gives this a key per lane. Switching check-in day is a client
+ * navigation that keeps the panel mounted, and without the key a new day's
+ * server figure was ignored: the previous day's count stayed on screen, and
+ * `bumpDoorCount` incremented that wrong number.
+ *
  * Two things move it: a poll, and the panel itself, which bumps it on each
  * admission (see `bumpDoorCount`) so the number responds immediately rather
  * than up to thirty seconds later.
@@ -40,6 +46,10 @@ export function DoorCounters({
       if (!cancelled && next) setCounters(next);
     };
 
+    // Immediately, not only every 30s: the server figure this was seeded with
+    // is as old as the page, and a lane that has been open a while is looking
+    // at it until the first tick.
+    void run();
     const id = setInterval(() => void run(), POLL_MS);
     const onBump = () => setCounters((c) => ({ ...c, checkedIn: c.checkedIn + 1 }));
     window.addEventListener(BUMP_EVENT, onBump);

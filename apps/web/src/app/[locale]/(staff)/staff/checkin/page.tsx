@@ -127,7 +127,15 @@ export default async function CheckinPage({
       <p className="mt-1 text-sm text-muted-foreground">
         {/* Server-rendered figure, then kept live by the client: this used to
             be frozen at whatever it was when the page loaded. */}
-        <DoorCounters eventId={mapping.id} listId={listId} initial={counters} />
+        {/* Keyed per lane: the seed below is an initial value, and a day
+            switch keeps this component mounted, so without a key the new
+            day's figure would be ignored in favour of the old one. */}
+        <DoorCounters
+          key={`${mapping.id}:${listId}`}
+          eventId={mapping.id}
+          listId={listId}
+          initial={counters}
+        />
         {listId ? "" : " · no check-in list configured in pretix"}
       </p>
       {/* Name the active list. The day is chosen automatically, so this is the

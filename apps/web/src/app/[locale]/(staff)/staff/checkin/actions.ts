@@ -67,7 +67,10 @@ export interface AttendeeRow {
 
 export type SearchResult =
   | { ok: true; rows: AttendeeRow[] }
-  | { ok: false; authExpired: true };
+  /** No session behind the call — see NOT_AUTHENTICATED. */
+  | { ok: false; authExpired: true }
+  /** The query itself failed. Distinct from "nobody matched": see below. */
+  | { ok: false; failed: true };
 
 export async function searchAction(
   eventId: string,
@@ -78,10 +81,11 @@ export async function searchAction(
   // and no way back, in the primary find-by-name flow. An empty list is a far
   // better failure than a permanently spinning one.
   //
-  // An expired session is NOT an empty list, though. Reported as one, it reads
-  // as "this person never registered" — and the door's answer to that is the
-  // walk-in form, so a lapsed shift session would end in a second registration
-  // for someone who already has one.
+  // Neither an expired session NOR a failed query is an empty list, though.
+  // Reported as one, either reads as "this person never registered" — and the
+  // door's answer to that is the walk-in form, so a lapsed session or a
+  // refused query would end in a second registration for someone who already
+  // has one.
   try {
     const session = await getSessionContext();
     if (!session) return { ok: false, authExpired: true };
@@ -102,8 +106,9 @@ export async function searchAction(
       }),
     };
   } catch (err) {
+    // A ForbiddenError or a database failure, not an absence of matches.
     console.error(`[door] searchAttendees failed (event=${eventId})`, err);
-    return { ok: true, rows: [] };
+    return { ok: false, failed: true };
   }
 }
 

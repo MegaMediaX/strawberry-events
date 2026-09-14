@@ -8,7 +8,9 @@ const twitterCard = (meta: ReturnType<typeof eventMetadata>) =>
 
 const event: ShareableEvent = {
   titleEn: "Strawberry Summit",
+  titleAr: "قمة الفراولة",
   descriptionEn: "Three days of talks and workshops for the region's product teams.",
+  descriptionAr: "ثلاثة أيام من الجلسات وورش العمل.",
   coverImagePath: "evt123-abc.jpg",
   venueName: "Le Royal Hotel Beirut",
 };
@@ -34,11 +36,42 @@ describe("shareDescription", () => {
   it("still says something when the event has no blurb and no dates", () => {
     const bare: ShareableEvent = {
       titleEn: "Untitled",
+      titleAr: null,
       descriptionEn: null,
+      descriptionAr: null,
       coverImagePath: null,
       venueName: null,
     };
     expect(shareDescription(bare, null, null)).toBe("Register for this event.");
+  });
+});
+
+describe("the preview follows the locale, like every other surface", () => {
+  // This module took titleAr and rendered titleEn — the exact bug the rest of
+  // the change set fixed in the event card and the register page. Arabic is
+  // retired today, so this is dormant; a branch kept for its return has to
+  // work on the day it returns.
+  it("uses the Arabic title and blurb when asked for Arabic", () => {
+    const meta = eventMetadata({
+      event,
+      dateFrom: FROM,
+      dateTo: TO,
+      path: "/ar/events/strawberry-summit",
+      locale: "ar",
+    });
+    expect(meta.title).toBe("قمة الفراولة");
+    expect(meta.description).toContain("ثلاثة أيام");
+  });
+
+  it("falls back to English when the Arabic was never written", () => {
+    const meta = eventMetadata({
+      event: { ...event, titleAr: null, descriptionAr: null },
+      dateFrom: FROM,
+      dateTo: TO,
+      path: "/ar/events/strawberry-summit",
+      locale: "ar",
+    });
+    expect(meta.title).toBe("Strawberry Summit");
   });
 });
 

@@ -16,9 +16,31 @@ import { eventMetaLine } from "@/lib/events/format";
  */
 export interface ShareableEvent {
   titleEn: string;
+  titleAr: string | null;
   descriptionEn: string | null;
+  descriptionAr: string | null;
   coverImagePath: string | null;
   venueName: string | null;
+}
+
+/**
+ * The same dormant-but-correct locale rule the rest of the flow follows.
+ *
+ * Written down here because this module reintroduced exactly the bug the rest
+ * of this change set fixed: taking titleAr and then rendering titleEn. Arabic
+ * is retired today (lib/i18n/dir.ts), so this changes nothing — but a branch
+ * kept for the day it returns has to work on that day.
+ */
+function localized(en: string, ar: string | null, locale: string): string {
+  return locale === "ar" && ar ? ar : en;
+}
+
+function localizedOrNull(
+  en: string | null,
+  ar: string | null,
+  locale: string,
+): string | null {
+  return (locale === "ar" && ar ? ar : en) || null;
 }
 
 /** How much of the blurb a link preview will actually render. */
@@ -29,9 +51,13 @@ export function shareDescription(
   event: ShareableEvent,
   dateFrom: string | Date | null,
   dateTo: string | Date | null,
+  locale = "en",
 ): string {
   const when = eventMetaLine(dateFrom, dateTo, event.venueName);
-  const blurb = event.descriptionEn?.replace(/\s+/g, " ").trim() ?? "";
+  const blurb =
+    localizedOrNull(event.descriptionEn, event.descriptionAr, locale)
+      ?.replace(/\s+/g, " ")
+      .trim() ?? "";
   const room = DESCRIPTION_BUDGET - (when ? when.length + 3 : 0);
   let cut = blurb;
   if (room <= 0) {
@@ -48,8 +74,10 @@ export function eventMetadata({
   dateFrom,
   dateTo,
   path,
+  locale = "en",
   titlePrefix = "",
 }: {
+  locale?: string;
   event: ShareableEvent;
   dateFrom: string | Date | null;
   dateTo: string | Date | null;
@@ -58,8 +86,9 @@ export function eventMetadata({
   /** "Register · " on the registration route, so the two pages read apart. */
   titlePrefix?: string;
 }): Metadata {
-  const title = `${titlePrefix}${event.titleEn}`;
-  const description = shareDescription(event, dateFrom, dateTo);
+  const eventTitle = localized(event.titleEn, event.titleAr, locale);
+  const title = `${titlePrefix}${eventTitle}`;
+  const description = shareDescription(event, dateFrom, dateTo, locale);
   const image = event.coverImagePath ? coverImageUrl(event.coverImagePath) : null;
 
   return {
@@ -72,7 +101,7 @@ export function eventMetadata({
       description,
       url: path,
       siteName: "Strawberry Agency Events",
-      ...(image ? { images: [{ url: image, alt: event.titleEn }] } : {}),
+      ...(image ? { images: [{ url: image, alt: eventTitle }] } : {}),
     },
     twitter: {
       card: image ? "summary_large_image" : "summary",

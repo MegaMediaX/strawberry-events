@@ -43,8 +43,6 @@ export default async function GuestTicketPage({
         alreadyMine={Boolean(session && order.userId === session.userId)}
       />
       <AttendeeStateView
-        locale={locale}
-        eventSlug={order.eventMapping.pretixEventSlug}
         order={toAttendeeView(order, { revealSecret: true, schedule })}
         canRevealTicket
       />

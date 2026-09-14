@@ -41,8 +41,6 @@ export default async function PaymentPendingPage({
 
   return (
     <AttendeeStateView
-      locale={locale}
-      eventSlug={slug}
       order={toAttendeeView(order, { revealSecret: false, schedule })}
     />
   );

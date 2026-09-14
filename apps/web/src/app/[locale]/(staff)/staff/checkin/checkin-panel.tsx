@@ -118,6 +118,8 @@ export function CheckinPanel({
    */
   const [rowsQuery, setRowsQuery] = useState("");
   const [searching, setSearching] = useState(false);
+  /** The last search failed, as opposed to finding nobody. */
+  const [searchFailed, setSearchFailed] = useState(false);
   const [pending, start] = useTransition();
   const [result, setResult] = useState<DoorResult | null>(null);
   const [badge, setBadge] = useState<BadgeData | null>(null);
@@ -464,6 +466,7 @@ export function CheckinPanel({
       if (!query || looksScannable(query)) {
         setRows([]);
         setRowsQuery(query);
+        setSearchFailed(false);
         setSearching(false);
         return;
       }
@@ -473,16 +476,26 @@ export function CheckinPanel({
         // A slow response for an older query must not overwrite a newer one.
         if (cancelled) return;
         if (!found.ok) {
-          // Not "nobody matches": the door has no session. Left as an empty
-          // list, this offered to register a walk-in for someone who is
-          // already registered.
+          // Neither case is "nobody matches". Both used to land as an empty
+          // list, which is how the door came to offer a walk-in form for
+          // someone who is already registered — see showContextualWalkIn,
+          // which is gated on these results too.
           setRows([]);
           setRowsQuery(query);
-          showSessionEnded();
+          setSearchFailed(true);
+          if ("authExpired" in found) showSessionEnded();
+          else {
+            setResult({
+              kind: "err",
+              name: "Search failed",
+              detail: "Could not search just now — try again, or scan their ticket.",
+            });
+          }
           return;
         }
         setRows(found.rows);
         setRowsQuery(query);
+        setSearchFailed(false);
       } finally {
         // finally, not the happy path: without this any transient failure
         // leaves "Searching…" on screen forever, with no error and no recovery.
@@ -642,8 +655,18 @@ export function CheckinPanel({
    * one moment they both applied — and the persistent one is meant to be the
    * quiet fallback, not a second shout.
    */
+  /**
+   * The list is empty for a reason the operator can act on.
+   *
+   * An expired session and a failed query BOTH empty `rows`, and an empty list
+   * is what turns on the "no one matches — register them" prompt. Offering the
+   * walk-in form then is the duplicate-registration path this screen exists to
+   * avoid: the person is registered, we simply could not look them up.
+   */
+  const searchUsable = result?.kind !== "auth" && !searchFailed;
+
   const showContextualWalkIn =
-    !walkIn && Boolean(q.trim()) && !searching && rows.length === 0;
+    !walkIn && Boolean(q.trim()) && !searching && rows.length === 0 && searchUsable;
 
   /**
    * Enter in the search box, which is also where a wedge scanner's payload
@@ -997,7 +1020,10 @@ export function CheckinPanel({
                   captureReturnFocus();
                   setWalkIn(true);
                 }}
-                disabled={busy}
+                // Same reasoning as showContextualWalkIn: nothing should invite
+                // a registration while the door cannot check whether one
+                // already exists.
+                disabled={busy || !searchUsable}
                 className="mt-3 min-h-12 w-full rounded-lg border border-dashed border-border px-5 text-[15px] font-semibold text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-50"
               >
                 + Register a walk-in

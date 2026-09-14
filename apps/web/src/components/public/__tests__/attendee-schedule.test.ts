@@ -48,28 +48,30 @@ describe("the ticket says when the event is", () => {
     expect(html).toContain("28—30 Aug 2026");
   });
 
-  it("offers to put it in a calendar", () => {
+  it("offers to put it in a calendar, without depending on a public route", () => {
+    // Deliberately NOT the /events/[slug]/calendar.ics route: that resolves
+    // through getPublicEvent, which only answers for a public, live event — so
+    // a staff walk-in's ticket, or one for an event taken down after it ran,
+    // got a dead button. The .ics is built in the browser instead.
     const html = render({
-      locale: "en",
-      eventSlug: "summit",
       order: {
         ...base,
         schedule: { from: "2026-08-28T09:30:00.000Z", to: null },
       },
     });
-    expect(html).toContain("/en/events/summit/calendar.ics");
+    expect(html).not.toContain("calendar.ics");
     expect(html).toContain("Google Calendar");
+    expect(html).toContain("Apple Calendar");
   });
 
   it("shows nothing rather than inventing a date when the event has no schedule", () => {
     const html = render({ order: base });
     expect(html).not.toContain(">When<");
-    expect(html).not.toContain("calendar.ics");
+    expect(html).not.toContain("Google Calendar");
   });
 
   it("drops the date block for a registration that is over", () => {
     const html = render({
-      eventSlug: "summit",
       order: {
         ...base,
         status: "canceled",
@@ -77,6 +79,6 @@ describe("the ticket says when the event is", () => {
       },
     });
     expect(html).toContain("Registration canceled");
-    expect(html).not.toContain("calendar.ics");
+    expect(html).not.toContain("Google Calendar");
   });
 });

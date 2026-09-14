@@ -59,23 +59,10 @@ interface AttendeeStateViewProps {
    * the route so this component stays route-agnostic.
    */
   ticketRecovery?: ReactNode;
-  /** Used for the .ics link; defaults to English like the rest of the flow. */
-  locale?: string;
-  /**
-   * Public event slug, for the calendar link.
-   *
-   * Injected by the route rather than carried on `order`: the projection in
-   * lib/registration/attendee-view is deliberately the smallest shape that
-   * crosses to the client, and its own test asserts that event columns the
-   * view does not need are dropped. A link target is route knowledge.
-   */
-  eventSlug?: string;
 }
 
 export function AttendeeStateView({
   order,
-  locale = "en",
-  eventSlug,
   canRevealTicket = false,
   ticketRecovery,
 }: AttendeeStateViewProps) {
@@ -149,7 +136,14 @@ export function AttendeeStateView({
           <div className="mt-8 border-t border-border pt-4 text-sm">
             <div className="font-medium">When</div>
             <p className="mt-1 text-muted-foreground tabular-nums">{whenLine}</p>
-            {order.schedule && eventSlug && (
+            {/* No icsHref on purpose. That route resolves through
+                getPublicEvent, which only answers for visibility=public AND
+                liveOnPretix — so a staff walk-in's ticket, or any ticket for
+                an event taken down after it ran, got a dead Apple-Calendar
+                button beside a working Google one. Without it the component
+                builds the .ics in the browser from the same data, which needs
+                no route and no visibility. */}
+            {order.schedule && (
               <AddToCalendar
                 event={{
                   title: order.eventMapping.titleEn,
@@ -158,7 +152,6 @@ export function AttendeeStateView({
                   location: locationLine(order.eventMapping) || null,
                   description: null,
                 }}
-                icsHref={`/${locale}/events/${eventSlug}/calendar.ics`}
               />
             )}
           </div>
