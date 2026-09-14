@@ -17,6 +17,7 @@ import { isValidEmail } from "@/lib/registration/email";
 import {
   clearDraft,
   draftHasContent,
+  draftKey,
   loadDraft,
   saveDraft,
   type RegistrationDraft,
@@ -130,6 +131,39 @@ function listSentence(items: string[]): string {
   return `${items.slice(0, -1).join(", ")} and ${items[items.length - 1]}`;
 }
 
+/**
+ * The blank attendee, named once.
+ *
+ * Three places reset to it — the initial state, "Start over", and arriving at
+ * a different event — and a field present in one literal and missing from
+ * another is how one registration's details leak into the next.
+ */
+interface Attendee {
+  firstName: string;
+  lastName: string;
+  email: string;
+  phoneCC: string;
+  phone: string;
+  company: string;
+  attendeeType: string;
+  /** The dropdown selection, which may be the "Other" sentinel. */
+  jobTitle: string;
+  /** The text typed behind "Other". Only the resolved value is submitted. */
+  jobTitleOther: string;
+}
+
+const EMPTY_ATTENDEE: Attendee = {
+  firstName: "",
+  lastName: "",
+  email: "",
+  phoneCC: "+961",
+  phone: "",
+  company: "",
+  attendeeType: "",
+  jobTitle: "",
+  jobTitleOther: "",
+};
+
 const CONFIRM_STEP_NO_SUB = 2;
 const CONFIRM_STEP_WITH_SUB = 3;
 const SESSIONS_STEP = 2;
@@ -223,19 +257,7 @@ export function RegistrationWizard({
       : {};
   }
 
-  const [a, setA] = useState({
-    firstName: "",
-    lastName: "",
-    email: "",
-    phoneCC: "+961",
-    phone: "",
-    company: "",
-    attendeeType: "",
-    // The dropdown selection (may be the "Other" sentinel) and the text typed
-    // behind it. Only the resolved value is ever submitted.
-    jobTitle: "",
-    jobTitleOther: "",
-  });
+  const [a, setA] = useState<Attendee>(() => ({ ...EMPTY_ATTENDEE }));
   const [qty, setQty] = useState<Record<number, number>>({});
   const [subEventSelection, setSubEventSelection] = useState<SubEventSelection[]>([]);
   // Categories the attendee opted into (e.g. "Workshops"). Gated categories stay
@@ -246,36 +268,54 @@ export function RegistrationWizard({
   // The organiser's data-protection consent, worded by them and shown verbatim.
   const [dataUse, setDataUse] = useState(false);
   const [answers, setAnswers] = useState<Record<string, string>>({});
-  // Set once a restored draft has been put back, so the save effect below does
-  // not write the empty initial state over it on first render.
-  const [restored, setRestored] = useState(false);
+  /**
+   * Which event's draft the form state belongs to.
+   *
+   * Not a boolean: moving between two events' registration pages is a client
+   * navigation that can reuse this component, and with a flag an event with no
+   * saved draft kept the PREVIOUS event's name, email and phone on screen —
+   * and the save effect then wrote them under the new event's key.
+   */
+  const [restoredFor, setRestoredFor] = useState<string | null>(null);
   const [restoredNotice, setRestoredNotice] = useState(false);
 
   useEffect(() => {
     const draft = loadDraft(slug);
-    if (draft && draftHasContent(draft)) {
+    const restorable = draft && draftHasContent(draft) ? draft : null;
+    {
       /* eslint-disable react-hooks/set-state-in-effect --
          The draft lives in sessionStorage, which does not exist during SSR.
          Seeding these with a lazy initializer would make the server render the
          empty form and the client render the restored one, which is a
          hydration mismatch; restoring after mount is the correct shape here.
          Same reasoning as the Toaster's subscribe-and-sync effect. */
-      setA(draft.attendee);
-      setQty(draft.quantities);
-      setOptedIn(draft.optedIn);
-      setSubEventSelection(draft.subEvents);
-      setAnswers(draft.answers);
+      // Unconditional, including the no-draft case: arriving at a DIFFERENT
+      // event must clear the previous one's details rather than inherit them.
+      setA(restorable ? restorable.attendee : EMPTY_ATTENDEE);
+      setQty(restorable?.quantities ?? {});
+      setOptedIn(restorable?.optedIn ?? []);
+      setSubEventSelection(restorable?.subEvents ?? []);
+      setAnswers(restorable?.answers ?? {});
+      setSeatIds([]);
+      // Consents are never restored — see lib/registration/draft.ts — and are
+      // cleared with everything else when the event changes: they are an act
+      // performed for one event, not a setting that travels.
+      setTerms(false);
+      setPrivacy(false);
+      setDataUse(false);
+      setStep(0);
       // Said out loud: fields that fill themselves in with no explanation read
       // as someone else's session, not as your own work coming back.
-      setRestoredNotice(true);
+      setRestoredNotice(Boolean(restorable));
       /* eslint-enable react-hooks/set-state-in-effect */
     }
-    setRestored(true);
-    // Consents are never restored — see lib/registration/draft.ts.
+    setRestoredFor(draftKey(slug));
   }, [slug]);
 
   useEffect(() => {
-    if (!restored) return;
+    // Skipped on the render where the event has changed but its restore has
+    // not landed — the render whose state still belongs to the event before.
+    if (restoredFor !== draftKey(slug)) return;
     const draft: RegistrationDraft = {
       attendee: a,
       quantities: qty,
@@ -284,7 +324,7 @@ export function RegistrationWizard({
       answers,
     };
     if (draftHasContent(draft)) saveDraft(slug, draft);
-  }, [restored, slug, a, qty, optedIn, subEventSelection, answers]);
+  }, [restoredFor, slug, a, qty, optedIn, subEventSelection, answers]);
 
   // Custom fields that apply to the currently-selected tickets (deduped).
   const scopedFields = (() => {
@@ -358,6 +398,16 @@ export function RegistrationWizard({
   const canAddMainTicket = !mainCapReached && !totalCapReached;
   /** One main ticket per person: a choice among tiers, not a set of counters. */
   const singleChoice = ticketsPerUserMain === 1;
+  /**
+   * Whether a single choice can be made at all.
+   *
+   * Switching tier frees the one being replaced, so the per-person MAIN cap can
+   * never block it — but the overall cap counts sessions too, and those are
+   * chosen on a later step the attendee can come Back from. Dropping this when
+   * the toggles became radios let a selection exceed ticketsPerUserTotal with
+   * nothing on screen saying so until the server refused the order.
+   */
+  const singleChoiceBlocked = singleChoice && 1 + subQty > ticketsPerUserTotal;
   const seatsRequired = !!seatSections && seatSections.length > 0;
   const seatsSatisfied = !seatsRequired || seatIds.length === totalQty;
 
@@ -536,21 +586,12 @@ export function RegistrationWizard({
                       className="font-semibold text-primary underline-offset-4 hover:underline"
                       onClick={() => {
                         clearDraft(slug);
-                        setA({
-                          firstName: "",
-                          lastName: "",
-                          email: "",
-                          phoneCC: "+961",
-                          phone: "",
-                          company: "",
-                          attendeeType: "",
-                          jobTitle: "",
-                          jobTitleOther: "",
-                        });
+                        setA({ ...EMPTY_ATTENDEE });
                         setQty({});
                         setOptedIn([]);
                         setSubEventSelection([]);
                         setAnswers({});
+                        setSeatIds([]);
                         setRestoredNotice(false);
                       }}
                     >
@@ -772,11 +813,14 @@ export function RegistrationWizard({
                         role="radio"
                         aria-checked={(qty[t.id] ?? 0) > 0}
                         aria-label={t.title}
+                        // Only ever blocked by the TOTAL cap, and only for a
+                        // tier that is not the current choice: giving one up
+                        // always leaves room for another.
+                        disabled={singleChoiceBlocked && (qty[t.id] ?? 0) === 0}
                         onClick={() => {
-                          // Choosing replaces whatever was chosen before; the
-                          // cap is satisfied by construction, so no ticket is
-                          // ever disabled and no explanation is needed.
                           const on = (qty[t.id] ?? 0) > 0;
+                          if (!on && singleChoiceBlocked) return;
+                          // Choosing replaces whatever was chosen before.
                           setQty(on ? {} : { [t.id]: 1 });
                         }}
                         className={[
@@ -833,10 +877,15 @@ export function RegistrationWizard({
                   </div>
                 ))}
                 </div>
-                {!singleChoice && (mainCapReached || totalCapReached) && (
+                {/* The radio version has its own condition rather than no
+                    message at all: a tier that cannot be chosen needs the same
+                    explanation as a "+" that cannot be pressed. */}
+                {(singleChoice
+                  ? singleChoiceBlocked
+                  : mainCapReached || totalCapReached) && (
                   <p className="text-sm text-muted-foreground">
-                    {totalCapReached && !mainCapReached
-                      ? `You can register for up to ${ticketsPerUserTotal} item(s) in total.`
+                    {singleChoice || (totalCapReached && !mainCapReached)
+                      ? `You can register for up to ${ticketsPerUserTotal} item(s) in total — remove a session to change your ticket.`
                       : `You can register for up to ${ticketsPerUserMain} ticket(s) per person.`}
                   </p>
                 )}
@@ -873,6 +922,7 @@ export function RegistrationWizard({
                         rather than letting the mismatch surface on Next. */}
                     <SeatSelector
                       sections={seatSections}
+                      value={seatIds}
                       onChange={setSeatIds}
                       required={totalQty}
                     />

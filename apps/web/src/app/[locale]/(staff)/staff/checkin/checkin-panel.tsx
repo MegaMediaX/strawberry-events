@@ -17,6 +17,7 @@ import { ResultBanner, type DoorResult } from "./result-banner";
 import { bumpDoorCount } from "./door-counters";
 import {
   loadRecent,
+  recentKey,
   saveRecent,
   type RecentEntry,
 } from "@/lib/checkin/recent-store";
@@ -122,9 +123,17 @@ export function CheckinPanel({
   const [badge, setBadge] = useState<BadgeData | null>(null);
   const [browserFallback, setBrowserFallback] = useState(false);
   const [recent, setRecent] = useState<RecentEntry[]>([]);
-  // Set once the stored list has been put back, so the save effect below does
-  // not write an empty list over it on first render.
-  const [recentRestored, setRecentRestored] = useState(false);
+  /**
+   * Which lane the list in state belongs to.
+   *
+   * Not a boolean. The day switcher is a CLIENT navigation that deliberately
+   * keeps this panel mounted, so `listId` changes under a live component: with
+   * a flag, switching to a day with no stored history left the previous day's
+   * entries in state — and the save effect then wrote them under the new day's
+   * key, showing one lane's attendees with live Fix and Reprint buttons on
+   * another. Comparing keys makes the save wait for its own restore.
+   */
+  const [recentRestoredFor, setRecentRestoredFor] = useState<string | null>(null);
   const [confirmReprint, setConfirmReprint] = useState<
     { orderCode: string; fullName: string } | null
   >(null);
@@ -218,6 +227,20 @@ export function CheckinPanel({
 
   /* -------------------------------------------------------------- corrections */
 
+  /** The session-ended banner, from wherever the expiry was noticed. */
+  const showSessionEnded = useCallback(
+    (detail?: string) => {
+      setConfirmReprint(null);
+      setResult({
+        kind: "auth",
+        detail: detail ?? "Your session has ended.",
+        signInHref,
+      });
+    },
+    [signInHref],
+  );
+
+
   const openEdit = useCallback(
     (orderCode: string) => {
       if (openingEditRef.current) return;
@@ -227,6 +250,7 @@ export function CheckinPanel({
       void attendeeForEditAction(eventId, orderCode)
         .then((res) => {
           if (res.ok) setEditing(res.attendee);
+          else if (res.authExpired) showSessionEnded(res.reason);
           else setResult({ kind: "err", name: orderCode, detail: res.reason });
         })
         // The action catches its own errors, but the CALL still rejects if the
@@ -243,7 +267,7 @@ export function CheckinPanel({
           setOpeningEdit(false);
         });
     },
-    [eventId],
+    [eventId, showSessionEnded],
   );
 
   /* ----------------------------------------------------------------- results */
@@ -256,12 +280,7 @@ export function CheckinPanel({
       // attendee had been turned away — once per person, for the rest of the
       // queue, with no way back to a sign-in.
       if (res.authExpired) {
-        setConfirmReprint(null);
-        setResult({
-          kind: "auth",
-          detail: res.reason ?? "Your session has ended.",
-          signInHref,
-        });
+        showSessionEnded(res.reason);
         return;
       }
 
@@ -358,7 +377,7 @@ export function CheckinPanel({
         detail: res.reason ?? "Check-in failed — try search, or use the help desk",
       });
     },
-    [remember, thermalPrint, signInHref],
+    [remember, thermalPrint, showSessionEnded],
   );
 
   /* ----------------------------------------------------------------- actions */
@@ -452,10 +471,18 @@ export function CheckinPanel({
       try {
         const found = await searchAction(eventId, query);
         // A slow response for an older query must not overwrite a newer one.
-        if (!cancelled) {
-          setRows(found);
+        if (cancelled) return;
+        if (!found.ok) {
+          // Not "nobody matches": the door has no session. Left as an empty
+          // list, this offered to register a walk-in for someone who is
+          // already registered.
+          setRows([]);
           setRowsQuery(query);
+          showSessionEnded();
+          return;
         }
+        setRows(found.rows);
+        setRowsQuery(query);
       } finally {
         // finally, not the happy path: without this any transient failure
         // leaves "Searching…" on screen forever, with no error and no recovery.
@@ -467,7 +494,7 @@ export function CheckinPanel({
       cancelled = true;
       clearTimeout(id);
     };
-  }, [q, eventId, walkIn]);
+  }, [q, eventId, walkIn, showSessionEnded]);
 
   /* ------------------------------------------- confirm dialog focus */
 
@@ -509,24 +536,28 @@ export function CheckinPanel({
 
   useEffect(() => {
     const stored = loadRecent(eventId, listId);
-    if (stored.length) {
-      /* eslint-disable-next-line react-hooks/set-state-in-effect --
-         sessionStorage does not exist during SSR, so seeding this with a lazy
-         initializer would make the server render an empty list and the client
-         a full one — a hydration mismatch. Restoring after mount is the
-         correct shape, as it is for the registration draft. */
-      setRecent(stored);
-      // Keep the id counter ahead of what was restored, or the next admission
-      // reuses an id and React keys two different rows the same.
-      recentId.current = Math.max(...stored.map((r) => r.id));
-    }
-    setRecentRestored(true);
+    /* eslint-disable react-hooks/set-state-in-effect --
+       sessionStorage does not exist during SSR, so seeding this with a lazy
+       initializer would make the server render an empty list and the client a
+       full one — a hydration mismatch. Restoring after mount is the correct
+       shape, as it is for the registration draft. */
+    // Unconditional, including the empty case: a lane with no history must
+    // CLEAR what is on screen, not inherit the previous lane's.
+    setRecent(stored);
+    // Keep the id counter ahead of what was restored, or the next admission
+    // reuses an id and React keys two different rows the same.
+    recentId.current = stored.length ? Math.max(...stored.map((r) => r.id)) : 0;
+    setRecentRestoredFor(recentKey(eventId, listId));
+    /* eslint-enable react-hooks/set-state-in-effect */
   }, [eventId, listId]);
 
   useEffect(() => {
-    if (!recentRestored) return;
+    // Skipped on the render where the lane has changed but its restore has not
+    // landed yet — that is the render whose `recent` still belongs to the lane
+    // before it.
+    if (recentRestoredFor !== recentKey(eventId, listId)) return;
     saveRecent(eventId, listId, recent);
-  }, [recentRestored, eventId, listId, recent]);
+  }, [recentRestoredFor, eventId, listId, recent]);
 
   /* --------------------------------------------------- success auto-clear */
 

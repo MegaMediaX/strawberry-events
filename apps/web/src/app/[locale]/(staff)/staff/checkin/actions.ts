@@ -9,6 +9,7 @@ import { checkinCounters } from "@/lib/pretix/checkin";
 import { createWalkIn } from "@/lib/staff/walkin";
 import { resolveRoleLabel, type BadgeTagValue } from "@/lib/badges/tags";
 import {
+  assertCanCheckin,
   searchAttendees,
   checkInOrder,
   checkInBySecret,
@@ -64,31 +65,45 @@ export interface AttendeeRow {
   ineligibleReason?: string;
 }
 
+export type SearchResult =
+  | { ok: true; rows: AttendeeRow[] }
+  | { ok: false; authExpired: true };
+
 export async function searchAction(
   eventId: string,
   query: string,
-): Promise<AttendeeRow[]> {
+): Promise<SearchResult> {
   // Never throws. The door renders a "Searching…" indicator while this is in
   // flight; a rejected promise leaves that indicator up forever with no error
   // and no way back, in the primary find-by-name flow. An empty list is a far
   // better failure than a permanently spinning one.
+  //
+  // An expired session is NOT an empty list, though. Reported as one, it reads
+  // as "this person never registered" — and the door's answer to that is the
+  // walk-in form, so a lapsed shift session would end in a second registration
+  // for someone who already has one.
   try {
     const session = await getSessionContext();
-    if (!session || !query.trim()) return [];
+    if (!session) return { ok: false, authExpired: true };
+    if (!query.trim()) return { ok: true, rows: [] };
     const rows = await searchAttendees(session, eventId, query.trim());
-    return rows.map((r) => {
-      const eligibility = checkinEligibility(r);
-      return {
-        orderCode: r.orderCode,
-        email: r.email,
-        name: r.attendeeName,
-        phone: r.phone,
-        eligible: eligibility.ok,
-        ineligibleReason: eligibility.reason,
-      };
-    });
-  } catch {
-    return [];
+    return {
+      ok: true,
+      rows: rows.map((r) => {
+        const eligibility = checkinEligibility(r);
+        return {
+          orderCode: r.orderCode,
+          email: r.email,
+          name: r.attendeeName,
+          phone: r.phone,
+          eligible: eligibility.ok,
+          ineligibleReason: eligibility.reason,
+        };
+      }),
+    };
+  } catch (err) {
+    console.error(`[door] searchAttendees failed (event=${eventId})`, err);
+    return { ok: true, rows: [] };
   }
 }
 
@@ -182,10 +197,18 @@ export async function correctAttendeeAction(
 export async function attendeeForEditAction(
   eventId: string,
   orderCode: string,
-): Promise<{ ok: true; attendee: AttendeeForEdit } | { ok: false; reason: string }> {
+): Promise<
+  | { ok: true; attendee: AttendeeForEdit }
+  | { ok: false; reason: string; authExpired?: true }
+> {
   try {
     const session = await getSessionContext();
-    if (!session) return { ok: false, reason: NOT_AUTHENTICATED.reason! };
+    // Carries the flag, not just the words: without it the panel routed this
+    // one path to the red STOP banner — the exact failure the rest of this
+    // change removes.
+    if (!session) {
+      return { ok: false, reason: NOT_AUTHENTICATED.reason!, authExpired: true };
+    }
     return { ok: true, attendee: await getAttendeeForEdit(session, eventId, orderCode) };
   } catch (err) {
     console.error(`[door] getAttendeeForEdit failed (event=${eventId}, order=${orderCode})`, err);
@@ -313,6 +336,12 @@ export async function counterAction(
   try {
     const session = await getSessionContext();
     if (!session || !listId) return null;
+    // Event access alone is what every org-scoped member has — finance
+    // included. Check-in counts are door data, so they take the door's own
+    // authorization, the same assertion the service applies to every other
+    // operation on this screen. It throws, and the catch below turns that into
+    // "no figure available" rather than a broken header.
+    assertCanCheckin(session);
     const mapping = await getEventForSession(session, eventId);
     if (!mapping) return null;
     const org = await prisma.organization.findUniqueOrThrow({

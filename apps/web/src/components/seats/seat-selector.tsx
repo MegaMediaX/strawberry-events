@@ -1,7 +1,5 @@
 "use client";
 
-import { useState } from "react";
-
 export interface SeatNode {
   id: string;
   label: string;
@@ -80,10 +78,20 @@ export function isSeatSelectable(state: string): boolean {
 
 export function SeatSelector({
   sections,
+  value,
   onChange,
   required = 0,
 }: {
   sections: SectionNode[];
+  /**
+   * The seats currently chosen, owned by the caller.
+   *
+   * Controlled on purpose. A second copy lived here, and this component
+   * unmounts whenever the wizard leaves the Tickets step — so coming Back from
+   * Confirm rendered an empty map and a "0 chosen" count over a selection the
+   * form still held and still validated against.
+   */
+  value: string[];
   onChange: (seatIds: string[]) => void;
   /**
    * How many seats this order needs — one per ticket. Zero means no ticket has
@@ -92,18 +100,15 @@ export function SeatSelector({
    */
   required?: number;
 }) {
-  const [selected, setSelected] = useState<string[]>([]);
-  const atCap = required > 0 && selected.length >= required;
+  const atCap = required > 0 && value.length >= required;
 
   function toggle(seat: SeatNode) {
     if (!isSeatSelectable(seat.state)) return;
-    const isSelected = selected.includes(seat.id);
+    const isSelected = value.includes(seat.id);
     if (!isSelected && atCap) return;
-    const next = isSelected
-      ? selected.filter((id) => id !== seat.id)
-      : [...selected, seat.id];
-    setSelected(next);
-    onChange(next);
+    onChange(
+      isSelected ? value.filter((id) => id !== seat.id) : [...value, seat.id],
+    );
   }
 
   return (
@@ -111,7 +116,7 @@ export function SeatSelector({
       <p className="text-sm font-medium" aria-live="polite">
         {required === 0
           ? "Choose your tickets first — then pick a seat for each one."
-          : `Select ${required} ${required === 1 ? "seat" : "seats"} — ${selected.length} chosen.`}
+          : `Select ${required} ${required === 1 ? "seat" : "seats"} — ${value.length} chosen.`}
       </p>
 
       {sections.map((sec) => (
@@ -129,7 +134,7 @@ export function SeatSelector({
                   </span>
                   {row.seats.map((seat) => {
                     const meta = stateOf(seat.state);
-                    const isSel = selected.includes(seat.id);
+                    const isSel = value.includes(seat.id);
                     const blockedByCap = !isSel && atCap && meta.selectable;
                     const disabled = !meta.selectable || blockedByCap;
                     return (

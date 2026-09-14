@@ -50,7 +50,16 @@ export interface CheckInResult {
   authExpired?: true;
 }
 
-function assertCanCheckin(session: SessionContext) {
+/**
+ * The authorization every door operation requires: a real (non-impersonated)
+ * session holding a check-in role.
+ *
+ * Exported because a server action that reads door data without calling into
+ * one of the functions below still has to apply it — `counterAction` polls the
+ * check-in counts and reached them through event access alone, which any
+ * org-scoped member has.
+ */
+export function assertCanCheckin(session: SessionContext) {
   if (session.impersonating) {
     throw new ForbiddenError("Cannot check in while impersonating");
   }

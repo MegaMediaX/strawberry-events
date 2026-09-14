@@ -22,9 +22,14 @@ const sections: SectionNode[] = [
   },
 ];
 
-const render = (required: number) =>
+const render = (required: number, value: string[] = []) =>
   renderToStaticMarkup(
-    <SeatSelector sections={sections} onChange={() => {}} required={required} />,
+    <SeatSelector
+      sections={sections}
+      value={value}
+      onChange={() => {}}
+      required={required}
+    />,
   );
 
 describe("every seat is named, not just coloured", () => {
@@ -66,6 +71,25 @@ describe("the map says how many seats the order needs", () => {
 
   it("points back to the tickets when none is chosen yet", () => {
     expect(render(0)).toContain("Choose your tickets first");
+  });
+});
+
+describe("the map shows the seats the form actually holds", () => {
+  // It kept its own copy, and it unmounts whenever the wizard leaves the
+  // Tickets step — so coming Back from Confirm drew an empty map and "0
+  // chosen" over a selection the form still held and still validated against.
+  it("renders a selection it was handed, with the count to match", () => {
+    const html = render(2, ["b1"]);
+    expect(html).toContain("Select 2 seats — 1 chosen.");
+    expect(html).toContain('aria-label="Row B seat 1, selected"');
+  });
+
+  it("stops offering more seats once the order is full", () => {
+    const html = render(1, ["b1"]);
+    // The chosen seat stays pressable (to give it up); the other free one does
+    // not, because taking it would exceed the ticket count.
+    expect(html).toContain('aria-label="Row B seat 1, selected"');
+    expect(html.match(/disabled=""/g)).toHaveLength(3);
   });
 });
 
