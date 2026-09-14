@@ -21,6 +21,9 @@ export async function joinWaitlistAction(
     const entry = await joinWaitlist(parsed.data.eventId, parsed.data.email, null);
     return { ok: true, position: entry.position };
   } catch (err) {
-    return { ok: false, error: (err as Error).message };
+    // Same rule as registerAction: log the real cause, show a sentence the
+    // person can act on rather than the driver's own words.
+    console.error(`[waitlist] join failed (event=${eventId}):`, err);
+    return { ok: false, error: "We couldn't add you to the waitlist. Please try again." };
   }
 }

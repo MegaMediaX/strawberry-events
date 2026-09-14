@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { setRequestLocale } from "next-intl/server";
 import { getPublicEvent } from "@/lib/events/public";
@@ -11,8 +12,27 @@ import { prisma } from "@/lib/db/client";
 import { verifyInvite } from "@/lib/tokens/invite";
 import type { SectionNode } from "@/components/seats/seat-selector";
 import type { SubEventItem } from "@/components/registration/sub-event-picker";
+import { eventMetadata } from "@/lib/events/metadata";
 
 export const dynamic = "force-dynamic";
+
+/** Shares of the registration link unfurl as the event, not as the platform. */
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ locale: string; slug: string }>;
+}): Promise<Metadata> {
+  const { locale, slug } = await params;
+  const data = await getPublicEvent(slug);
+  if (!data) return {};
+  return eventMetadata({
+    event: data.event,
+    dateFrom: data.dateFrom,
+    dateTo: data.dateTo,
+    path: `/${locale}/events/${slug}/register`,
+    titlePrefix: "Register · ",
+  });
+}
 
 export default async function RegisterPage({
   params,

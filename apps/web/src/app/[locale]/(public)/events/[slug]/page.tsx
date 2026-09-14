@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { setRequestLocale } from "next-intl/server";
 import { getPublicEvent } from "@/lib/events/public";
@@ -9,8 +10,30 @@ import { EventHero } from "@/components/public/event-hero";
 import { TicketRail } from "@/components/public/ticket-rail";
 import { MobileCtaBar } from "@/components/public/mobile-cta-bar";
 import { WaitlistJoin } from "@/components/public/waitlist-join";
+import { eventMetadata } from "@/lib/events/metadata";
 
 export const dynamic = "force-dynamic";
+
+/**
+ * Link previews. Without this every event unfurled as the root metadata: one
+ * imageless card, identical for every event, on the channels these links are
+ * actually shared through.
+ */
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ locale: string; slug: string }>;
+}): Promise<Metadata> {
+  const { locale, slug } = await params;
+  const data = await getPublicEvent(slug);
+  if (!data) return {};
+  return eventMetadata({
+    event: data.event,
+    dateFrom: data.dateFrom,
+    dateTo: data.dateTo,
+    path: `/${locale}/events/${slug}`,
+  });
+}
 
 function fmtDate(iso: string | null): string | null {
   if (!iso) return null;

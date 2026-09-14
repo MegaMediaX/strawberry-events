@@ -11,7 +11,10 @@ export async function PublicNav({ locale }: { locale: string }) {
 
   return (
     <header className="sticky top-0 z-40 border-b border-border/60 bg-background/80 backdrop-blur">
-      <div className="mx-auto flex max-w-5xl items-center justify-between gap-2 px-4 py-3">
+      {/* A FIXED height, not padding-derived: the registration stepper sticks
+          directly below this bar and needs a number to offset by. Keep this
+          and --nav-height in globals.css in step. */}
+      <div className="mx-auto flex h-16 max-w-5xl items-center justify-between gap-2 px-4">
         <Link
           href={`/${locale}/events`}
           /* whitespace-nowrap stops the wordmark breaking onto two lines on a

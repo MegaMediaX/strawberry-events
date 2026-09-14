@@ -17,7 +17,12 @@ export function Stepper({
 
   return (
     <div
-      className="sticky top-0 z-30 -mx-4 border-b border-border bg-background/92 px-4 backdrop-blur"
+      /* Offset by the public header, which is sticky at top:0 with a higher
+         z-index: at top-0 this ribbon scrolled straight underneath it, so the
+         one element whose job is to answer "how much is left" was invisible
+         for the whole form. */
+      className="sticky z-30 -mx-4 border-b border-border bg-background/92 px-4 backdrop-blur"
+      style={{ top: "var(--nav-height)" }}
       role="group"
       aria-label="Registration progress"
     >

@@ -85,16 +85,37 @@ function Eyebrow({ children }: { children: React.ReactNode }) {
 /** ~0.5s at 60fps: long enough for a step transition, short enough to give up. */
 const FOCUS_RETRY_FRAMES = 30;
 
-/** Server-side field names that map back to a control on the Details step. */
-const DETAIL_FIELD_IDS: Record<string, "firstName" | "lastName" | "email" | "phone" | "company" | "jobTitle"> = {
-  firstName: "firstName",
-  lastName: "lastName",
-  email: "email",
-  phone: "phone",
-  phoneCC: "phone",
-  company: "company",
-  jobTitle: "jobTitle",
+/**
+ * Server-side field names that map back to a control on the Details step,
+ * with the label the attendee saw above it.
+ *
+ * The label matters as much as the id: a rejection used to arrive as the bare
+ * Zod message ("Required", "Enter a valid email address"), joined by commas,
+ * with nothing saying which of eight fields it was about.
+ */
+const DETAIL_FIELDS: Record<
+  string,
+  { id: "firstName" | "lastName" | "email" | "phone" | "company" | "jobTitle"; label: string }
+> = {
+  firstName: { id: "firstName", label: "First name" },
+  lastName: { id: "lastName", label: "Last name" },
+  email: { id: "email", label: "Email" },
+  phone: { id: "phone", label: "Phone" },
+  phoneCC: { id: "phone", label: "Phone" },
+  company: { id: "company", label: "Company name" },
+  jobTitle: { id: "jobTitle", label: "Job title" },
 };
+
+/** "Email: Enter a valid email address" for every field the server rejected. */
+export function describeFieldErrors(fieldErrors: Record<string, string[]>): string {
+  return Object.entries(fieldErrors)
+    .map(([key, messages]) => {
+      const label = DETAIL_FIELDS[key]?.label;
+      const text = messages.join(", ");
+      return label ? `${label}: ${text}` : text;
+    })
+    .join(" · ");
+}
 
 /** "a, b and c" — used to name every consent still missing in one sentence. */
 function listSentence(items: string[]): string {
@@ -384,12 +405,11 @@ export function RegistrationWizard({
     if (res?.fieldErrors) {
       // The server rejected a value the attendee typed on step one, so send
       // them back to it rather than leaving the message stranded on Confirm.
-      const keys = Object.keys(res.fieldErrors);
-      const returnTo = keys.find((k) => k in DETAIL_FIELD_IDS);
-      const message = Object.values(res.fieldErrors).flat().join(", ");
+      const returnTo = Object.keys(res.fieldErrors).find((k) => k in DETAIL_FIELDS);
+      const message = describeFieldErrors(res.fieldErrors);
       if (returnTo) {
         setStep(0);
-        fail(message, fid[DETAIL_FIELD_IDS[returnTo]]);
+        fail(message, fid[DETAIL_FIELDS[returnTo].id]);
       } else {
         fail(message);
       }
@@ -730,7 +750,14 @@ export function RegistrationWizard({
                 {seatSections && seatSections.length > 0 && (
                   <div className="mt-2 rounded-[var(--radius-lg)] border border-border bg-card p-5 shadow-[var(--shadow-1)]">
                     <div className="mb-2 font-medium">Choose your seat(s)</div>
-                    <SeatSelector sections={seatSections} onChange={setSeatIds} />
+                    {/* The map needs to know how many seats this order is for,
+                        so it can say so up front and stop at that number
+                        rather than letting the mismatch surface on Next. */}
+                    <SeatSelector
+                      sections={seatSections}
+                      onChange={setSeatIds}
+                      required={totalQty}
+                    />
                   </div>
                 )}
 
