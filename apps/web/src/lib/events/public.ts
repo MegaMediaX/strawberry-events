@@ -1,3 +1,4 @@
+import { cache } from "react";
 import type { EventMapping } from "@prisma/client";
 import { prisma } from "@/lib/db/client";
 import { resolvePretixContext } from "@/lib/pretix/context";
@@ -41,8 +42,19 @@ export async function listPublicEvents(): Promise<{
   };
 }
 
-/** Public event detail: mapping + tickets + aggregated capacity. Null if not public. */
-export async function getPublicEvent(
+/**
+ * Public event detail: mapping + tickets + aggregated capacity. Null if not
+ * public.
+ *
+ * Wrapped in React `cache()`, which memoizes per request. The event and
+ * register routes each call this TWICE — once in `generateMetadata` for the
+ * link preview and once in the page — and it is two prisma queries plus three
+ * pretix calls. Nothing else dedupes them: the routes are force-dynamic and
+ * the pretix client passes an AbortSignal, so Next's fetch cache does not
+ * apply. Without this, adding link previews doubled pretix load and TTFB on
+ * the two hottest public routes.
+ */
+export const getPublicEvent = cache(async function getPublicEvent(
   slug: string,
 ): Promise<PublicEventDetail | null> {
   const event = await prisma.eventMapping.findFirst({
@@ -108,4 +120,4 @@ export async function getPublicEvent(
     dateFrom: detail?.dateFrom ?? null,
     dateTo: detail?.dateTo ?? null,
   };
-}
+})

@@ -10,6 +10,8 @@ import { listCheckinLists, checkinCounters } from "@/lib/pretix/checkin";
 import { selectListIdForDate, venueToday } from "@/lib/checkin/select-list";
 import { VENUE_IANA_ZONE } from "@/lib/datetime/uk";
 import { CheckinPanel } from "./checkin-panel";
+import { DoorCounters } from "./door-counters";
+import { StaffEventPicker } from "../_components/event-picker";
 
 export const dynamic = "force-dynamic";
 
@@ -24,8 +26,27 @@ export default async function CheckinPage({
   const sp = await searchParams;
   setRequestLocale(locale);
   const session = await getSessionContext();
-  if (!session || !sp.event) notFound();
+  if (!session) notFound();
 
+  // No event named: show the ones this account can open, the way the walk-in
+  // desk already does. This used to 404 — and since the attendee flow gained a
+  // not-found boundary, that 404 was the ATTENDEE's, telling door staff their
+  // link had expired and offering to browse events.
+  if (!sp.event) {
+    return (
+      <StaffEventPicker
+        session={session}
+        locale={locale}
+        basePath="staff/checkin"
+        title="Check-in"
+        hint="Choose the event you are working the door for."
+      />
+    );
+  }
+
+  // A named event that does not exist, or one this account may not open, stays
+  // a 404: there is nothing to choose from and saying which it was would answer
+  // a question the caller has not earned.
   const mapping = await prisma.eventMapping.findUnique({ where: { id: sp.event } });
   if (!mapping || !canAccessEvent(session, mapping.organizationId, mapping.localEventId)) {
     notFound();
@@ -104,7 +125,17 @@ export default async function CheckinPage({
     <div>
       <h1 className="text-2xl font-bold">{mapping.titleEn} — Check-in</h1>
       <p className="mt-1 text-sm text-muted-foreground">
-        Checked in {counters.checkedIn} / {counters.total}
+        {/* Server-rendered figure, then kept live by the client: this used to
+            be frozen at whatever it was when the page loaded. */}
+        {/* Keyed per lane: the seed below is an initial value, and a day
+            switch keeps this component mounted, so without a key the new
+            day's figure would be ignored in favour of the old one. */}
+        <DoorCounters
+          key={`${mapping.id}:${listId}`}
+          eventId={mapping.id}
+          listId={listId}
+          initial={counters}
+        />
         {listId ? "" : " · no check-in list configured in pretix"}
       </p>
       {/* Name the active list. The day is chosen automatically, so this is the
@@ -182,7 +213,12 @@ export default async function CheckinPage({
         </nav>
       )}
       <div className="mt-4">
-        <CheckinPanel eventId={mapping.id} listId={listId} tickets={tickets} />
+        <CheckinPanel
+          eventId={mapping.id}
+          listId={listId}
+          tickets={tickets}
+          locale={locale}
+        />
       </div>
     </div>
   );

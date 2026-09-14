@@ -14,6 +14,13 @@ import { QrScanner } from "./qr-scanner";
 import { PrinterSettings } from "./printer-settings";
 import { PrinterStatus } from "./printer-status";
 import { ResultBanner, type DoorResult } from "./result-banner";
+import { bumpDoorCount } from "./door-counters";
+import {
+  loadRecent,
+  recentKey,
+  saveRecent,
+  type RecentEntry,
+} from "@/lib/checkin/recent-store";
 import { AttendeeEditDialog, type EditTarget } from "./attendee-edit";
 import { DoorWalkInForm, type DoorTicket } from "./door-walk-in";
 import { decideEnter, looksScannable } from "@/lib/checkin/scan-shape";
@@ -66,14 +73,6 @@ const RECENT_LIMIT = 3;
 // the longer timer was half of what made the strip resize under the cursor.
 const OK_BANNER_MS = 5000;
 
-type RecentEntry = {
-  id: number;
-  orderCode: string;
-  name: string;
-  kind: "in" | "reprint";
-  at: string;
-};
-
 function toBadge(b: NonNullable<CheckInResult["badge"]>): BadgeData {
   return {
     tag: b.tag,
@@ -89,11 +88,22 @@ export function CheckinPanel({
   eventId,
   listId,
   tickets,
+  locale,
 }: {
   eventId: string;
   listId: number;
   tickets: DoorTicket[];
+  /** For the sign-in link shown when the shift's session ends. */
+  locale: string;
 }) {
+  /**
+   * Where "Sign in again" goes when the shift's session ends.
+   *
+   * Plain /login: the sign-in form routes by role on success, so door staff
+   * land back on the staff area without this having to carry a callback the
+   * login page does not read.
+   */
+  const signInHref = `/${locale}/login`;
   const [q, setQ] = useState("");
   const [rows, setRows] = useState<AttendeeRow[]>([]);
   /**
@@ -108,11 +118,24 @@ export function CheckinPanel({
    */
   const [rowsQuery, setRowsQuery] = useState("");
   const [searching, setSearching] = useState(false);
+  /** The last search failed, as opposed to finding nobody. */
+  const [searchFailed, setSearchFailed] = useState(false);
   const [pending, start] = useTransition();
   const [result, setResult] = useState<DoorResult | null>(null);
   const [badge, setBadge] = useState<BadgeData | null>(null);
   const [browserFallback, setBrowserFallback] = useState(false);
   const [recent, setRecent] = useState<RecentEntry[]>([]);
+  /**
+   * Which lane the list in state belongs to.
+   *
+   * Not a boolean. The day switcher is a CLIENT navigation that deliberately
+   * keeps this panel mounted, so `listId` changes under a live component: with
+   * a flag, switching to a day with no stored history left the previous day's
+   * entries in state — and the save effect then wrote them under the new day's
+   * key, showing one lane's attendees with live Fix and Reprint buttons on
+   * another. Comparing keys makes the save wait for its own restore.
+   */
+  const [recentRestoredFor, setRecentRestoredFor] = useState<string | null>(null);
   const [confirmReprint, setConfirmReprint] = useState<
     { orderCode: string; fullName: string } | null
   >(null);
@@ -206,6 +229,20 @@ export function CheckinPanel({
 
   /* -------------------------------------------------------------- corrections */
 
+  /** The session-ended banner, from wherever the expiry was noticed. */
+  const showSessionEnded = useCallback(
+    (detail?: string) => {
+      setConfirmReprint(null);
+      setResult({
+        kind: "auth",
+        detail: detail ?? "Your session has ended.",
+        signInHref,
+      });
+    },
+    [signInHref],
+  );
+
+
   const openEdit = useCallback(
     (orderCode: string) => {
       if (openingEditRef.current) return;
@@ -215,6 +252,7 @@ export function CheckinPanel({
       void attendeeForEditAction(eventId, orderCode)
         .then((res) => {
           if (res.ok) setEditing(res.attendee);
+          else if (res.authExpired) showSessionEnded(res.reason);
           else setResult({ kind: "err", name: orderCode, detail: res.reason });
         })
         // The action catches its own errors, but the CALL still rejects if the
@@ -231,13 +269,23 @@ export function CheckinPanel({
           setOpeningEdit(false);
         });
     },
-    [eventId],
+    [eventId, showSessionEnded],
   );
 
   /* ----------------------------------------------------------------- results */
 
   const handleResult = useCallback(
     (res: CheckInResult, kind: RecentEntry["kind"]) => {
+      // Before anything else: a door with no session is not refusing anyone.
+      // Every action returns this the moment the shift's cookie expires, and
+      // routing it through the red banner told the operator that a valid
+      // attendee had been turned away — once per person, for the rest of the
+      // queue, with no way back to a sign-in.
+      if (res.authExpired) {
+        showSessionEnded(res.reason);
+        return;
+      }
+
       if (res.ok && res.badge) {
         const b = toBadge(res.badge);
         const who = res.badge.fullName;
@@ -245,6 +293,10 @@ export function CheckinPanel({
         setConfirmReprint(null);
         setResult({ kind: "working" });
         remember(res.badge.orderCode, who, kind);
+        // Only a real admission moves the count — a reprint is the same person
+        // walking back to the desk, and counting it would inflate the one
+        // figure the door is asked for all day.
+        if (kind === "in") bumpDoorCount();
         // Clear the search so the next person starts from an empty field rather
         // than the previous attendee's results.
         setQ("");
@@ -327,7 +379,7 @@ export function CheckinPanel({
         detail: res.reason ?? "Check-in failed — try search, or use the help desk",
       });
     },
-    [remember, thermalPrint],
+    [remember, thermalPrint, showSessionEnded],
   );
 
   /* ----------------------------------------------------------------- actions */
@@ -414,6 +466,7 @@ export function CheckinPanel({
       if (!query || looksScannable(query)) {
         setRows([]);
         setRowsQuery(query);
+        setSearchFailed(false);
         setSearching(false);
         return;
       }
@@ -421,10 +474,33 @@ export function CheckinPanel({
       try {
         const found = await searchAction(eventId, query);
         // A slow response for an older query must not overwrite a newer one.
-        if (!cancelled) {
-          setRows(found);
+        if (cancelled) return;
+        if (!found.ok) {
+          // Neither case is "nobody matches". Both used to land as an empty
+          // list, which is how the door came to offer a walk-in form for
+          // someone who is already registered — see showContextualWalkIn,
+          // which is gated on these results too.
+          setRows([]);
           setRowsQuery(query);
+          setSearchFailed(true);
+          if ("authExpired" in found) showSessionEnded();
+          else {
+            setResult({
+              kind: "err",
+              name: "Search failed",
+              detail: "Could not search just now — try again, or scan their ticket.",
+            });
+          }
+          return;
         }
+        setRows(found.rows);
+        setRowsQuery(query);
+        setSearchFailed(false);
+        // Nothing else clears the session-ended banner — it is deliberately
+        // sticky — so signing in elsewhere and coming back left both walk-in
+        // paths disabled over working results. A search that answers IS the
+        // evidence the session works again.
+        setResult((cur) => (cur?.kind === "auth" ? null : cur));
       } finally {
         // finally, not the happy path: without this any transient failure
         // leaves "Searching…" on screen forever, with no error and no recovery.
@@ -436,7 +512,7 @@ export function CheckinPanel({
       cancelled = true;
       clearTimeout(id);
     };
-  }, [q, eventId, walkIn]);
+  }, [q, eventId, walkIn, showSessionEnded]);
 
   /* ------------------------------------------- confirm dialog focus */
 
@@ -473,6 +549,33 @@ export function CheckinPanel({
       if (el.isConnected) el.focus();
     }
   }, [editing, walkIn]);
+
+  /* ------------------------------------------------ recent list persistence */
+
+  useEffect(() => {
+    const stored = loadRecent(eventId, listId);
+    /* eslint-disable react-hooks/set-state-in-effect --
+       sessionStorage does not exist during SSR, so seeding this with a lazy
+       initializer would make the server render an empty list and the client a
+       full one — a hydration mismatch. Restoring after mount is the correct
+       shape, as it is for the registration draft. */
+    // Unconditional, including the empty case: a lane with no history must
+    // CLEAR what is on screen, not inherit the previous lane's.
+    setRecent(stored);
+    // Keep the id counter ahead of what was restored, or the next admission
+    // reuses an id and React keys two different rows the same.
+    recentId.current = stored.length ? Math.max(...stored.map((r) => r.id)) : 0;
+    setRecentRestoredFor(recentKey(eventId, listId));
+    /* eslint-enable react-hooks/set-state-in-effect */
+  }, [eventId, listId]);
+
+  useEffect(() => {
+    // Skipped on the render where the lane has changed but its restore has not
+    // landed yet — that is the render whose `recent` still belongs to the lane
+    // before it.
+    if (recentRestoredFor !== recentKey(eventId, listId)) return;
+    saveRecent(eventId, listId, recent);
+  }, [recentRestoredFor, eventId, listId, recent]);
 
   /* --------------------------------------------------- success auto-clear */
 
@@ -557,8 +660,18 @@ export function CheckinPanel({
    * one moment they both applied — and the persistent one is meant to be the
    * quiet fallback, not a second shout.
    */
+  /**
+   * The list is empty for a reason the operator can act on.
+   *
+   * An expired session and a failed query BOTH empty `rows`, and an empty list
+   * is what turns on the "no one matches — register them" prompt. Offering the
+   * walk-in form then is the duplicate-registration path this screen exists to
+   * avoid: the person is registered, we simply could not look them up.
+   */
+  const searchUsable = result?.kind !== "auth" && !searchFailed;
+
   const showContextualWalkIn =
-    !walkIn && Boolean(q.trim()) && !searching && rows.length === 0;
+    !walkIn && Boolean(q.trim()) && !searching && rows.length === 0 && searchUsable;
 
   /**
    * Enter in the search box, which is also where a wedge scanner's payload
@@ -647,6 +760,18 @@ export function CheckinPanel({
                     </li>
                   ))}
                 </ul>
+                {/* Said where it is needed and nowhere else: on the list an
+                    operator opens when something has just gone wrong.
+                    A check-in cannot be reversed from this screen — the code
+                    has said so to itself for a while (see lib/checkin/service)
+                    and the interface said nothing, which left the operator to
+                    invent a fallback in front of a queue. Whether a supervisor
+                    reversal should exist is a product decision; naming the
+                    fallback is not. */}
+                <p className="mt-2 text-[12px] text-muted-foreground">
+                  Fix corrects what is printed. Checked in the wrong person? That cannot
+                  be undone here — note the order code and tell the organiser.
+                </p>
               </section>
     ) : null;
 
@@ -805,6 +930,14 @@ export function CheckinPanel({
                   const who = `${input.firstName} ${input.lastName}`.trim();
                   void walkInAndCheckInAction(eventId, input, listId)
                     .then((res) => {
+                      if (res.authExpired) {
+                        // The person in front of the operator is fine; the
+                        // door is not. Reported as a refusal, this was the
+                        // red STOP banner against a real attendee, with no
+                        // route back to a sign-in.
+                        showSessionEnded(res.reason);
+                        return;
+                      }
                       if (!res.ok) {
                         setResult({ kind: "err", name: who, detail: res.reason ?? "Could not register." });
                         return;
@@ -855,17 +988,31 @@ export function CheckinPanel({
                       {r.orderCode}
                       {r.phone ? ` · ${r.phone}` : ""}
                     </div>
+                    {/* Said before the button is pressed, not after. The state
+                        was known locally all along; it just never reached the
+                        row, so the refusal arrived as a red banner with the
+                        person standing there. */}
+                    {!r.eligible && (
+                      <div className="mt-1 inline-flex rounded-md bg-destructive/10 px-2 py-0.5 text-[12px] font-semibold text-destructive">
+                        {r.ineligibleReason ?? "Not eligible for check-in"}
+                      </div>
+                    )}
                   </div>
                   {/* One obvious action. Reprint is deliberately NOT beside it —
                       two similar buttons next to each other is how the wrong one
                       gets pressed at a busy door. Reprints happen from Recent, or
                       via the already-checked-in prompt. */}
+                  {/* Still pressable when ineligible: the server is the
+                      authority, this row may be seconds stale, and a door needs
+                      to be able to TRY. It just no longer looks like the
+                      ordinary path. */}
                   <Button
                     className="min-h-12 px-5 text-[15px]"
+                    variant={r.eligible ? "default" : "outline"}
                     onClick={() => doCheckIn(r.orderCode)}
                     disabled={busy}
                   >
-                    Check in &amp; print
+                    {r.eligible ? "Check in & print" : "Try anyway"}
                   </Button>
                 </li>
               ))}
@@ -886,7 +1033,10 @@ export function CheckinPanel({
                   captureReturnFocus();
                   setWalkIn(true);
                 }}
-                disabled={busy}
+                // Same reasoning as showContextualWalkIn: nothing should invite
+                // a registration while the door cannot check whether one
+                // already exists.
+                disabled={busy || !searchUsable}
                 className="mt-3 min-h-12 w-full rounded-lg border border-dashed border-border px-5 text-[15px] font-semibold text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-50"
               >
                 + Register a walk-in
@@ -909,6 +1059,13 @@ export function CheckinPanel({
             const orderCode = editing.orderCode;
             void correctAttendeeAction(eventId, orderCode, patch)
               .then((res) => {
+                // openEdit already routes this correctly; without the same
+                // check here, opening the dialog and saving it behaved
+                // differently on an expired session.
+                if (res.authExpired) {
+                  showSessionEnded(res.reason);
+                  return;
+                }
                 if (!res.ok) {
                   setResult({ kind: "err", name: patch.fullName, detail: res.reason ?? "Could not save." });
                   return;
@@ -923,6 +1080,13 @@ export function CheckinPanel({
                 // happened to be open by then — discarding an unrelated edit.
                 setEditing((cur) => (cur?.orderCode === orderCode ? null : cur));
                 return reprintAction(eventId, orderCode).then((printed) => {
+                  if (printed.authExpired) {
+                    // Not "no badge printed": the correction saved and the
+                    // session ended. A yellow warning here sent the operator
+                    // looking at the printer.
+                    showSessionEnded(printed.reason);
+                    return;
+                  }
                   if (!printed.ok) {
                     setResult({
                       kind: "warn",

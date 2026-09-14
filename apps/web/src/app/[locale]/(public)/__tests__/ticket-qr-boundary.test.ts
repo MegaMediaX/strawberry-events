@@ -11,6 +11,12 @@ vi.mock("@/lib/registration/access", () => ({
   getOrderByToken: vi.fn(),
 }));
 vi.mock("@/lib/security/order-lookup", () => ({ allowOrderCodeLookup: vi.fn() }));
+// The routes read the event's dates to put a "When" line on the ticket. Mocked
+// like every other data dependency here: this suite is about the QR boundary,
+// not about the schedule, and the real one opens a database connection.
+vi.mock("@/lib/events/date-range", () => ({
+  getEventDateRange: vi.fn().mockResolvedValue({ from: null, to: null }),
+}));
 // Stubbed so the assertions are about what each route hands the view, not about
 // rendering it (component-level rendering is covered in attendee-state-view.test).
 vi.mock("@/components/public/attendee-state-view", () => ({ AttendeeStateView: () => null }));

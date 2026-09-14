@@ -1,9 +1,7 @@
-import Link from "next/link";
 import { setRequestLocale } from "next-intl/server";
 import { getSessionContext } from "@/lib/auth/session";
-import { prisma } from "@/lib/db/client";
-import { scopeWhere, canAccessEvent } from "@/lib/auth/org-scope";
 import { getEventForSession, listTickets } from "@/lib/events/service";
+import { StaffEventPicker } from "../_components/event-picker";
 import { WalkInForm } from "./walk-in-form";
 
 export const dynamic = "force-dynamic";
@@ -52,33 +50,13 @@ export default async function StaffRegistrationsPage({
   }
 
   // No event → pick from accessible events.
-  const all = await prisma.eventMapping.findMany({
-    where: scopeWhere(session),
-    orderBy: { createdAt: "desc" },
-  });
-  const events = all.filter((e) => canAccessEvent(session, e.organizationId, e.localEventId));
-
   return (
-    <div className="mx-auto max-w-2xl">
-      <h1 className="text-2xl font-bold">Walk-in registration</h1>
-      <p className="mt-1 text-sm text-muted-foreground">Choose an event to register a walk-in attendee.</p>
-      {events.length === 0 ? (
-        <p className="mt-4 text-muted-foreground">No assigned events.</p>
-      ) : (
-        <ul className="mt-4 flex flex-col gap-2">
-          {events.map((e) => (
-            <li key={e.id}>
-              <Link
-                href={`/${locale}/staff/registrations?event=${e.id}`}
-                className="block rounded-[var(--radius-lg)] border border-border p-4 hover:bg-muted"
-              >
-                <div className="font-medium">{e.titleEn}</div>
-                <div className="text-sm text-muted-foreground">{e.pretixEventSlug}</div>
-              </Link>
-            </li>
-          ))}
-        </ul>
-      )}
-    </div>
+    <StaffEventPicker
+      session={session}
+      locale={locale}
+      basePath="staff/registrations"
+      title="Walk-in registration"
+      hint="Choose an event to register a walk-in attendee."
+    />
   );
 }

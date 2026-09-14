@@ -74,6 +74,10 @@
 
   /* Brand extras */
   --brand-success: #16a34a;
+  /* Same green, dark enough to BE TEXT. #16a34a is a fill colour: as 10px
+     uppercase on the cream ground it lands at ~3.0:1, under the 4.5:1 floor.
+     Use --brand-success for bars and swatches, this one for words. */
+  --brand-success-text: #12703a;
   --brand-amber: #d97706;
   --brand-danger: #dc2626;
   --gradient-hero: linear-gradient(135deg, #b10b0b 0%, #2c3338 100%);
@@ -88,6 +92,11 @@
   --shadow-3: 0 4px 8px -4px rgba(17, 17, 17, 0.08), 0 20px 40px -16px rgba(17, 17, 17, 0.16);
   --shadow-well: inset 0 1px 2px rgba(17, 17, 17, 0.07);
   --shadow-chrome: 0 -8px 24px -12px rgba(17, 17, 17, 0.14);
+
+  /* Height of the sticky public header (h-16 on its inner row). Anything else
+     that sticks below it offsets by this — the registration stepper used
+     top-0 and spent the whole form hidden behind the bar. */
+  --nav-height: 4rem;
 
   --chart-1: oklch(0.87 0 0);
   --chart-2: oklch(0.556 0 0);
@@ -107,6 +116,9 @@
 
 .dark {
   /* Marven dark — charcoal canvas, strawberry red accent */
+  /* Light enough to read on the charcoal ground, where the light-mode text
+     tone would sit at ~2:1. */
+  --brand-success-text: #4ade80;
   --background: #1d2327;
   --foreground: #f7f4f1;
   --card: #2c3338;

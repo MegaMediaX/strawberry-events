@@ -38,9 +38,28 @@ export interface CheckInResult {
    * `ok && badge`. Reprinting must stay an explicit, confirmed action.
    */
   alreadyCheckedIn?: { orderCode: string; fullName: string };
+  /**
+   * Set ONLY when there is no signed-in session behind the call.
+   *
+   * A distinct flag rather than one more `reason` string, because it is not a
+   * refusal of the person at the door: their ticket is fine and the door is
+   * broken. Folding it into the ordinary failure path made an expired shift
+   * session render as STOP · Not authenticated against real attendees, one
+   * after another, with nothing on screen that leads back to a sign-in.
+   */
+  authExpired?: true;
 }
 
-function assertCanCheckin(session: SessionContext) {
+/**
+ * The authorization every door operation requires: a real (non-impersonated)
+ * session holding a check-in role.
+ *
+ * Exported because a server action that reads door data without calling into
+ * one of the functions below still has to apply it — `counterAction` polls the
+ * check-in counts and reached them through event access alone, which any
+ * org-scoped member has.
+ */
+export function assertCanCheckin(session: SessionContext) {
   if (session.impersonating) {
     throw new ForbiddenError("Cannot check in while impersonating");
   }

@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import { isValidEmail } from "@/lib/registration/email";
 import { JOB_TITLE_MAX, JOB_TITLE_OTHER } from "@/lib/registration/job-title";
 import { BADGE_TAGS, ROLE_LABEL_MAX } from "@/lib/badges/tags";
 
@@ -107,7 +108,7 @@ export const registerInputSchema = z
 
     const email = val.attendee.email;
     // A provided email must always be well-formed (it flows to the pretix order).
-    if (email.length > 0 && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    if (email.length > 0 && !isValidEmail(email)) {
       ctx.addIssue({ code: "custom", path: ["attendee", "email"], message: "Enter a valid email address" });
     }
 

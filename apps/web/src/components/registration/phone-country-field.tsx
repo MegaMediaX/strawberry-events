@@ -12,6 +12,7 @@ export function PhoneCountryField({
   id,
   required,
   describedBy,
+  invalid,
 }: {
   cc: string;
   phone: string;
@@ -20,6 +21,8 @@ export function PhoneCountryField({
   id?: string;
   required?: boolean;
   describedBy?: string;
+  /** The number is what the current validation error is about. */
+  invalid?: boolean;
 }) {
   return (
     <div className="flex gap-2">
@@ -45,6 +48,7 @@ export function PhoneCountryField({
         inputMode="tel"
         required={required}
         aria-required={required || undefined}
+        aria-invalid={invalid || undefined}
         aria-describedby={describedBy}
         value={phone}
         onChange={(e) => onPhone(e.target.value)}

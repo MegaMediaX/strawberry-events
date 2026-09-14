@@ -66,7 +66,15 @@ export async function registerAction(
           : "Registration could not be completed. Please try again or contact the organizer.",
       };
     }
-    return { error: (err as Error).message };
+    // Anything else is ours to diagnose, not the attendee's to read: this
+    // string is rendered verbatim under "Complete registration", and whatever
+    // the database driver or HTTP client happened to say is both unactionable
+    // and a needless detail about the stack behind the form.
+    console.error(`[register] unexpected failure (event=${slug}):`, err);
+    return {
+      error:
+        "We couldn't complete your registration just now. Please try again — if it keeps happening, contact the organizer and mention this event.",
+    };
   }
 
   // An issued ticket goes to the signed magic-link URL — the confirmation page

@@ -6,6 +6,8 @@ import { CheckCircle2, Clock, XCircle, Ban, MessageCircle } from "lucide-react";
 import { registrationState } from "@/lib/approval/state";
 import { hasLocation, locationLine, directionsUrl } from "@/lib/events/location";
 import { QrCodeDisplay } from "./qr-code-display";
+import { AddToCalendar } from "./add-to-calendar";
+import { eventMetaLine } from "@/lib/events/format";
 import { shouldShowTicketQr, shouldOfferTicketRecovery } from "./ticket-reveal";
 import type { AttendeeView } from "@/lib/registration/attendee-view";
 
@@ -67,6 +69,10 @@ export function AttendeeStateView({
   const state = registrationState(order);
   const { Icon, iconCls, heading, bg } = STATE_CONFIG[state];
   const showQr = shouldShowTicketQr(state, canRevealTicket);
+  // Venue-pinned, like every other date in the flow.
+  const whenLine = order.schedule
+    ? eventMetaLine(order.schedule.from, order.schedule.to, null)
+    : null;
   const offerRecovery = shouldOfferTicketRecovery(state, canRevealTicket);
 
   return (
@@ -121,6 +127,34 @@ export function AttendeeStateView({
         )}
         {state === "canceled" && (
           <p className="mt-6 text-sm text-muted-foreground">This registration was canceled.</p>
+        )}
+
+        {/* When the event is. The ticket named the event and the order code and
+            then stopped — no date, no time — on the screen people reopen at
+            the door and the day before it. */}
+        {state !== "rejected" && state !== "canceled" && whenLine && (
+          <div className="mt-8 border-t border-border pt-4 text-sm">
+            <div className="font-medium">When</div>
+            <p className="mt-1 text-muted-foreground tabular-nums">{whenLine}</p>
+            {/* No icsHref on purpose. That route resolves through
+                getPublicEvent, which only answers for visibility=public AND
+                liveOnPretix — so a staff walk-in's ticket, or any ticket for
+                an event taken down after it ran, got a dead Apple-Calendar
+                button beside a working Google one. Without it the component
+                builds the .ics in the browser from the same data, which needs
+                no route and no visibility. */}
+            {order.schedule && (
+              <AddToCalendar
+                event={{
+                  title: order.eventMapping.titleEn,
+                  start: order.schedule.from,
+                  end: order.schedule.to,
+                  location: locationLine(order.eventMapping) || null,
+                  description: null,
+                }}
+              />
+            )}
+          </div>
         )}
 
         {state !== "rejected" && state !== "canceled" && hasLocation(order.eventMapping) && (

@@ -36,7 +36,10 @@ export function EventCard({
   /** Wider band and larger display type — used for the first / only event. */
   featured?: boolean;
 }) {
-  const title = event.titleEn;
+  // The card takes titleAr and then ignored it. The Arabic locale is retired
+  // (lib/i18n/dir.ts), so this changes nothing today — but a branch kept for
+  // the day it returns has to actually work on that day.
+  const title = locale === "ar" && event.titleAr ? event.titleAr : event.titleEn;
   const href = `/${locale}/events/${event.slug}`;
 
   const band = (
@@ -79,7 +82,7 @@ export function EventCard({
             "inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold tracking-[0.1em] uppercase",
             event.comingSoon
               ? "bg-muted text-muted-foreground"
-              : "bg-[color-mix(in_oklab,var(--brand-success)_14%,transparent)] text-[var(--brand-success)]",
+              : "bg-[color-mix(in_oklab,var(--brand-success)_14%,transparent)] text-[var(--brand-success-text)]",
           ].join(" ")}
         >
           {event.comingSoon ? "Coming soon" : "Open"}

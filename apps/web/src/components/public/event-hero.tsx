@@ -21,15 +21,24 @@ export function EventHero({
 
   const badge = (
     <span
-      className={[
-        "absolute end-4 top-4 rounded-full px-3 py-1 text-xs font-semibold backdrop-blur",
-        isSoldOut
-          ? "bg-black/40 text-white/80"
-          : isOpen
-            ? "bg-emerald-500/30 text-emerald-50 ring-1 ring-emerald-400/40"
-            : "bg-black/40 text-white",
-      ].join(" ")}
+      /* The badge sits over an admin-uploaded photo, so its contrast used to be
+         whatever the image happened to be — emerald-50 on a 30% emerald wash
+         is unreadable over a pale crop. A near-opaque dark plate reads on any
+         artwork; the state is carried by a dot and the word, not by the
+         plate's tint. */
+      className="absolute end-4 top-4 inline-flex items-center gap-1.5 rounded-full bg-black/75 px-3 py-1 text-xs font-semibold text-white backdrop-blur"
     >
+      <span
+        aria-hidden="true"
+        className="inline-block size-1.5 rounded-full"
+        style={{
+          background: isOpen
+            ? "var(--brand-success)"
+            : isSoldOut
+              ? "#ffffff"
+              : "var(--brand-amber)",
+        }}
+      />
       {statusLabel}
     </span>
   );

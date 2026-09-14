@@ -1,5 +1,6 @@
 import Link from "next/link";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import { centsToPrice } from "@/lib/pretix/mappers";
 import { AvailabilityBar } from "./availability-bar";
 import { AddToCalendar } from "./add-to-calendar";
@@ -50,7 +51,7 @@ export function TicketRail({
             </span>
             <span className="ms-4 shrink-0 font-semibold text-foreground">
               {t.priceCents === 0 ? (
-                <span className="text-emerald-600 dark:text-emerald-400">Free</span>
+                <span className="text-[var(--brand-success-text)]">Free</span>
               ) : (
                 `$${centsToPrice(t.priceCents)}`
               )}
@@ -61,11 +62,25 @@ export function TicketRail({
       <div className="mt-4">
         <AvailabilityBar sold={capacity.sold} total={capacity.total} />
       </div>
-      <Link href={`/${locale}/events/${slug}/register`} className="mt-4 block">
-        <Button className="w-full" size="lg" disabled={soldOut}>
-          {soldOut ? "Sold out" : "Register now"}
+      {/* A sold-out event renders no link at all. Disabling a button INSIDE a
+          <Link> disables nothing: the anchor stays in the tab order, Enter
+          still navigates, and a click that lands on the link rather than the
+          button navigates too — so attendees reached a full registration
+          wizard for an event with nothing left to sell. The open case styles
+          the anchor itself rather than wrapping a button, which also drops the
+          invalid <a><button> nesting. */}
+      {soldOut ? (
+        <Button className="mt-4 w-full" size="lg" disabled>
+          Sold out
         </Button>
-      </Link>
+      ) : (
+        <Link
+          href={`/${locale}/events/${slug}/register`}
+          className={cn(buttonVariants({ size: "lg" }), "mt-4 w-full")}
+        >
+          Register now
+        </Link>
+      )}
       <AddToCalendar event={calendar} icsHref={`/${locale}/events/${slug}/calendar.ics`} />
     </div>
   );

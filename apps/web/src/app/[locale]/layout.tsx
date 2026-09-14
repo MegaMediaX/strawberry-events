@@ -22,7 +22,15 @@ const plexArabic = IBM_Plex_Sans_Arabic({
 });
 
 export const metadata: Metadata = {
-  title: "Strawberry Agency Events",
+  // Absolute base for the per-event OpenGraph images: scrapers reject a
+  // site-relative image URL, and every event cover is served from a path.
+  ...(process.env.APP_URL ? { metadataBase: new URL(process.env.APP_URL) } : {}),
+  title: {
+    default: "Strawberry Agency Events",
+    // Event pages set their own title; the suffix keeps the source visible in
+    // a link preview without each page having to repeat it.
+    template: "%s · Strawberry Agency Events",
+  },
   description: "Premium event registration platform.",
 };
 

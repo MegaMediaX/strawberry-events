@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { setRequestLocale } from "next-intl/server";
 import { getPublicEvent } from "@/lib/events/public";
@@ -11,8 +12,28 @@ import { prisma } from "@/lib/db/client";
 import { verifyInvite } from "@/lib/tokens/invite";
 import type { SectionNode } from "@/components/seats/seat-selector";
 import type { SubEventItem } from "@/components/registration/sub-event-picker";
+import { eventMetadata } from "@/lib/events/metadata";
 
 export const dynamic = "force-dynamic";
+
+/** Shares of the registration link unfurl as the event, not as the platform. */
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ locale: string; slug: string }>;
+}): Promise<Metadata> {
+  const { locale, slug } = await params;
+  const data = await getPublicEvent(slug);
+  if (!data) return {};
+  return eventMetadata({
+    event: data.event,
+    dateFrom: data.dateFrom,
+    dateTo: data.dateTo,
+    locale,
+    path: `/${locale}/events/${slug}/register`,
+    titlePrefix: "Register · ",
+  });
+}
 
 export default async function RegisterPage({
   params,
@@ -40,6 +61,12 @@ export default async function RegisterPage({
   }
 
   const title = locale === "ar" && data.event.titleAr ? data.event.titleAr : data.event.titleEn;
+  // The detail page picks the localized blurb; this one printed descriptionEn
+  // unconditionally. Same rule in both places now.
+  const blurb =
+    (locale === "ar" && data.event.descriptionAr
+      ? data.event.descriptionAr
+      : data.event.descriptionEn) || null;
 
   const coverUrl = data.event.coverImagePath
     ? coverImageUrl(data.event.coverImagePath)
@@ -149,9 +176,7 @@ export default async function RegisterPage({
             all ~390px of it inline pushes the first form field below the fold
             on an 812px viewport; cutting it off loses event copy the organiser
             wrote. The text is always in the DOM — only the clamp is visual. */}
-        {data.event.descriptionEn && (
-          <ExpandableText className="mt-1" text={data.event.descriptionEn} lines={3} />
-        )}
+        {blurb && <ExpandableText className="mt-1" text={blurb} lines={3} />}
       </header>
       <RegistrationWizard
         locale={locale}

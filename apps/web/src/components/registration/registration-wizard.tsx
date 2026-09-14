@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { stepMotion } from "@/lib/motion";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -13,6 +13,15 @@ import { Stepper } from "./stepper";
 import { PhoneCountryField } from "./phone-country-field";
 import { SeatSelector } from "@/components/seats/seat-selector";
 import { getFieldsForTicket, validateRequiredAnswers, fieldOptions, type FieldDef } from "@/lib/forms/fields";
+import { isValidEmail } from "@/lib/registration/email";
+import {
+  clearDraft,
+  draftHasContent,
+  draftKey,
+  loadDraft,
+  saveDraft,
+  type RegistrationDraft,
+} from "@/lib/registration/draft";
 import { registerAction } from "@/app/[locale]/(public)/events/[slug]/register/actions";
 import { SubEventPicker, type SubEventItem, type SubEventSelection } from "./sub-event-picker";
 import {
@@ -81,6 +90,80 @@ function Eyebrow({ children }: { children: React.ReactNode }) {
   );
 }
 
+/** ~0.5s at 60fps: long enough for a step transition, short enough to give up. */
+const FOCUS_RETRY_FRAMES = 30;
+
+/**
+ * Server-side field names that map back to a control on the Details step,
+ * with the label the attendee saw above it.
+ *
+ * The label matters as much as the id: a rejection used to arrive as the bare
+ * Zod message ("Required", "Enter a valid email address"), joined by commas,
+ * with nothing saying which of eight fields it was about.
+ */
+const DETAIL_FIELDS: Record<
+  string,
+  { id: "firstName" | "lastName" | "email" | "phone" | "company" | "jobTitle"; label: string }
+> = {
+  firstName: { id: "firstName", label: "First name" },
+  lastName: { id: "lastName", label: "Last name" },
+  email: { id: "email", label: "Email" },
+  phone: { id: "phone", label: "Phone" },
+  phoneCC: { id: "phone", label: "Phone" },
+  company: { id: "company", label: "Company name" },
+  jobTitle: { id: "jobTitle", label: "Job title" },
+};
+
+/** "Email: Enter a valid email address" for every field the server rejected. */
+export function describeFieldErrors(fieldErrors: Record<string, string[]>): string {
+  return Object.entries(fieldErrors)
+    .map(([key, messages]) => {
+      const label = DETAIL_FIELDS[key]?.label;
+      const text = messages.join(", ");
+      return label ? `${label}: ${text}` : text;
+    })
+    .join(" · ");
+}
+
+/** "a, b and c" — used to name every consent still missing in one sentence. */
+function listSentence(items: string[]): string {
+  if (items.length <= 1) return items[0] ?? "";
+  return `${items.slice(0, -1).join(", ")} and ${items[items.length - 1]}`;
+}
+
+/**
+ * The blank attendee, named once.
+ *
+ * Three places reset to it — the initial state, "Start over", and arriving at
+ * a different event — and a field present in one literal and missing from
+ * another is how one registration's details leak into the next.
+ */
+interface Attendee {
+  firstName: string;
+  lastName: string;
+  email: string;
+  phoneCC: string;
+  phone: string;
+  company: string;
+  attendeeType: string;
+  /** The dropdown selection, which may be the "Other" sentinel. */
+  jobTitle: string;
+  /** The text typed behind "Other". Only the resolved value is submitted. */
+  jobTitleOther: string;
+}
+
+const EMPTY_ATTENDEE: Attendee = {
+  firstName: "",
+  lastName: "",
+  email: "",
+  phoneCC: "+961",
+  phone: "",
+  company: "",
+  attendeeType: "",
+  jobTitle: "",
+  jobTitleOther: "",
+};
+
 const CONFIRM_STEP_NO_SUB = 2;
 const CONFIRM_STEP_WITH_SUB = 3;
 const SESSIONS_STEP = 2;
@@ -131,22 +214,50 @@ export function RegistrationWizard({
   };
   const [step, setStep] = useState(0);
   const [err, setErr] = useState<string | null>(null);
+  // The id of the control the current error belongs to, or null when it belongs
+  // to the step as a whole (no tickets chosen, a consent left unticked).
+  const [errField, setErrField] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [seatIds, setSeatIds] = useState<string[]>([]);
+  const errorRef = useRef<HTMLDivElement>(null);
 
-  const [a, setA] = useState({
-    firstName: "",
-    lastName: "",
-    email: "",
-    phoneCC: "+961",
-    phone: "",
-    company: "",
-    attendeeType: "",
-    // The dropdown selection (may be the "Other" sentinel) and the text typed
-    // behind it. Only the resolved value is ever submitted.
-    jobTitle: "",
-    jobTitleOther: "",
-  });
+  /**
+   * Report a validation failure and put it in front of the person.
+   *
+   * The message alone is not enough: it renders below a form that is taller
+   * than a phone screen, so a step-one failure used to leave the attendee
+   * looking at an unchanged screen and a Next button that appeared dead. Focus
+   * moves to the field at fault — which scrolls it into view, names it to a
+   * screen reader, and marks it invalid — or to the message itself when no
+   * single field is to blame.
+   */
+  function fail(message: string, fieldId?: string) {
+    setErr(message);
+    setErrField(fieldId ?? null);
+    // Retried across a few frames: when a server-side rejection sends the
+    // attendee back to step one, the step transition animates out before the
+    // field exists to focus, and a single rAF would find nothing and give up.
+    let attempts = 0;
+    const focusTarget = () => {
+      const el = fieldId ? document.getElementById(fieldId) : errorRef.current;
+      if (!el) {
+        if (attempts++ < FOCUS_RETRY_FRAMES) requestAnimationFrame(focusTarget);
+        return;
+      }
+      el.focus({ preventScroll: true });
+      el.scrollIntoView({ block: "center", behavior: reduce ? "auto" : "smooth" });
+    };
+    requestAnimationFrame(focusTarget);
+  }
+
+  /** Marks the control the current error points at, and names the message. */
+  function invalidProps(fieldId: string) {
+    return errField === fieldId
+      ? { "aria-invalid": true as const, "aria-describedby": fid.error }
+      : {};
+  }
+
+  const [a, setA] = useState<Attendee>(() => ({ ...EMPTY_ATTENDEE }));
   const [qty, setQty] = useState<Record<number, number>>({});
   const [subEventSelection, setSubEventSelection] = useState<SubEventSelection[]>([]);
   // Categories the attendee opted into (e.g. "Workshops"). Gated categories stay
@@ -157,6 +268,63 @@ export function RegistrationWizard({
   // The organiser's data-protection consent, worded by them and shown verbatim.
   const [dataUse, setDataUse] = useState(false);
   const [answers, setAnswers] = useState<Record<string, string>>({});
+  /**
+   * Which event's draft the form state belongs to.
+   *
+   * Not a boolean: moving between two events' registration pages is a client
+   * navigation that can reuse this component, and with a flag an event with no
+   * saved draft kept the PREVIOUS event's name, email and phone on screen —
+   * and the save effect then wrote them under the new event's key.
+   */
+  const [restoredFor, setRestoredFor] = useState<string | null>(null);
+  const [restoredNotice, setRestoredNotice] = useState(false);
+
+  useEffect(() => {
+    const draft = loadDraft(slug);
+    const restorable = draft && draftHasContent(draft) ? draft : null;
+    {
+      /* eslint-disable react-hooks/set-state-in-effect --
+         The draft lives in sessionStorage, which does not exist during SSR.
+         Seeding these with a lazy initializer would make the server render the
+         empty form and the client render the restored one, which is a
+         hydration mismatch; restoring after mount is the correct shape here.
+         Same reasoning as the Toaster's subscribe-and-sync effect. */
+      // Unconditional, including the no-draft case: arriving at a DIFFERENT
+      // event must clear the previous one's details rather than inherit them.
+      setA(restorable ? restorable.attendee : EMPTY_ATTENDEE);
+      setQty(restorable?.quantities ?? {});
+      setOptedIn(restorable?.optedIn ?? []);
+      setSubEventSelection(restorable?.subEvents ?? []);
+      setAnswers(restorable?.answers ?? {});
+      setSeatIds([]);
+      // Consents are never restored — see lib/registration/draft.ts — and are
+      // cleared with everything else when the event changes: they are an act
+      // performed for one event, not a setting that travels.
+      setTerms(false);
+      setPrivacy(false);
+      setDataUse(false);
+      setStep(0);
+      // Said out loud: fields that fill themselves in with no explanation read
+      // as someone else's session, not as your own work coming back.
+      setRestoredNotice(Boolean(restorable));
+      /* eslint-enable react-hooks/set-state-in-effect */
+    }
+    setRestoredFor(draftKey(slug));
+  }, [slug]);
+
+  useEffect(() => {
+    // Skipped on the render where the event has changed but its restore has
+    // not landed — the render whose state still belongs to the event before.
+    if (restoredFor !== draftKey(slug)) return;
+    const draft: RegistrationDraft = {
+      attendee: a,
+      quantities: qty,
+      optedIn,
+      subEvents: subEventSelection,
+      answers,
+    };
+    if (draftHasContent(draft)) saveDraft(slug, draft);
+  }, [restoredFor, slug, a, qty, optedIn, subEventSelection, answers]);
 
   // Custom fields that apply to the currently-selected tickets (deduped).
   const scopedFields = (() => {
@@ -168,6 +336,36 @@ export function RegistrationWizard({
     }
     return [...byId.values()];
   })();
+
+  function missingAnswers(): string[] {
+    return validateRequiredAnswers(
+      scopedFields,
+      Object.entries(answers).map(([fieldId, value]) => ({ fieldId, value })),
+    );
+  }
+
+  /** Organiser questions that were actually answered, for the review step. */
+  const answeredFields = scopedFields
+    .map((field) => ({
+      field,
+      label: locale === "ar" && field.labelAr ? field.labelAr : field.labelEn,
+      value:
+        field.type === "checkbox"
+          ? answers[field.id] === "true"
+            ? "Yes"
+            : ""
+          : (answers[field.id] ?? "").trim(),
+    }))
+    .filter((row) => row.value !== "");
+
+  // The title as it will actually be submitted, so the review block shows the
+  // stored value and never the "Other" sentinel standing in front of it.
+  const reviewTitle = resolveVisibleJobTitle(
+    a.attendeeType === "company",
+    a.jobTitle,
+    a.jobTitleOther,
+  );
+  const confirmedJobTitle = reviewTitle.ok ? reviewTitle.value : null;
 
   // Opt-in categories and the sessions currently visible for that choice. The
   // stepper shape is driven by the full list so it never changes mid-flow.
@@ -198,24 +396,47 @@ export function RegistrationWizard({
   const mainCapReached = totalQty >= ticketsPerUserMain;
   const totalCapReached = totalQty + subQty >= ticketsPerUserTotal;
   const canAddMainTicket = !mainCapReached && !totalCapReached;
+  /** One main ticket per person: a choice among tiers, not a set of counters. */
+  const singleChoice = ticketsPerUserMain === 1;
+  /**
+   * Whether a single choice can be made at all.
+   *
+   * Switching tier frees the one being replaced, so the per-person MAIN cap can
+   * never block it — but the overall cap counts sessions too, and those are
+   * chosen on a later step the attendee can come Back from. Dropping this when
+   * the toggles became radios let a selection exceed ticketsPerUserTotal with
+   * nothing on screen saying so until the server refused the order.
+   */
+  const singleChoiceBlocked = singleChoice && 1 + subQty > ticketsPerUserTotal;
   const seatsRequired = !!seatSections && seatSections.length > 0;
   const seatsSatisfied = !seatsRequired || seatIds.length === totalQty;
 
   function next() {
     setErr(null);
+    setErrField(null);
     if (step === 0) {
-      if (!a.firstName || !a.lastName || !a.email || !a.phone) {
-        setErr("Please complete all required fields.");
-        return;
+      // One field at a time, each named: "complete all required fields" left
+      // the attendee to work out which of eight it meant.
+      if (!a.firstName.trim()) return fail("Enter your first name.", fid.firstName);
+      if (!a.lastName.trim()) return fail("Enter your last name.", fid.lastName);
+      if (!a.email.trim()) return fail("Enter your email address.", fid.email);
+      // The ticket QR is only reachable through the link emailed to this
+      // address, so a malformed one is caught here rather than three steps
+      // later by the server — and said in those terms, because "invalid email"
+      // does not convey what it costs.
+      if (!isValidEmail(a.email)) {
+        return fail(
+          "That email address doesn't look right. Your ticket is sent there, so please check it.",
+          fid.email,
+        );
       }
+      if (!a.phone.trim()) return fail("Enter your phone number.", fid.phone);
       if (attendeeTypeEnabled) {
         if (attendeeTypeRequired && !a.attendeeType) {
-          setErr("Please select an attendee type.");
-          return;
+          return fail("Select an attendee type.", fid.attendeeType);
         }
         if (a.attendeeType === "company" && !a.company.trim()) {
-          setErr("Company name is required.");
-          return;
+          return fail("Enter your company name.", fid.company);
         }
         // Same expression that decides whether the fields render, so the
         // wizard can never demand a title while the control is hidden.
@@ -225,38 +446,47 @@ export function RegistrationWizard({
           a.jobTitleOther,
         );
         if (!title.ok) {
-          setErr(title.error);
-          return;
+          return fail(
+            title.error,
+            a.jobTitle === JOB_TITLE_OTHER ? fid.jobTitleOther : fid.jobTitle,
+          );
         }
       }
     }
     if (step === 1) {
-      if (!hasTickets) {
-        setErr("Select at least one ticket.");
-        return;
-      }
+      if (!hasTickets) return fail("Select at least one ticket to continue.");
       if (!seatsSatisfied) {
-        setErr(`Please select a seat for each ticket (${seatIds.length}/${totalQty}).`);
-        return;
+        return fail(
+          `Select a seat for each ticket (${seatIds.length} of ${totalQty} chosen).`,
+        );
       }
+      const missing = missingAnswers();
+      if (missing.length) return fail(`Please complete: ${missing.join(", ")}`);
     }
     setStep((s) => Math.min(CONFIRM_STEP, s + 1));
   }
 
   async function submit() {
     setErr(null);
-    if (!terms || !privacy || !dataUse) {
-      setErr("You must accept the Terms, the Privacy Policy, and the data-use consent.");
-      return;
+    setErrField(null);
+    // Named individually: three checkboxes and one sentence covering all of
+    // them left the attendee comparing the message against the page.
+    const unaccepted = [
+      !terms && "the Terms and Conditions",
+      !privacy && "the Privacy Policy",
+      !dataUse && "the data-use consent",
+    ].filter((v): v is string => typeof v === "string");
+    if (unaccepted.length) {
+      return fail(`Please accept ${listSentence(unaccepted)} to complete your registration.`);
     }
     if (!seatsSatisfied) {
-      setErr("Please select a seat for each ticket.");
-      return;
+      return fail(`Select a seat for each ticket (${seatIds.length} of ${totalQty} chosen).`);
     }
-    const missing = validateRequiredAnswers(scopedFields, Object.entries(answers).map(([fieldId, value]) => ({ fieldId, value })));
+    // Still checked here: the answers belong to a step the attendee can go
+    // back to, and a required one can be emptied after it was first filled in.
+    const missing = missingAnswers();
     if (missing.length) {
-      setErr(`Please complete: ${missing.join(", ")}`);
-      return;
+      return fail(`Please complete: ${missing.join(", ")}`);
     }
     setBusy(true);
     const scopedAnswers = scopedFields
@@ -266,16 +496,12 @@ export function RegistrationWizard({
       .filter((t) => (qty[t.id] ?? 0) > 0)
       .map((t) => ({ itemId: t.id, quantity: qty[t.id] }));
     const allTickets = [...mainTickets, ...subEventSelection.filter((s) => s.quantity > 0)];
-    // Resolved here so the "Other" sentinel can never leave the form. next()
-    // has already rejected the invalid cases; if resolution still fails, send
-    // no title rather than the sentinel — a blank line beats a badge and a
-    // public profile that both read "Other".
-    const titleResolution = resolveVisibleJobTitle(
-      a.attendeeType === "company",
-      a.jobTitle,
-      a.jobTitleOther,
-    );
-    const jobTitle = titleResolution.ok ? titleResolution.value : null;
+    // The same resolved value the Confirm step showed, so the "Other" sentinel
+    // can never leave the form and what was reviewed is what is submitted.
+    // next() has already rejected the invalid cases; if resolution still fails,
+    // `confirmedJobTitle` is null — a blank line beats a badge and a public
+    // profile that both read "Other".
+    const jobTitle = confirmedJobTitle;
     const res = await registerAction(locale, slug, {
       attendee: {
         firstName: a.firstName,
@@ -297,10 +523,22 @@ export function RegistrationWizard({
       consentDataUse: dataUse,
     });
     setBusy(false);
-    // On success the action redirects; only errors return.
-    if (res?.error) setErr(res.error);
-    if (res?.fieldErrors)
-      setErr(Object.values(res.fieldErrors).flat().join(", "));
+    // On success the action redirects; only errors return. The draft exists to
+    // survive a reload mid-form, not to outlive the registration itself.
+    if (!res) clearDraft(slug);
+    if (res?.error) fail(res.error);
+    if (res?.fieldErrors) {
+      // The server rejected a value the attendee typed on step one, so send
+      // them back to it rather than leaving the message stranded on Confirm.
+      const returnTo = Object.keys(res.fieldErrors).find((k) => k in DETAIL_FIELDS);
+      const message = describeFieldErrors(res.fieldErrors);
+      if (returnTo) {
+        setStep(0);
+        fail(message, fid[DETAIL_FIELDS[returnTo].id]);
+      } else {
+        fail(message);
+      }
+    }
   }
 
   return (
@@ -336,6 +574,31 @@ export function RegistrationWizard({
             {step === 0 && (
               <div className="flex flex-col gap-5">
                 <StepHeader index={0} label={STEPS[0]} />
+                {restoredNotice && (
+                  <p
+                    role="status"
+                    className="rounded-lg border border-border bg-muted/40 px-3 py-2 text-sm"
+                  >
+                    We kept what you had already filled in. You&rsquo;ll still need to
+                    accept the consents at the last step.{" "}
+                    <button
+                      type="button"
+                      className="font-semibold text-primary underline-offset-4 hover:underline"
+                      onClick={() => {
+                        clearDraft(slug);
+                        setA({ ...EMPTY_ATTENDEE });
+                        setQty({});
+                        setOptedIn([]);
+                        setSubEventSelection([]);
+                        setAnswers({});
+                        setSeatIds([]);
+                        setRestoredNotice(false);
+                      }}
+                    >
+                      Start over
+                    </button>
+                  </p>
+                )}
                 <p className="text-xs text-muted-foreground">
                   Fields marked <RequiredMark /> are required.
                 </p>
@@ -350,6 +613,7 @@ export function RegistrationWizard({
                       required
                       aria-required="true"
                       autoComplete="given-name"
+                      {...invalidProps(fid.firstName)}
                       value={a.firstName}
                       onChange={(e) => setA({ ...a, firstName: e.target.value })}
                     />
@@ -364,6 +628,7 @@ export function RegistrationWizard({
                       required
                       aria-required="true"
                       autoComplete="family-name"
+                      {...invalidProps(fid.lastName)}
                       value={a.lastName}
                       onChange={(e) => setA({ ...a, lastName: e.target.value })}
                     />
@@ -380,6 +645,7 @@ export function RegistrationWizard({
                     required
                     aria-required="true"
                     autoComplete="email"
+                    {...invalidProps(fid.email)}
                     value={a.email}
                     onChange={(e) => setA({ ...a, email: e.target.value })}
                   />
@@ -391,6 +657,8 @@ export function RegistrationWizard({
                   <PhoneCountryField
                     id={fid.phone}
                     required
+                    invalid={errField === fid.phone}
+                    describedBy={errField === fid.phone ? fid.error : undefined}
                     cc={a.phoneCC}
                     phone={a.phone}
                     onCc={(v) => setA({ ...a, phoneCC: v })}
@@ -408,6 +676,7 @@ export function RegistrationWizard({
                         id={fid.attendeeType}
                         required={attendeeTypeRequired}
                         aria-required={attendeeTypeRequired || undefined}
+                        {...invalidProps(fid.attendeeType)}
                         className="well h-11 w-full rounded-lg border border-input px-3 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
                         value={a.attendeeType}
                         onChange={(e) =>
@@ -440,6 +709,7 @@ export function RegistrationWizard({
                           required
                           aria-required="true"
                           autoComplete="organization"
+                          {...invalidProps(fid.company)}
                           value={a.company}
                           onChange={(e) => setA({ ...a, company: e.target.value })}
                         />
@@ -450,6 +720,7 @@ export function RegistrationWizard({
                         <Label htmlFor={fid.jobTitle}>Job title (optional)</Label>
                         <select
                           id={fid.jobTitle}
+                          {...invalidProps(fid.jobTitle)}
                           className="well h-11 w-full rounded-lg border border-input px-3 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
                           value={a.jobTitle}
                           onChange={(e) =>
@@ -484,6 +755,7 @@ export function RegistrationWizard({
                           required
                           aria-required="true"
                           maxLength={JOB_TITLE_MAX}
+                          {...invalidProps(fid.jobTitleOther)}
                           autoComplete="organization-title"
                           value={a.jobTitleOther}
                           onChange={(e) => setA({ ...a, jobTitleOther: e.target.value })}
@@ -509,6 +781,16 @@ export function RegistrationWizard({
             {step === 1 && (
               <div className="flex flex-col gap-5">
                 <StepHeader index={1} label={STEPS[1]} />
+                <div
+                  // With a per-person cap of one, this is a single choice among
+                  // the tiers — picking one used to grey out every other, which
+                  // reads as broken until you work out that un-ticking yours
+                  // brings them back. Radio semantics say so outright, and a
+                  // second tap moves the choice instead of being refused.
+                  role={singleChoice ? "radiogroup" : undefined}
+                  aria-label={singleChoice ? "Choose your ticket" : undefined}
+                  className="flex flex-col gap-5"
+                >
                 {tickets.map((t) => (
                   <div
                     key={t.id}
@@ -525,20 +807,21 @@ export function RegistrationWizard({
                         {t.priceCents === 0 ? "Free" : `$${centsToPrice(t.priceCents)}`}
                       </div>
                     </div>
-                    {ticketsPerUserMain === 1 ? (
+                    {singleChoice ? (
                       <button
                         type="button"
-                        role="switch"
+                        role="radio"
                         aria-checked={(qty[t.id] ?? 0) > 0}
                         aria-label={t.title}
-                        // The per-user cap still applies to a toggle: it may
-                        // always be turned OFF, but only turned ON while there
-                        // is allowance left (mirrors the "+" button below).
-                        disabled={!canAddMainTicket && (qty[t.id] ?? 0) === 0}
+                        // Only ever blocked by the TOTAL cap, and only for a
+                        // tier that is not the current choice: giving one up
+                        // always leaves room for another.
+                        disabled={singleChoiceBlocked && (qty[t.id] ?? 0) === 0}
                         onClick={() => {
                           const on = (qty[t.id] ?? 0) > 0;
-                          if (!on && !canAddMainTicket) return;
-                          setQty({ ...qty, [t.id]: on ? 0 : 1 });
+                          if (!on && singleChoiceBlocked) return;
+                          // Choosing replaces whatever was chosen before.
+                          setQty(on ? {} : { [t.id]: 1 });
                         }}
                         className={[
                           "flex size-11 shrink-0 items-center justify-center rounded-full border-2 text-lg transition-colors",
@@ -593,10 +876,16 @@ export function RegistrationWizard({
                     )}
                   </div>
                 ))}
-                {(mainCapReached || totalCapReached) && (
+                </div>
+                {/* The radio version has its own condition rather than no
+                    message at all: a tier that cannot be chosen needs the same
+                    explanation as a "+" that cannot be pressed. */}
+                {(singleChoice
+                  ? singleChoiceBlocked
+                  : mainCapReached || totalCapReached) && (
                   <p className="text-sm text-muted-foreground">
-                    {totalCapReached && !mainCapReached
-                      ? `You can register for up to ${ticketsPerUserTotal} item(s) in total.`
+                    {singleChoice || (totalCapReached && !mainCapReached)
+                      ? `You can register for up to ${ticketsPerUserTotal} item(s) in total — remove a session to change your ticket.`
                       : `You can register for up to ${ticketsPerUserMain} ticket(s) per person.`}
                   </p>
                 )}
@@ -628,7 +917,101 @@ export function RegistrationWizard({
                 {seatSections && seatSections.length > 0 && (
                   <div className="mt-2 rounded-[var(--radius-lg)] border border-border bg-card p-5 shadow-[var(--shadow-1)]">
                     <div className="mb-2 font-medium">Choose your seat(s)</div>
-                    <SeatSelector sections={seatSections} onChange={setSeatIds} />
+                    {/* The map needs to know how many seats this order is for,
+                        so it can say so up front and stop at that number
+                        rather than letting the mismatch surface on Next. */}
+                    <SeatSelector
+                      sections={seatSections}
+                      value={seatIds}
+                      onChange={setSeatIds}
+                      required={totalQty}
+                    />
+                  </div>
+                )}
+
+                {scopedFields.length > 0 && (
+                  <div className="mt-2 flex flex-col gap-4 rounded-[var(--radius-lg)] border border-border bg-card p-5 shadow-[var(--shadow-1)]">
+                    <div className="font-medium">Additional details</div>
+                    {scopedFields.map((f) => {
+                      const label = locale === "ar" && f.labelAr ? f.labelAr : f.labelEn;
+                      const ph = (locale === "ar" ? f.placeholderAr : f.placeholderEn) ?? "";
+                      const help = locale === "ar" ? f.helpTextAr : f.helpTextEn;
+                      const val = answers[f.id] ?? "";
+                      const set = (v: string) => setAnswers((s) => ({ ...s, [f.id]: v }));
+                      // These were the one field group in the wizard with no
+                      // htmlFor/id pair, so every organiser question was
+                      // announced unlabelled.
+                      const fieldId = `${uid}-field-${f.id}`;
+                      const helpId = help ? `${fieldId}-help` : undefined;
+                      const cls =
+                        "well h-11 w-full rounded-lg border border-input px-3 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50";
+                      return (
+                        <div key={f.id} className="flex flex-col gap-1.5">
+                          <Label htmlFor={fieldId}>
+                            {label} {f.required ? <RequiredMark /> : null}
+                          </Label>
+                          {f.type === "textarea" ? (
+                            <textarea
+                              id={fieldId}
+                              className="well w-full rounded-lg border border-input px-3 py-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+                              rows={3}
+                              required={f.required}
+                              aria-required={f.required || undefined}
+                              aria-describedby={helpId}
+                              value={val}
+                              placeholder={ph}
+                              onChange={(e) => set(e.target.value)}
+                            />
+                          ) : f.type === "select" || f.type === "multiselect" ? (
+                            <select
+                              id={fieldId}
+                              className={cls}
+                              required={f.required}
+                              aria-required={f.required || undefined}
+                              aria-describedby={helpId}
+                              value={val}
+                              onChange={(e) => set(e.target.value)}
+                            >
+                              <option value="">Select…</option>
+                              {fieldOptions(f.options).map((o) => (
+                                <option key={o} value={o}>
+                                  {o}
+                                </option>
+                              ))}
+                            </select>
+                          ) : f.type === "checkbox" ? (
+                            <label className="flex min-h-11 items-center gap-2 text-sm">
+                              <input
+                                id={fieldId}
+                                type="checkbox"
+                                className="size-5 accent-[var(--color-primary)]"
+                                aria-describedby={helpId}
+                                checked={val === "true"}
+                                onChange={(e) => set(e.target.checked ? "true" : "")}
+                              />
+                              Yes
+                            </label>
+                          ) : (
+                            <Input
+                              id={fieldId}
+                              className="well h-11"
+                              type={f.type === "email" ? "email" : f.type === "date" ? "date" : "text"}
+                              required={f.required}
+                              aria-required={f.required || undefined}
+                              aria-describedby={helpId}
+                              value={val}
+                              placeholder={ph}
+                              onChange={(e) => set(e.target.value)}
+                            />
+                          )}
+                          {help && (
+                            <p id={helpId} className="text-xs text-muted-foreground">
+                              {help}
+                            </p>
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
 
@@ -681,6 +1064,69 @@ export function RegistrationWizard({
                     />
                   </section>
                 )}
+                {/* The step is called Confirm, so it has to show what there is
+                    to confirm. The email especially: it is the only route to
+                    the ticket QR, and until now it was typed on step one and
+                    never shown again — a typo was unrecoverable and invisible. */}
+                <section className="flex flex-col gap-3">
+                  <Eyebrow>Your details</Eyebrow>
+                  <div className="rounded-[var(--radius-lg)] border border-border bg-card p-5 text-sm shadow-[var(--shadow-1)]">
+                    <dl className="flex flex-col gap-2">
+                      <div className="flex justify-between gap-4">
+                        <dt className="text-muted-foreground">Name</dt>
+                        <dd className="min-w-0 text-end font-medium break-words">
+                          {a.firstName} {a.lastName}
+                        </dd>
+                      </div>
+                      <div className="flex justify-between gap-4">
+                        <dt className="text-muted-foreground">Email</dt>
+                        <dd className="min-w-0 text-end font-medium break-all">{a.email}</dd>
+                      </div>
+                      <div className="flex justify-between gap-4">
+                        <dt className="text-muted-foreground">Phone</dt>
+                        <dd className="min-w-0 text-end font-medium tabular-nums">
+                          {a.phoneCC} {a.phone}
+                        </dd>
+                      </div>
+                      {attendeeTypeEnabled && a.attendeeType && (
+                        <div className="flex justify-between gap-4">
+                          <dt className="text-muted-foreground">Attendee type</dt>
+                          <dd className="min-w-0 text-end font-medium capitalize">
+                            {a.attendeeType}
+                          </dd>
+                        </div>
+                      )}
+                      {a.attendeeType === "company" && a.company.trim() && (
+                        <div className="flex justify-between gap-4">
+                          <dt className="text-muted-foreground">Company</dt>
+                          <dd className="min-w-0 text-end font-medium break-words">
+                            {a.company.trim()}
+                          </dd>
+                        </div>
+                      )}
+                      {confirmedJobTitle && (
+                        <div className="flex justify-between gap-4">
+                          <dt className="text-muted-foreground">Job title</dt>
+                          <dd className="min-w-0 text-end font-medium break-words">
+                            {confirmedJobTitle}
+                          </dd>
+                        </div>
+                      )}
+                    </dl>
+                    <p className="mt-3 border-t border-border pt-3 text-xs text-muted-foreground">
+                      Your ticket is emailed to this address.
+                    </p>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="lg"
+                      className="mt-3 h-11"
+                      onClick={() => setStep(0)}
+                    >
+                      Edit details
+                    </Button>
+                  </div>
+                </section>
                 <div className="rounded-[var(--radius-lg)] border border-border bg-card p-5 text-sm shadow-[var(--shadow-1)]">
                   <div className="font-medium">Order summary</div>
                   {tickets
@@ -709,43 +1155,23 @@ export function RegistrationWizard({
                     <span>{totalCents === 0 ? "Free" : `$${centsToPrice(totalCents)}`}</span>
                   </div>
                 </div>
-                {scopedFields.length > 0 && (
-                  <div className="flex flex-col gap-3 rounded-[var(--radius-lg)] border border-border p-3">
-                    <div className="font-medium">Additional details</div>
-                    {scopedFields.map((f) => {
-                      const label = locale === "ar" && f.labelAr ? f.labelAr : f.labelEn;
-                      const ph = (locale === "ar" ? f.placeholderAr : f.placeholderEn) ?? "";
-                      const help = locale === "ar" ? f.helpTextAr : f.helpTextEn;
-                      const val = answers[f.id] ?? "";
-                      const set = (v: string) => setAnswers((s) => ({ ...s, [f.id]: v }));
-                      const cls = "mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-sm";
-                      return (
-                        <div key={f.id}>
-                          <Label>{label}{f.required ? " *" : ""}</Label>
-                          {f.type === "textarea" ? (
-                            <textarea className={cls} value={val} placeholder={ph} onChange={(e) => set(e.target.value)} />
-                          ) : f.type === "select" || f.type === "multiselect" ? (
-                            <select className={cls} value={val} onChange={(e) => set(e.target.value)}>
-                              <option value="">—</option>
-                              {fieldOptions(f.options).map((o) => <option key={o} value={o}>{o}</option>)}
-                            </select>
-                          ) : f.type === "checkbox" ? (
-                            <label className="mt-1 flex items-center gap-2 text-sm">
-                              <input type="checkbox" checked={val === "true"} onChange={(e) => set(e.target.checked ? "true" : "")} /> Yes
-                            </label>
-                          ) : (
-                            <Input
-                              type={f.type === "email" ? "email" : f.type === "date" ? "date" : "text"}
-                              value={val}
-                              placeholder={ph}
-                              onChange={(e) => set(e.target.value)}
-                            />
-                          )}
-                          {help && <p className="mt-1 text-xs text-muted-foreground">{help}</p>}
-                        </div>
-                      );
-                    })}
-                  </div>
+                {/* Read-only here: these were ASKED on the Tickets step, which
+                    is the first point at which we know which of them apply.
+                    Confirm reviews, it does not collect. */}
+                {answeredFields.length > 0 && (
+                  <section className="flex flex-col gap-3">
+                    <Eyebrow>Additional details</Eyebrow>
+                    <div className="rounded-[var(--radius-lg)] border border-border bg-card p-5 text-sm shadow-[var(--shadow-1)]">
+                      <dl className="flex flex-col gap-2">
+                        {answeredFields.map(({ field, label, value }) => (
+                          <div key={field.id} className="flex justify-between gap-4">
+                            <dt className="text-muted-foreground">{label}</dt>
+                            <dd className="min-w-0 text-end font-medium break-words">{value}</dd>
+                          </div>
+                        ))}
+                      </dl>
+                    </div>
+                  </section>
                 )}
                 <Checkbox checked={terms} onCheckedChange={setTerms}>
                   <span>
@@ -816,7 +1242,7 @@ export function RegistrationWizard({
 
       {/* role="alert" so a validation failure is announced. The region is
           always present so screen readers pick up the change in place. */}
-      <div role="alert" aria-live="assertive" id={fid.error}>
+      <div role="alert" aria-live="assertive" id={fid.error} ref={errorRef} tabIndex={-1}>
         {err && (
           <p className="mt-3 rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm font-medium text-destructive">
             {err}
