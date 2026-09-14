@@ -40,9 +40,16 @@ export function DoorCounters({
     let cancelled = false;
 
     const run = async () => {
-      const next = await counterAction(eventId, listId);
-      // null means the fetch failed. Keep the last known figure: zeros on a
-      // door screen read as "the event has not started".
+      // The action catches its own failures, but a dropped connection rejects
+      // the CALL — which this runs every 30s, so a flaky door network meant an
+      // unhandled rejection per tick, and a dev overlay over the door screen.
+      // Same reasoning as `connectionLost` in the panel.
+      const next = await counterAction(eventId, listId).catch((err: unknown) => {
+        console.error("[door] counterAction call rejected", err);
+        return null;
+      });
+      // null means the figure could not be fetched. Keep the last known one:
+      // zeros on a door screen read as "the event has not started".
       if (!cancelled && next) setCounters(next);
     };
 

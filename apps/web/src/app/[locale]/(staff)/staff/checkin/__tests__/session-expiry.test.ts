@@ -27,6 +27,8 @@ import {
   scanAction,
   reprintAction,
   correctAttendeeAction,
+  attendeeForEditAction,
+  searchAction,
   walkInAndCheckInAction,
 } from "../actions";
 
@@ -58,6 +60,21 @@ describe("an expired session is flagged, not reported as a refusal", () => {
       // And it says what to do, rather than naming a system state.
       expect(res.reason).toMatch(/sign in again/i);
     }
+  });
+
+  it("flags the paths that do not return a CheckInResult", async () => {
+    // Every consumer of this flag has to read it — three of them did not, in
+    // three separate rounds. These two carry their own result shapes, which is
+    // how they were missed.
+    expect(await attendeeForEditAction("evt", "ABCDE")).toEqual({
+      ok: false,
+      authExpired: true,
+      reason: expect.stringMatching(/sign in again/i),
+    });
+    expect(await searchAction("evt", "marven")).toEqual({
+      ok: false,
+      authExpired: true,
+    });
   });
 
   it("does not flag an ordinary refusal", async () => {

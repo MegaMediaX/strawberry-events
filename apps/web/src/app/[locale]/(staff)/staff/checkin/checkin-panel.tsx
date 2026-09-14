@@ -496,6 +496,11 @@ export function CheckinPanel({
         setRows(found.rows);
         setRowsQuery(query);
         setSearchFailed(false);
+        // Nothing else clears the session-ended banner — it is deliberately
+        // sticky — so signing in elsewhere and coming back left both walk-in
+        // paths disabled over working results. A search that answers IS the
+        // evidence the session works again.
+        setResult((cur) => (cur?.kind === "auth" ? null : cur));
       } finally {
         // finally, not the happy path: without this any transient failure
         // leaves "Searching…" on screen forever, with no error and no recovery.
@@ -925,6 +930,14 @@ export function CheckinPanel({
                   const who = `${input.firstName} ${input.lastName}`.trim();
                   void walkInAndCheckInAction(eventId, input, listId)
                     .then((res) => {
+                      if (res.authExpired) {
+                        // The person in front of the operator is fine; the
+                        // door is not. Reported as a refusal, this was the
+                        // red STOP banner against a real attendee, with no
+                        // route back to a sign-in.
+                        showSessionEnded(res.reason);
+                        return;
+                      }
                       if (!res.ok) {
                         setResult({ kind: "err", name: who, detail: res.reason ?? "Could not register." });
                         return;
@@ -1046,6 +1059,13 @@ export function CheckinPanel({
             const orderCode = editing.orderCode;
             void correctAttendeeAction(eventId, orderCode, patch)
               .then((res) => {
+                // openEdit already routes this correctly; without the same
+                // check here, opening the dialog and saving it behaved
+                // differently on an expired session.
+                if (res.authExpired) {
+                  showSessionEnded(res.reason);
+                  return;
+                }
                 if (!res.ok) {
                   setResult({ kind: "err", name: patch.fullName, detail: res.reason ?? "Could not save." });
                   return;
@@ -1060,6 +1080,13 @@ export function CheckinPanel({
                 // happened to be open by then — discarding an unrelated edit.
                 setEditing((cur) => (cur?.orderCode === orderCode ? null : cur));
                 return reprintAction(eventId, orderCode).then((printed) => {
+                  if (printed.authExpired) {
+                    // Not "no badge printed": the correction saved and the
+                    // session ended. A yellow warning here sent the operator
+                    // looking at the printer.
+                    showSessionEnded(printed.reason);
+                    return;
+                  }
                   if (!printed.ok) {
                     setResult({
                       kind: "warn",
