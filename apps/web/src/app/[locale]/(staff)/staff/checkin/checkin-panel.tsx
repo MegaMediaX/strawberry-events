@@ -15,6 +15,11 @@ import { PrinterSettings } from "./printer-settings";
 import { PrinterStatus } from "./printer-status";
 import { ResultBanner, type DoorResult } from "./result-banner";
 import { bumpDoorCount } from "./door-counters";
+import {
+  loadRecent,
+  saveRecent,
+  type RecentEntry,
+} from "@/lib/checkin/recent-store";
 import { AttendeeEditDialog, type EditTarget } from "./attendee-edit";
 import { DoorWalkInForm, type DoorTicket } from "./door-walk-in";
 import { decideEnter, looksScannable } from "@/lib/checkin/scan-shape";
@@ -67,14 +72,6 @@ const RECENT_LIMIT = 3;
 // the longer timer was half of what made the strip resize under the cursor.
 const OK_BANNER_MS = 5000;
 
-type RecentEntry = {
-  id: number;
-  orderCode: string;
-  name: string;
-  kind: "in" | "reprint";
-  at: string;
-};
-
 function toBadge(b: NonNullable<CheckInResult["badge"]>): BadgeData {
   return {
     tag: b.tag,
@@ -125,6 +122,9 @@ export function CheckinPanel({
   const [badge, setBadge] = useState<BadgeData | null>(null);
   const [browserFallback, setBrowserFallback] = useState(false);
   const [recent, setRecent] = useState<RecentEntry[]>([]);
+  // Set once the stored list has been put back, so the save effect below does
+  // not write an empty list over it on first render.
+  const [recentRestored, setRecentRestored] = useState(false);
   const [confirmReprint, setConfirmReprint] = useState<
     { orderCode: string; fullName: string } | null
   >(null);
@@ -505,6 +505,29 @@ export function CheckinPanel({
     }
   }, [editing, walkIn]);
 
+  /* ------------------------------------------------ recent list persistence */
+
+  useEffect(() => {
+    const stored = loadRecent(eventId, listId);
+    if (stored.length) {
+      /* eslint-disable-next-line react-hooks/set-state-in-effect --
+         sessionStorage does not exist during SSR, so seeding this with a lazy
+         initializer would make the server render an empty list and the client
+         a full one — a hydration mismatch. Restoring after mount is the
+         correct shape, as it is for the registration draft. */
+      setRecent(stored);
+      // Keep the id counter ahead of what was restored, or the next admission
+      // reuses an id and React keys two different rows the same.
+      recentId.current = Math.max(...stored.map((r) => r.id));
+    }
+    setRecentRestored(true);
+  }, [eventId, listId]);
+
+  useEffect(() => {
+    if (!recentRestored) return;
+    saveRecent(eventId, listId, recent);
+  }, [recentRestored, eventId, listId, recent]);
+
   /* --------------------------------------------------- success auto-clear */
 
   useEffect(() => {
@@ -678,6 +701,18 @@ export function CheckinPanel({
                     </li>
                   ))}
                 </ul>
+                {/* Said where it is needed and nowhere else: on the list an
+                    operator opens when something has just gone wrong.
+                    A check-in cannot be reversed from this screen — the code
+                    has said so to itself for a while (see lib/checkin/service)
+                    and the interface said nothing, which left the operator to
+                    invent a fallback in front of a queue. Whether a supervisor
+                    reversal should exist is a product decision; naming the
+                    fallback is not. */}
+                <p className="mt-2 text-[12px] text-muted-foreground">
+                  Fix corrects what is printed. Checked in the wrong person? That cannot
+                  be undone here — note the order code and tell the organiser.
+                </p>
               </section>
     ) : null;
 

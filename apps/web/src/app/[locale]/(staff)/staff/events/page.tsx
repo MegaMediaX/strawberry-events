@@ -1,8 +1,7 @@
 import Link from "next/link";
 import { setRequestLocale } from "next-intl/server";
 import { getSessionContext } from "@/lib/auth/session";
-import { prisma } from "@/lib/db/client";
-import { scopeWhere, canAccessEvent } from "@/lib/auth/org-scope";
+import { listStaffEvents } from "../_components/event-picker";
 
 export const dynamic = "force-dynamic";
 
@@ -15,12 +14,7 @@ export default async function StaffEventsPage({
   setRequestLocale(locale);
   const session = await getSessionContext();
 
-  const all = session
-    ? await prisma.eventMapping.findMany({ where: scopeWhere(session), orderBy: { createdAt: "desc" } })
-    : [];
-  const events = session
-    ? all.filter((e) => canAccessEvent(session, e.organizationId, e.localEventId))
-    : [];
+  const events = session ? await listStaffEvents(session) : [];
 
   return (
     <div className="mx-auto max-w-2xl">

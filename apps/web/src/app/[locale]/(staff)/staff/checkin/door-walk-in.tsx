@@ -3,15 +3,13 @@
 import { useEffect, useId, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { BADGE_TAGS, BADGE_TAG_LABEL, ROLE_OTHER, ROLE_LABEL_MAX, resolveRoleLabel, type BadgeTagValue } from "@/lib/badges/tags";
 import {
-  JOB_TITLE_MAX,
-  JOB_TITLE_OTHER,
-  JOB_TITLE_PRESETS,
-  resolveJobTitleSelection,
-} from "@/lib/registration/job-title";
+  AttendeeFields,
+  EMPTY_WALK_IN_ATTENDEE,
+  resolveWalkInAttendee,
+  type WalkInAttendee,
+} from "@/components/staff/attendee-fields";
 import type { DoorWalkIn } from "./actions";
 
 export interface DoorTicket {
@@ -26,6 +24,13 @@ export interface DoorTicket {
  * best attempt at the name — retyping it is the friction this whole panel
  * exists to remove. Everything after the first word is the surname, because
  * "Abdel Rahman Al-Hassan" is one family name, not three middle names.
+ *
+ * NOT the same rule as `splitName` in lib/registration/names.ts, and not to be
+ * merged with it. That one serves roster imports: it strips honorifics and
+ * repeats a single token into the family name, because pretix rejects an empty
+ * one and a roster row has nobody to ask. Here a single token leaves the
+ * surname EMPTY on purpose — the person is standing in front of the operator,
+ * and the form asking for their surname is the right outcome.
  */
 export function splitName(query: string): { firstName: string; lastName: string } {
   const parts = query.trim().split(/\s+/).filter(Boolean);
@@ -37,9 +42,12 @@ export function splitName(query: string): { firstName: string; lastName: string 
 /**
  * Register someone at the door and admit them, without leaving the screen.
  *
- * Company and job title are here because an exhibitor's badge is worth as much
- * as an attendee's, and the walk-in desk was the one place they could not be
- * captured without a second visit to a different page.
+ * The attendee fields themselves live in `components/staff/attendee-fields`,
+ * shared with the walk-in desk: the two forms register the same person into
+ * the same system and had drifted apart on how a job title and a badge role
+ * are resolved. What is still here is what the DOOR does differently — it
+ * prefills from the search box, registers and checks in and prints in one go,
+ * and hands Escape back to the panel.
  */
 export function DoorWalkInForm({
   prefill,
@@ -55,24 +63,12 @@ export function DoorWalkInForm({
   onSubmit: (input: DoorWalkIn) => void;
 }) {
   const uid = useId();
-  const fid = {
-    first: `${uid}-first`, last: `${uid}-last`, email: `${uid}-email`,
-    cc: `${uid}-cc`, phone: `${uid}-phone`, company: `${uid}-company`,
-    title: `${uid}-title`, other: `${uid}-other`, role: `${uid}-role`,
-    roleOther: `${uid}-role-other`, ticket: `${uid}-ticket`,
-  };
+  const ticketId = `${uid}-ticket`;
 
-  const split = splitName(prefill);
-  const [firstName, setFirstName] = useState(split.firstName);
-  const [lastName, setLastName] = useState(split.lastName);
-  const [email, setEmail] = useState("");
-  const [cc, setCc] = useState("+961");
-  const [phone, setPhone] = useState("");
-  const [company, setCompany] = useState("");
-  const [title, setTitle] = useState("");
-  const [other, setOther] = useState("");
-  const [role, setRole] = useState<BadgeTagValue>("visitor");
-  const [roleOther, setRoleOther] = useState("");
+  const [attendee, setAttendee] = useState<WalkInAttendee>(() => ({
+    ...EMPTY_WALK_IN_ATTENDEE,
+    ...splitName(prefill),
+  }));
   const [itemId, setItemId] = useState<number | "">(tickets[0]?.id ?? "");
   const [err, setErr] = useState<string | null>(null);
 
@@ -94,40 +90,31 @@ export function DoorWalkInForm({
     return () => window.removeEventListener("keydown", onKey);
   }, [onCancel, busy]);
 
-  // The job title only makes sense against an employer, matching the public
-  // form and the walk-in desk.
-  const showTitle = company.trim() !== "";
-
   function submit() {
     // Guard the handler itself, not just the disabled attribute: a double-tap
     // fires twice before React commits `disabled`, and this one creates a real
     // pretix order.
     if (busy) return;
     setErr(null);
-    if (!firstName.trim() || !lastName.trim()) return setErr("First and last name are required.");
     if (itemId === "") return setErr("Choose a ticket type.");
-    const resolved = resolveJobTitleSelection(showTitle ? title : "", other);
+    // The server re-checks all of this, but an operator should see the message
+    // here rather than after a round trip with someone waiting.
+    const resolved = resolveWalkInAttendee(attendee);
     if (!resolved.ok) return setErr(resolved.error);
-    // Same shape as the job title above, and validated in the same place: the
-    // server re-checks it, but an operator should see the message here rather
-    // than after a round trip with someone waiting.
-    const resolvedRole = resolveRoleLabel(role, roleOther);
-    if (!resolvedRole.ok) return setErr(resolvedRole.error);
+    const a = resolved.value;
     onSubmit({
-      firstName: firstName.trim(),
-      lastName: lastName.trim(),
-      email: email.trim() || undefined,
-      phoneCC: cc.trim() || undefined,
-      phone: phone.trim() || undefined,
-      company: company.trim() || null,
-      jobTitle: resolved.value,
-      roleTag: role,
-      roleLabel: resolvedRole.value,
+      firstName: a.firstName,
+      lastName: a.lastName,
+      email: a.email || undefined,
+      phoneCC: a.phoneCC || undefined,
+      phone: a.phone || undefined,
+      company: a.company,
+      jobTitle: a.jobTitle,
+      roleTag: a.roleTag,
+      roleLabel: a.roleLabel,
       itemId: Number(itemId),
     });
   }
-
-  const field = "h-12 text-[16px]";
 
   return (
     <div className="mt-3 rounded-xl border border-border bg-card p-4">
@@ -136,128 +123,30 @@ export function DoorWalkInForm({
         Registers, admits and prints a badge in one go.
       </p>
 
-      <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
-        <div className="flex flex-col gap-1.5">
-          <Label htmlFor={fid.first}>First name</Label>
-          <Input ref={firstRef} id={fid.first} className={field} value={firstName}
-            onChange={(e) => setFirstName(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && submit()}
-          />
-        </div>
-        <div className="flex flex-col gap-1.5">
-          <Label htmlFor={fid.last}>Last name</Label>
-          <Input id={fid.last} className={field} value={lastName}
-            onChange={(e) => setLastName(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && submit()}
-          />
-        </div>
+      <div className="mt-4 flex flex-col gap-3">
+        <AttendeeFields
+          value={attendee}
+          onChange={setAttendee}
+          size="door"
+          firstFieldRef={firstRef}
+          onEnterSubmit={submit}
+        />
 
         <div className="flex flex-col gap-1.5">
-          <Label htmlFor={fid.company}>Company (optional)</Label>
-          <Input id={fid.company} className={field} value={company}
-            onChange={(e) => {
-              setCompany(e.target.value);
-              // Clearing the company clears the title held behind it, so a
-              // selection cannot reappear against a different employer.
-              if (!e.target.value.trim()) { setTitle(""); setOther(""); }
-            }}
-            onKeyDown={(e) => e.key === "Enter" && submit()}
-          />
-        </div>
-
-        {showTitle && (
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor={fid.title}>Job title (optional)</Label>
-            <select id={fid.title}
-              className="h-12 w-full rounded-lg border border-input bg-transparent px-3 text-[16px]"
-              value={title}
-              onChange={(e) => { setTitle(e.target.value); if (e.target.value !== JOB_TITLE_OTHER) setOther(""); }}
-            >
-              <option value="">Select…</option>
-              {JOB_TITLE_PRESETS.map((pre) => <option key={pre} value={pre}>{pre}</option>)}
-              <option value={JOB_TITLE_OTHER}>{JOB_TITLE_OTHER}</option>
-            </select>
-          </div>
-        )}
-
-        {showTitle && title === JOB_TITLE_OTHER && (
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor={fid.other}>Their job title</Label>
-            <Input id={fid.other} className={field} maxLength={JOB_TITLE_MAX} value={other}
-              onChange={(e) => setOther(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && submit()}
-          />
-          </div>
-        )}
-
-        <div className="flex flex-col gap-1.5">
-          <Label htmlFor={fid.role}>Badge role</Label>
-          <select id={fid.role}
+          <Label htmlFor={ticketId}>Ticket</Label>
+          <select
+            id={ticketId}
             className="h-12 w-full rounded-lg border border-input bg-transparent px-3 text-[16px]"
-            value={role} onChange={(e) => setRole(e.target.value as BadgeTagValue)}
-          >
-            {BADGE_TAGS.map((t) => <option key={t} value={t}>{BADGE_TAG_LABEL[t]}</option>)}
-          </select>
-        </div>
-
-        {/* Revealed by the selection, like the job title's Other box. The text
-            SURVIVES switching away and back, and that is fine here in a way it
-            was not for the job title: this box appears because the operator
-            picked Other, so seeing their own text again is expected. The job
-            title's box appears when an unrelated field (company) becomes
-            non-empty, which is why that one needs jobTitleForCompanyChange to
-            clear it. Either way nothing leaks: resolveRoleLabel returns null
-            for every role that is not Other, so a value left in this box is
-            never stored. */}
-        {role === ROLE_OTHER && (
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor={fid.roleOther}>Role to print on the badge</Label>
-            <Input
-              id={fid.roleOther}
-              className={field}
-              value={roleOther}
-              maxLength={ROLE_LABEL_MAX}
-              placeholder="e.g. Accelerator"
-              onChange={(e) => setRoleOther(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && submit()}
-            />
-            <p className="text-[12px] text-muted-foreground">
-              Printed in upper case across the badge. {ROLE_LABEL_MAX} characters max.
-            </p>
-          </div>
-        )}
-
-        <div className="flex flex-col gap-1.5">
-          <Label htmlFor={fid.ticket}>Ticket</Label>
-          <select id={fid.ticket}
-            className="h-12 w-full rounded-lg border border-input bg-transparent px-3 text-[16px]"
-            value={itemId} onChange={(e) => setItemId(e.target.value === "" ? "" : Number(e.target.value))}
+            value={itemId}
+            onChange={(e) => setItemId(e.target.value === "" ? "" : Number(e.target.value))}
           >
             {tickets.length === 0 && <option value="">— none available —</option>}
-            {tickets.map((t) => <option key={t.id} value={t.id}>{t.title}</option>)}
+            {tickets.map((t) => (
+              <option key={t.id} value={t.id}>
+                {t.title}
+              </option>
+            ))}
           </select>
-        </div>
-
-        <div className="flex flex-col gap-1.5">
-          <Label htmlFor={fid.email}>Email (optional)</Label>
-          <Input id={fid.email} type="email" className={field} value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && submit()}
-          />
-        </div>
-
-        <div className="flex flex-col gap-1.5">
-          <Label htmlFor={fid.phone}>Phone (optional)</Label>
-          <div className="flex gap-2">
-            <Input id={fid.cc} aria-label="Country code" className="h-12 w-24 text-[16px]"
-              value={cc} onChange={(e) => setCc(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && submit()}
-          />
-            <Input id={fid.phone} className="h-12 flex-1 text-[16px]" value={phone}
-              onChange={(e) => setPhone(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && submit()}
-          />
-          </div>
         </div>
       </div>
 
@@ -271,7 +160,12 @@ export function DoorWalkInForm({
         <Button className="min-h-12 px-5 text-[15px]" onClick={submit} disabled={busy}>
           {busy ? "Registering…" : "Register, check in & print"}
         </Button>
-        <Button variant="outline" className="min-h-12 px-5 text-[15px]" onClick={onCancel} disabled={busy}>
+        <Button
+          variant="outline"
+          className="min-h-12 px-5 text-[15px]"
+          onClick={onCancel}
+          disabled={busy}
+        >
           Cancel
         </Button>
       </div>

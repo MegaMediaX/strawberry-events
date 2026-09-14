@@ -5,15 +5,27 @@ import { scopeWhere, canAccessEvent } from "@/lib/auth/org-scope";
 import type { SessionContext } from "@/lib/auth/types";
 
 /**
+ * The events this staff member can open.
+ *
+ * Two-stage on purpose: `scopeWhere` narrows to the organisations the session
+ * can see, `canAccessEvent` then applies the per-event grants a check-in
+ * account is usually limited by. One function, so the picker and the events
+ * list cannot come to different answers about what "assigned to you" means.
+ */
+export async function listStaffEvents(session: SessionContext) {
+  const all = await prisma.eventMapping.findMany({
+    where: scopeWhere(session),
+    orderBy: { createdAt: "desc" },
+  });
+  return all.filter((e) => canAccessEvent(session, e.organizationId, e.localEventId));
+}
+
+/**
  * The events this staff member can open, as a list of links into one tool.
  *
  * Extracted because the check-in route needed it and two copies of this query
  * already existed: a third would have been the point at which they started
  * disagreeing about what "assigned to you" means.
- *
- * The filtering is two-stage on purpose — `scopeWhere` narrows to the
- * organisations the session can see, `canAccessEvent` then applies the
- * per-event grants that a check-in account is usually limited by.
  */
 export async function StaffEventPicker({
   session,
@@ -29,11 +41,7 @@ export async function StaffEventPicker({
   title: string;
   hint: string;
 }) {
-  const all = await prisma.eventMapping.findMany({
-    where: scopeWhere(session),
-    orderBy: { createdAt: "desc" },
-  });
-  const events = all.filter((e) => canAccessEvent(session, e.organizationId, e.localEventId));
+  const events = await listStaffEvents(session);
 
   return (
     <div className="mx-auto max-w-2xl">
