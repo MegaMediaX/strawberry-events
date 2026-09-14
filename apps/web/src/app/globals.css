@@ -74,6 +74,10 @@
 
   /* Brand extras */
   --brand-success: #16a34a;
+  /* Same green, dark enough to BE TEXT. #16a34a is a fill colour: as 10px
+     uppercase on the cream ground it lands at ~3.0:1, under the 4.5:1 floor.
+     Use --brand-success for bars and swatches, this one for words. */
+  --brand-success-text: #12703a;
   --brand-amber: #d97706;
   --brand-danger: #dc2626;
   --gradient-hero: linear-gradient(135deg, #b10b0b 0%, #2c3338 100%);
@@ -112,6 +116,9 @@
 
 .dark {
   /* Marven dark — charcoal canvas, strawberry red accent */
+  /* Light enough to read on the charcoal ground, where the light-mode text
+     tone would sit at ~2:1. */
+  --brand-success-text: #4ade80;
   --background: #1d2327;
   --foreground: #f7f4f1;
   --card: #2c3338;

@@ -3,6 +3,7 @@ import { setRequestLocale } from "next-intl/server";
 import { getOrderByToken } from "@/lib/registration/access";
 import { toAttendeeView } from "@/lib/registration/attendee-view";
 import { getSessionContext } from "@/lib/auth/session";
+import { getEventDateRange } from "@/lib/events/date-range";
 import { AttendeeStateView } from "@/components/public/attendee-state-view";
 import { ClaimBanner } from "./claim-banner";
 
@@ -26,6 +27,7 @@ export default async function GuestTicketPage({
    * saw before — the ticket, and a sentence about accounts.
    */
   const session = await getSessionContext();
+  const schedule = await getEventDateRange(order.eventMappingId);
 
   // The only surface allowed to render the pretix secret QR: reaching here
   // required a valid HMAC over the order code, which cannot be produced without
@@ -41,7 +43,9 @@ export default async function GuestTicketPage({
         alreadyMine={Boolean(session && order.userId === session.userId)}
       />
       <AttendeeStateView
-        order={toAttendeeView(order, { revealSecret: true })}
+        locale={locale}
+        eventSlug={order.eventMapping.pretixEventSlug}
+        order={toAttendeeView(order, { revealSecret: true, schedule })}
         canRevealTicket
       />
     </>

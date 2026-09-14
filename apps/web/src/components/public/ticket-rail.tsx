@@ -51,7 +51,7 @@ export function TicketRail({
             </span>
             <span className="ms-4 shrink-0 font-semibold text-foreground">
               {t.priceCents === 0 ? (
-                <span className="text-emerald-600 dark:text-emerald-400">Free</span>
+                <span className="text-[var(--brand-success-text)]">Free</span>
               ) : (
                 `$${centsToPrice(t.priceCents)}`
               )}

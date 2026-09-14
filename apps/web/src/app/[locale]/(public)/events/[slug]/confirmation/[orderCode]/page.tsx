@@ -6,6 +6,7 @@ import { allowOrderCodeLookup } from "@/lib/security/order-lookup";
 import { AttendeeStateView } from "@/components/public/attendee-state-view";
 import { TooManyRequests } from "@/components/public/too-many-requests";
 import { ResendTicketLink } from "@/components/public/resend-ticket-link";
+import { getEventDateRange } from "@/lib/events/date-range";
 
 export const dynamic = "force-dynamic";
 
@@ -31,9 +32,13 @@ export default async function ConfirmationPage({
   // Issued orders get the "email me my link" recovery path instead; pending
   // approval and pending payment have no ticket to show either way, so those
   // states (and the links already in attendees' inboxes) are unaffected.
+  const schedule = await getEventDateRange(order.eventMappingId);
+
   return (
     <AttendeeStateView
-      order={toAttendeeView(order, { revealSecret: false })}
+      locale={locale}
+      eventSlug={slug}
+      order={toAttendeeView(order, { revealSecret: false, schedule })}
       ticketRecovery={<ResendTicketLink slug={slug} orderCode={orderCode} />}
     />
   );

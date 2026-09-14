@@ -38,6 +38,14 @@ export interface AttendeeView {
     /** Optional, matching the shape the component already accepted. */
     whatsappChannelUrl?: string | null;
   } & EventLocation;
+  /**
+   * When the event runs, as ISO strings.
+   *
+   * Not read off the order row: the dates come from the sub-event schedule and
+   * are passed in by the route. A ticket that does not say when the event is
+   * fails at the one moment it is opened for.
+   */
+  schedule?: { from: string; to: string | null } | null;
 }
 
 /** The subset of an order row this projection reads. */
@@ -65,7 +73,18 @@ interface OrderRow {
  */
 export function toAttendeeView(
   order: OrderRow,
-  { revealSecret }: { revealSecret: boolean },
+  {
+    revealSecret,
+    schedule = null,
+  }: {
+    revealSecret: boolean;
+    /**
+     * Event dates, resolved by the route. `from` may be null — an event with
+     * no sessions has no schedule to show, and the view renders nothing rather
+     * than inventing one.
+     */
+    schedule?: { from: Date | string | null; to: Date | string | null } | null;
+  },
 ): AttendeeView {
   const view: AttendeeView = {
     orderCode: order.orderCode,
@@ -84,6 +103,13 @@ export function toAttendeeView(
       longitude: order.eventMapping.longitude,
     },
   };
+
+  if (schedule?.from) {
+    view.schedule = {
+      from: new Date(schedule.from).toISOString(),
+      to: schedule.to ? new Date(schedule.to).toISOString() : null,
+    };
+  }
 
   if (revealSecret && order.pretixSecret) {
     view.pretixSecret = order.pretixSecret;

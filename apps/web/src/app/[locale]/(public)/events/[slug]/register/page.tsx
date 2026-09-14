@@ -60,6 +60,12 @@ export default async function RegisterPage({
   }
 
   const title = locale === "ar" && data.event.titleAr ? data.event.titleAr : data.event.titleEn;
+  // The detail page picks the localized blurb; this one printed descriptionEn
+  // unconditionally. Same rule in both places now.
+  const blurb =
+    (locale === "ar" && data.event.descriptionAr
+      ? data.event.descriptionAr
+      : data.event.descriptionEn) || null;
 
   const coverUrl = data.event.coverImagePath
     ? coverImageUrl(data.event.coverImagePath)
@@ -169,9 +175,7 @@ export default async function RegisterPage({
             all ~390px of it inline pushes the first form field below the fold
             on an 812px viewport; cutting it off loses event copy the organiser
             wrote. The text is always in the DOM — only the clamp is visual. */}
-        {data.event.descriptionEn && (
-          <ExpandableText className="mt-1" text={data.event.descriptionEn} lines={3} />
-        )}
+        {blurb && <ExpandableText className="mt-1" text={blurb} lines={3} />}
       </header>
       <RegistrationWizard
         locale={locale}

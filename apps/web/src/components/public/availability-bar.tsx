@@ -25,7 +25,7 @@ export function AvailabilityBar({
   total: number | null;
 }) {
   const state = capacityState(sold, total);
-  const pct = total && total > 0 ? Math.min(100, (sold / total) * 100) : 8;
+  const pct = total && total > 0 ? Math.min(100, (sold / total) * 100) : 0;
   const left = total ? Math.max(0, total - sold) : 0;
 
   // Fill-on-mount animation, guarded for reduced motion.
@@ -40,18 +40,29 @@ export function AvailabilityBar({
     return () => cancelAnimationFrame(id);
   }, [pct]);
 
+  // With no capacity there is no progress to draw. The bar used to fill to a
+  // hardcoded 8% and report aria-valuenow="8" under "Open registration" — a
+  // scarcity signal derived from nothing.
+  if (!total) {
+    return <p className="text-xs text-muted-foreground">Open registration</p>;
+  }
+
   return (
     <div>
       <div
         className="h-1.5 w-full overflow-hidden rounded-full"
         style={{ background: "var(--border)" }}
         role="progressbar"
+        aria-label="Tickets sold"
         aria-valuenow={Math.round(pct)}
         aria-valuemin={0}
         aria-valuemax={100}
+        aria-valuetext={LABEL[state](left)}
       >
         <div
-          className={state === "almost_full" ? "animate-pulse" : ""}
+          // motion-reduce: the "almost full" pulse ran forever regardless of
+          // the preference the width transition right beside it respects.
+          className={state === "almost_full" ? "animate-pulse motion-reduce:animate-none" : ""}
           style={{
             width: `${reduced ? pct : w}%`,
             height: "100%",
@@ -63,9 +74,7 @@ export function AvailabilityBar({
           }}
         />
       </div>
-      <p className="mt-1 text-xs text-muted-foreground">
-        {total ? LABEL[state](left) : "Open registration"}
-      </p>
+      <p className="mt-1 text-xs text-muted-foreground">{LABEL[state](left)}</p>
     </div>
   );
 }

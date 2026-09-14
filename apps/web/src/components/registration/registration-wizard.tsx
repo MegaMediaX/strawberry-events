@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { stepMotion } from "@/lib/motion";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -14,6 +14,13 @@ import { PhoneCountryField } from "./phone-country-field";
 import { SeatSelector } from "@/components/seats/seat-selector";
 import { getFieldsForTicket, validateRequiredAnswers, fieldOptions, type FieldDef } from "@/lib/forms/fields";
 import { isValidEmail } from "@/lib/registration/email";
+import {
+  clearDraft,
+  draftHasContent,
+  loadDraft,
+  saveDraft,
+  type RegistrationDraft,
+} from "@/lib/registration/draft";
 import { registerAction } from "@/app/[locale]/(public)/events/[slug]/register/actions";
 import { SubEventPicker, type SubEventItem, type SubEventSelection } from "./sub-event-picker";
 import {
@@ -239,6 +246,45 @@ export function RegistrationWizard({
   // The organiser's data-protection consent, worded by them and shown verbatim.
   const [dataUse, setDataUse] = useState(false);
   const [answers, setAnswers] = useState<Record<string, string>>({});
+  // Set once a restored draft has been put back, so the save effect below does
+  // not write the empty initial state over it on first render.
+  const [restored, setRestored] = useState(false);
+  const [restoredNotice, setRestoredNotice] = useState(false);
+
+  useEffect(() => {
+    const draft = loadDraft(slug);
+    if (draft && draftHasContent(draft)) {
+      /* eslint-disable react-hooks/set-state-in-effect --
+         The draft lives in sessionStorage, which does not exist during SSR.
+         Seeding these with a lazy initializer would make the server render the
+         empty form and the client render the restored one, which is a
+         hydration mismatch; restoring after mount is the correct shape here.
+         Same reasoning as the Toaster's subscribe-and-sync effect. */
+      setA(draft.attendee);
+      setQty(draft.quantities);
+      setOptedIn(draft.optedIn);
+      setSubEventSelection(draft.subEvents);
+      setAnswers(draft.answers);
+      // Said out loud: fields that fill themselves in with no explanation read
+      // as someone else's session, not as your own work coming back.
+      setRestoredNotice(true);
+      /* eslint-enable react-hooks/set-state-in-effect */
+    }
+    setRestored(true);
+    // Consents are never restored — see lib/registration/draft.ts.
+  }, [slug]);
+
+  useEffect(() => {
+    if (!restored) return;
+    const draft: RegistrationDraft = {
+      attendee: a,
+      quantities: qty,
+      optedIn,
+      subEvents: subEventSelection,
+      answers,
+    };
+    if (draftHasContent(draft)) saveDraft(slug, draft);
+  }, [restored, slug, a, qty, optedIn, subEventSelection, answers]);
 
   // Custom fields that apply to the currently-selected tickets (deduped).
   const scopedFields = (() => {
@@ -250,6 +296,27 @@ export function RegistrationWizard({
     }
     return [...byId.values()];
   })();
+
+  function missingAnswers(): string[] {
+    return validateRequiredAnswers(
+      scopedFields,
+      Object.entries(answers).map(([fieldId, value]) => ({ fieldId, value })),
+    );
+  }
+
+  /** Organiser questions that were actually answered, for the review step. */
+  const answeredFields = scopedFields
+    .map((field) => ({
+      field,
+      label: locale === "ar" && field.labelAr ? field.labelAr : field.labelEn,
+      value:
+        field.type === "checkbox"
+          ? answers[field.id] === "true"
+            ? "Yes"
+            : ""
+          : (answers[field.id] ?? "").trim(),
+    }))
+    .filter((row) => row.value !== "");
 
   // The title as it will actually be submitted, so the review block shows the
   // stored value and never the "Other" sentinel standing in front of it.
@@ -289,6 +356,8 @@ export function RegistrationWizard({
   const mainCapReached = totalQty >= ticketsPerUserMain;
   const totalCapReached = totalQty + subQty >= ticketsPerUserTotal;
   const canAddMainTicket = !mainCapReached && !totalCapReached;
+  /** One main ticket per person: a choice among tiers, not a set of counters. */
+  const singleChoice = ticketsPerUserMain === 1;
   const seatsRequired = !!seatSections && seatSections.length > 0;
   const seatsSatisfied = !seatsRequired || seatIds.length === totalQty;
 
@@ -341,6 +410,8 @@ export function RegistrationWizard({
           `Select a seat for each ticket (${seatIds.length} of ${totalQty} chosen).`,
         );
       }
+      const missing = missingAnswers();
+      if (missing.length) return fail(`Please complete: ${missing.join(", ")}`);
     }
     setStep((s) => Math.min(CONFIRM_STEP, s + 1));
   }
@@ -361,7 +432,9 @@ export function RegistrationWizard({
     if (!seatsSatisfied) {
       return fail(`Select a seat for each ticket (${seatIds.length} of ${totalQty} chosen).`);
     }
-    const missing = validateRequiredAnswers(scopedFields, Object.entries(answers).map(([fieldId, value]) => ({ fieldId, value })));
+    // Still checked here: the answers belong to a step the attendee can go
+    // back to, and a required one can be emptied after it was first filled in.
+    const missing = missingAnswers();
     if (missing.length) {
       return fail(`Please complete: ${missing.join(", ")}`);
     }
@@ -400,7 +473,9 @@ export function RegistrationWizard({
       consentDataUse: dataUse,
     });
     setBusy(false);
-    // On success the action redirects; only errors return.
+    // On success the action redirects; only errors return. The draft exists to
+    // survive a reload mid-form, not to outlive the registration itself.
+    if (!res) clearDraft(slug);
     if (res?.error) fail(res.error);
     if (res?.fieldErrors) {
       // The server rejected a value the attendee typed on step one, so send
@@ -449,6 +524,40 @@ export function RegistrationWizard({
             {step === 0 && (
               <div className="flex flex-col gap-5">
                 <StepHeader index={0} label={STEPS[0]} />
+                {restoredNotice && (
+                  <p
+                    role="status"
+                    className="rounded-lg border border-border bg-muted/40 px-3 py-2 text-sm"
+                  >
+                    We kept what you had already filled in. You&rsquo;ll still need to
+                    accept the consents at the last step.{" "}
+                    <button
+                      type="button"
+                      className="font-semibold text-primary underline-offset-4 hover:underline"
+                      onClick={() => {
+                        clearDraft(slug);
+                        setA({
+                          firstName: "",
+                          lastName: "",
+                          email: "",
+                          phoneCC: "+961",
+                          phone: "",
+                          company: "",
+                          attendeeType: "",
+                          jobTitle: "",
+                          jobTitleOther: "",
+                        });
+                        setQty({});
+                        setOptedIn([]);
+                        setSubEventSelection([]);
+                        setAnswers({});
+                        setRestoredNotice(false);
+                      }}
+                    >
+                      Start over
+                    </button>
+                  </p>
+                )}
                 <p className="text-xs text-muted-foreground">
                   Fields marked <RequiredMark /> are required.
                 </p>
@@ -631,6 +740,16 @@ export function RegistrationWizard({
             {step === 1 && (
               <div className="flex flex-col gap-5">
                 <StepHeader index={1} label={STEPS[1]} />
+                <div
+                  // With a per-person cap of one, this is a single choice among
+                  // the tiers — picking one used to grey out every other, which
+                  // reads as broken until you work out that un-ticking yours
+                  // brings them back. Radio semantics say so outright, and a
+                  // second tap moves the choice instead of being refused.
+                  role={singleChoice ? "radiogroup" : undefined}
+                  aria-label={singleChoice ? "Choose your ticket" : undefined}
+                  className="flex flex-col gap-5"
+                >
                 {tickets.map((t) => (
                   <div
                     key={t.id}
@@ -647,20 +766,18 @@ export function RegistrationWizard({
                         {t.priceCents === 0 ? "Free" : `$${centsToPrice(t.priceCents)}`}
                       </div>
                     </div>
-                    {ticketsPerUserMain === 1 ? (
+                    {singleChoice ? (
                       <button
                         type="button"
-                        role="switch"
+                        role="radio"
                         aria-checked={(qty[t.id] ?? 0) > 0}
                         aria-label={t.title}
-                        // The per-user cap still applies to a toggle: it may
-                        // always be turned OFF, but only turned ON while there
-                        // is allowance left (mirrors the "+" button below).
-                        disabled={!canAddMainTicket && (qty[t.id] ?? 0) === 0}
                         onClick={() => {
+                          // Choosing replaces whatever was chosen before; the
+                          // cap is satisfied by construction, so no ticket is
+                          // ever disabled and no explanation is needed.
                           const on = (qty[t.id] ?? 0) > 0;
-                          if (!on && !canAddMainTicket) return;
-                          setQty({ ...qty, [t.id]: on ? 0 : 1 });
+                          setQty(on ? {} : { [t.id]: 1 });
                         }}
                         className={[
                           "flex size-11 shrink-0 items-center justify-center rounded-full border-2 text-lg transition-colors",
@@ -715,7 +832,8 @@ export function RegistrationWizard({
                     )}
                   </div>
                 ))}
-                {(mainCapReached || totalCapReached) && (
+                </div>
+                {!singleChoice && (mainCapReached || totalCapReached) && (
                   <p className="text-sm text-muted-foreground">
                     {totalCapReached && !mainCapReached
                       ? `You can register for up to ${ticketsPerUserTotal} item(s) in total.`
@@ -758,6 +876,92 @@ export function RegistrationWizard({
                       onChange={setSeatIds}
                       required={totalQty}
                     />
+                  </div>
+                )}
+
+                {scopedFields.length > 0 && (
+                  <div className="mt-2 flex flex-col gap-4 rounded-[var(--radius-lg)] border border-border bg-card p-5 shadow-[var(--shadow-1)]">
+                    <div className="font-medium">Additional details</div>
+                    {scopedFields.map((f) => {
+                      const label = locale === "ar" && f.labelAr ? f.labelAr : f.labelEn;
+                      const ph = (locale === "ar" ? f.placeholderAr : f.placeholderEn) ?? "";
+                      const help = locale === "ar" ? f.helpTextAr : f.helpTextEn;
+                      const val = answers[f.id] ?? "";
+                      const set = (v: string) => setAnswers((s) => ({ ...s, [f.id]: v }));
+                      // These were the one field group in the wizard with no
+                      // htmlFor/id pair, so every organiser question was
+                      // announced unlabelled.
+                      const fieldId = `${uid}-field-${f.id}`;
+                      const helpId = help ? `${fieldId}-help` : undefined;
+                      const cls =
+                        "well h-11 w-full rounded-lg border border-input px-3 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50";
+                      return (
+                        <div key={f.id} className="flex flex-col gap-1.5">
+                          <Label htmlFor={fieldId}>
+                            {label} {f.required ? <RequiredMark /> : null}
+                          </Label>
+                          {f.type === "textarea" ? (
+                            <textarea
+                              id={fieldId}
+                              className="well w-full rounded-lg border border-input px-3 py-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+                              rows={3}
+                              required={f.required}
+                              aria-required={f.required || undefined}
+                              aria-describedby={helpId}
+                              value={val}
+                              placeholder={ph}
+                              onChange={(e) => set(e.target.value)}
+                            />
+                          ) : f.type === "select" || f.type === "multiselect" ? (
+                            <select
+                              id={fieldId}
+                              className={cls}
+                              required={f.required}
+                              aria-required={f.required || undefined}
+                              aria-describedby={helpId}
+                              value={val}
+                              onChange={(e) => set(e.target.value)}
+                            >
+                              <option value="">Select…</option>
+                              {fieldOptions(f.options).map((o) => (
+                                <option key={o} value={o}>
+                                  {o}
+                                </option>
+                              ))}
+                            </select>
+                          ) : f.type === "checkbox" ? (
+                            <label className="flex min-h-11 items-center gap-2 text-sm">
+                              <input
+                                id={fieldId}
+                                type="checkbox"
+                                className="size-5 accent-[var(--color-primary)]"
+                                aria-describedby={helpId}
+                                checked={val === "true"}
+                                onChange={(e) => set(e.target.checked ? "true" : "")}
+                              />
+                              Yes
+                            </label>
+                          ) : (
+                            <Input
+                              id={fieldId}
+                              className="well h-11"
+                              type={f.type === "email" ? "email" : f.type === "date" ? "date" : "text"}
+                              required={f.required}
+                              aria-required={f.required || undefined}
+                              aria-describedby={helpId}
+                              value={val}
+                              placeholder={ph}
+                              onChange={(e) => set(e.target.value)}
+                            />
+                          )}
+                          {help && (
+                            <p id={helpId} className="text-xs text-muted-foreground">
+                              {help}
+                            </p>
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
 
@@ -901,43 +1105,23 @@ export function RegistrationWizard({
                     <span>{totalCents === 0 ? "Free" : `$${centsToPrice(totalCents)}`}</span>
                   </div>
                 </div>
-                {scopedFields.length > 0 && (
-                  <div className="flex flex-col gap-3 rounded-[var(--radius-lg)] border border-border p-3">
-                    <div className="font-medium">Additional details</div>
-                    {scopedFields.map((f) => {
-                      const label = locale === "ar" && f.labelAr ? f.labelAr : f.labelEn;
-                      const ph = (locale === "ar" ? f.placeholderAr : f.placeholderEn) ?? "";
-                      const help = locale === "ar" ? f.helpTextAr : f.helpTextEn;
-                      const val = answers[f.id] ?? "";
-                      const set = (v: string) => setAnswers((s) => ({ ...s, [f.id]: v }));
-                      const cls = "mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-sm";
-                      return (
-                        <div key={f.id}>
-                          <Label>{label}{f.required ? " *" : ""}</Label>
-                          {f.type === "textarea" ? (
-                            <textarea className={cls} value={val} placeholder={ph} onChange={(e) => set(e.target.value)} />
-                          ) : f.type === "select" || f.type === "multiselect" ? (
-                            <select className={cls} value={val} onChange={(e) => set(e.target.value)}>
-                              <option value="">—</option>
-                              {fieldOptions(f.options).map((o) => <option key={o} value={o}>{o}</option>)}
-                            </select>
-                          ) : f.type === "checkbox" ? (
-                            <label className="mt-1 flex items-center gap-2 text-sm">
-                              <input type="checkbox" checked={val === "true"} onChange={(e) => set(e.target.checked ? "true" : "")} /> Yes
-                            </label>
-                          ) : (
-                            <Input
-                              type={f.type === "email" ? "email" : f.type === "date" ? "date" : "text"}
-                              value={val}
-                              placeholder={ph}
-                              onChange={(e) => set(e.target.value)}
-                            />
-                          )}
-                          {help && <p className="mt-1 text-xs text-muted-foreground">{help}</p>}
-                        </div>
-                      );
-                    })}
-                  </div>
+                {/* Read-only here: these were ASKED on the Tickets step, which
+                    is the first point at which we know which of them apply.
+                    Confirm reviews, it does not collect. */}
+                {answeredFields.length > 0 && (
+                  <section className="flex flex-col gap-3">
+                    <Eyebrow>Additional details</Eyebrow>
+                    <div className="rounded-[var(--radius-lg)] border border-border bg-card p-5 text-sm shadow-[var(--shadow-1)]">
+                      <dl className="flex flex-col gap-2">
+                        {answeredFields.map(({ field, label, value }) => (
+                          <div key={field.id} className="flex justify-between gap-4">
+                            <dt className="text-muted-foreground">{label}</dt>
+                            <dd className="min-w-0 text-end font-medium break-words">{value}</dd>
+                          </div>
+                        ))}
+                      </dl>
+                    </div>
+                  </section>
                 )}
                 <Checkbox checked={terms} onCheckedChange={setTerms}>
                   <span>

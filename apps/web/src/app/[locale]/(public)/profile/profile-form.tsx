@@ -5,7 +5,12 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { locales } from "@/lib/i18n/dir";
 import { updateProfileAction } from "./actions";
+
+/** Display name per locale. Keyed by the routing list, so a retired locale
+ *  disappears from the form instead of being offered and then 404ing. */
+const LOCALE_NAMES: Record<string, string> = { en: "English", ar: "العربية" };
 import type { MyProfile } from "@/lib/portal/account";
 
 export function ProfileForm({ initial }: { initial: MyProfile }) {
@@ -16,7 +21,7 @@ export function ProfileForm({ initial }: { initial: MyProfile }) {
     preferredLocale: initial.preferredLocale === "ar" ? "ar" : "en",
   });
   const [busy, setBusy] = useState(false);
-  const [msg, setMsg] = useState<string | null>(null);
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
   async function save() {
     setBusy(true);
@@ -27,7 +32,11 @@ export function ProfileForm({ initial }: { initial: MyProfile }) {
       preferredLocale: p.preferredLocale,
     });
     setBusy(false);
-    setMsg(res.ok ? "Profile saved." : res.error ?? "Failed");
+    setMsg(
+      res.ok
+        ? { ok: true, text: "Profile saved." }
+        : { ok: false, text: res.error ?? "We couldn't save your profile. Please try again." },
+    );
     if (res.ok) router.refresh();
   }
 
@@ -37,22 +46,50 @@ export function ProfileForm({ initial }: { initial: MyProfile }) {
     <div className="mt-6 flex flex-col gap-4">
       <div className="grid grid-cols-[100px_1fr] gap-3">
         <div>
-          <Label>Code</Label>
-          <Input value={p.phoneCC} onChange={(e) => setP({ ...p, phoneCC: e.target.value })} />
+          <Label htmlFor="profile-phone-cc">Country code</Label>
+          <Input
+            id="profile-phone-cc"
+            autoComplete="tel-country-code"
+            value={p.phoneCC}
+            onChange={(e) => setP({ ...p, phoneCC: e.target.value })}
+          />
         </div>
         <div>
-          <Label>Phone</Label>
-          <Input value={p.phone} onChange={(e) => setP({ ...p, phone: e.target.value })} />
+          <Label htmlFor="profile-phone">Phone</Label>
+          <Input
+            id="profile-phone"
+            type="tel"
+            autoComplete="tel-national"
+            value={p.phone}
+            onChange={(e) => setP({ ...p, phone: e.target.value })}
+          />
         </div>
       </div>
-      <div>
-        <Label>Preferred language</Label>
-        <select className={sel} value={p.preferredLocale} onChange={(e) => setP({ ...p, preferredLocale: e.target.value })}>
-          <option value="en">English</option>
-          <option value="ar">العربية</option>
-        </select>
-      </div>
-      {msg && <p className="text-sm text-muted-foreground">{msg}</p>}
+      {locales.length > 1 && (
+        <div>
+          <Label htmlFor="preferred-locale">Preferred language</Label>
+          <select
+            id="preferred-locale"
+            className={sel}
+            value={p.preferredLocale}
+            onChange={(e) => setP({ ...p, preferredLocale: e.target.value })}
+          >
+            {locales.map((l) => (
+              <option key={l} value={l}>
+                {LOCALE_NAMES[l] ?? l}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
+      {msg && (
+        <p
+          role="status"
+          className={`text-sm ${msg.ok ? "text-muted-foreground" : "font-medium text-destructive"}`}
+        >
+          {msg.text}
+        </p>
+      )}
       <div>
         <Button type="button" onClick={save} disabled={busy}>{busy ? "Saving…" : "Save profile"}</Button>
       </div>

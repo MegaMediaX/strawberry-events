@@ -51,7 +51,14 @@ function groupBy<T>(arr: T[], key: (v: T) => string): Map<string, T[]> {
   return map;
 }
 
-export function SubEventPicker({ subEvents, selected, totalAllowance, onChange }: Props) {
+export function SubEventPicker({ locale, subEvents, selected, totalAllowance, onChange }: Props) {
+  /** Same dormant-but-correct rule as the rest of the flow: Arabic when it has
+   *  been written and the locale asks for it, English otherwise. */
+  const title = (se: SubEventItem) =>
+    locale === "ar" && se.titleAr ? se.titleAr : se.titleEn;
+  const description = (se: SubEventItem) =>
+    locale === "ar" && se.descriptionAr ? se.descriptionAr : se.descriptionEn;
+
   function qtyFor(itemId: number): number {
     return selected.find((s) => s.itemId === itemId)?.quantity ?? 0;
   }
@@ -118,7 +125,7 @@ export function SubEventPicker({ subEvents, selected, totalAllowance, onChange }
               );
               const conflicts = othersSelected.filter((other) => rangesOverlap(se, other));
               const hasConflict = qty === 0 && conflicts.length > 0;
-              const conflictTitle = conflicts[0]?.titleEn;
+              const conflictTitle = conflicts[0] ? title(conflicts[0]) : undefined;
 
               const atPerItemCap = qty >= se.ticketsPerUser;
               const atTotalCap = totalSelected >= totalAllowance && qty === 0;
@@ -164,7 +171,7 @@ export function SubEventPicker({ subEvents, selected, totalAllowance, onChange }
 
                   <span className="min-w-0">
                     <span className="block font-heading text-[22px] leading-[1.15] tracking-[-0.01em]">
-                      {se.titleEn}
+                      {title(se)}
                     </span>
                     <span className="mt-1 block text-[13px] font-medium tracking-[0.04em] text-muted-foreground tabular-nums">
                       {timeRange(se.dateFrom, se.dateTo)}
@@ -175,10 +182,10 @@ export function SubEventPicker({ subEvents, selected, totalAllowance, onChange }
                         </>
                       )}
                     </span>
-                    {se.descriptionEn && (
+                    {description(se) && (
                       <ExpandableText
                         className="mt-2"
-                        text={se.descriptionEn}
+                        text={description(se)!}
                         lines={2}
                         textClassName="text-[13px] leading-[1.5] text-muted-foreground"
                       />
@@ -205,7 +212,7 @@ export function SubEventPicker({ subEvents, selected, totalAllowance, onChange }
                       type="button"
                       role="switch"
                       aria-checked={on}
-                      aria-label={`${se.titleEn}, ${timeRange(se.dateFrom, se.dateTo)}`}
+                      aria-label={`${title(se)}, ${timeRange(se.dateFrom, se.dateTo)}`}
                       disabled={disabled && !on}
                       onClick={() => setQty(itemId, on ? 0 : 1)}
                       className={[
@@ -223,7 +230,7 @@ export function SubEventPicker({ subEvents, selected, totalAllowance, onChange }
                     <span className="flex shrink-0 items-center gap-1">
                       <button
                         type="button"
-                        aria-label={`Remove one ${se.titleEn}`}
+                        aria-label={`Remove one ${title(se)}`}
                         disabled={qty === 0}
                         onClick={() => setQty(itemId, qty - 1)}
                         className="flex size-11 items-center justify-center rounded-lg border border-border outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-40"
@@ -233,13 +240,13 @@ export function SubEventPicker({ subEvents, selected, totalAllowance, onChange }
                       <span
                         className="w-6 text-center text-sm tabular-nums"
                         aria-live="polite"
-                        aria-label={`${qty} × ${se.titleEn}`}
+                        aria-label={`${qty} × ${title(se)}`}
                       >
                         {qty}
                       </span>
                       <button
                         type="button"
-                        aria-label={`Add one ${se.titleEn}`}
+                        aria-label={`Add one ${title(se)}`}
                         disabled={disabled || atPerItemCap}
                         onClick={() => setQty(itemId, qty + 1)}
                         className="flex size-11 items-center justify-center rounded-lg border border-border outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-40"
