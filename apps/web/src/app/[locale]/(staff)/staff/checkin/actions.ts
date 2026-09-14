@@ -1,6 +1,11 @@
 "use server";
 
 import { getSessionContext } from "@/lib/auth/session";
+import { checkinEligibility } from "@/lib/checkin/eligibility";
+import { prisma } from "@/lib/db/client";
+import { getEventForSession } from "@/lib/events/service";
+import { resolvePretixContext } from "@/lib/pretix/context";
+import { checkinCounters } from "@/lib/pretix/checkin";
 import { createWalkIn } from "@/lib/staff/walkin";
 import { resolveRoleLabel, type BadgeTagValue } from "@/lib/badges/tags";
 import {
@@ -46,6 +51,17 @@ export interface AttendeeRow {
   email: string;
   name: string | null;
   phone: string | null;
+  /**
+   * Whether this order can actually be checked in, and why not.
+   *
+   * The row used to carry name, code and phone only — so an operator pressed
+   * "Check in & print" on a cancelled or unapproved order and learned from a
+   * red banner, with the person watching. Both columns were already on the row
+   * the query returned. Decided with `checkinEligibility`, the same function
+   * the server applies, so the row and the refusal can never disagree.
+   */
+  eligible: boolean;
+  ineligibleReason?: string;
 }
 
 export async function searchAction(
@@ -60,12 +76,17 @@ export async function searchAction(
     const session = await getSessionContext();
     if (!session || !query.trim()) return [];
     const rows = await searchAttendees(session, eventId, query.trim());
-    return rows.map((r) => ({
-      orderCode: r.orderCode,
-      email: r.email,
-      name: r.attendeeName,
-      phone: r.phone,
-    }));
+    return rows.map((r) => {
+      const eligibility = checkinEligibility(r);
+      return {
+        orderCode: r.orderCode,
+        email: r.email,
+        name: r.attendeeName,
+        phone: r.phone,
+        eligible: eligibility.ok,
+        ineligibleReason: eligibility.reason,
+      };
+    });
   } catch {
     return [];
   }
@@ -265,5 +286,47 @@ export async function walkInAndCheckInAction(
       ok: false,
       reason: `Registered as ${orderCode}, but check-in failed. Find them by name to retry.`,
     };
+  }
+}
+
+export interface DoorCounters {
+  total: number;
+  checkedIn: number;
+}
+
+/**
+ * The door's running count, for the panel to poll.
+ *
+ * The header number was rendered once, server-side, and the panel below it
+ * never causes the page to re-render — so after an hour of scanning the screen
+ * still showed the figure from before the doors opened, which is the figure
+ * staff are asked for all day.
+ *
+ * Returns null rather than throwing on any failure: a count that cannot be
+ * fetched must leave the last known one on screen, not replace it with zeros
+ * and not take the lane down.
+ */
+export async function counterAction(
+  eventId: string,
+  listId: number,
+): Promise<DoorCounters | null> {
+  try {
+    const session = await getSessionContext();
+    if (!session || !listId) return null;
+    const mapping = await getEventForSession(session, eventId);
+    if (!mapping) return null;
+    const org = await prisma.organization.findUniqueOrThrow({
+      where: { id: mapping.organizationId },
+    });
+    const ctx = resolvePretixContext(org);
+    return await checkinCounters(
+      ctx.organizerSlug,
+      mapping.pretixEventSlug,
+      listId,
+      ctx.token,
+    );
+  } catch (err) {
+    console.error(`[door] counterAction failed (event=${eventId}, list=${listId})`, err);
+    return null;
   }
 }

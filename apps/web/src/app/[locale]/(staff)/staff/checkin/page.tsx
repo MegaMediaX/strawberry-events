@@ -10,6 +10,7 @@ import { listCheckinLists, checkinCounters } from "@/lib/pretix/checkin";
 import { selectListIdForDate, venueToday } from "@/lib/checkin/select-list";
 import { VENUE_IANA_ZONE } from "@/lib/datetime/uk";
 import { CheckinPanel } from "./checkin-panel";
+import { DoorCounters } from "./door-counters";
 import { StaffEventPicker } from "../_components/event-picker";
 
 export const dynamic = "force-dynamic";
@@ -124,7 +125,9 @@ export default async function CheckinPage({
     <div>
       <h1 className="text-2xl font-bold">{mapping.titleEn} — Check-in</h1>
       <p className="mt-1 text-sm text-muted-foreground">
-        Checked in {counters.checkedIn} / {counters.total}
+        {/* Server-rendered figure, then kept live by the client: this used to
+            be frozen at whatever it was when the page loaded. */}
+        <DoorCounters eventId={mapping.id} listId={listId} initial={counters} />
         {listId ? "" : " · no check-in list configured in pretix"}
       </p>
       {/* Name the active list. The day is chosen automatically, so this is the

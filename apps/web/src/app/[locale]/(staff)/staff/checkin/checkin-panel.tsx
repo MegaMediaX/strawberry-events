@@ -14,6 +14,7 @@ import { QrScanner } from "./qr-scanner";
 import { PrinterSettings } from "./printer-settings";
 import { PrinterStatus } from "./printer-status";
 import { ResultBanner, type DoorResult } from "./result-banner";
+import { bumpDoorCount } from "./door-counters";
 import { AttendeeEditDialog, type EditTarget } from "./attendee-edit";
 import { DoorWalkInForm, type DoorTicket } from "./door-walk-in";
 import { decideEnter, looksScannable } from "@/lib/checkin/scan-shape";
@@ -271,6 +272,10 @@ export function CheckinPanel({
         setConfirmReprint(null);
         setResult({ kind: "working" });
         remember(res.badge.orderCode, who, kind);
+        // Only a real admission moves the count — a reprint is the same person
+        // walking back to the desk, and counting it would inflate the one
+        // figure the door is asked for all day.
+        if (kind === "in") bumpDoorCount();
         // Clear the search so the next person starts from an empty field rather
         // than the previous attendee's results.
         setQ("");
@@ -881,17 +886,31 @@ export function CheckinPanel({
                       {r.orderCode}
                       {r.phone ? ` · ${r.phone}` : ""}
                     </div>
+                    {/* Said before the button is pressed, not after. The state
+                        was known locally all along; it just never reached the
+                        row, so the refusal arrived as a red banner with the
+                        person standing there. */}
+                    {!r.eligible && (
+                      <div className="mt-1 inline-flex rounded-md bg-destructive/10 px-2 py-0.5 text-[12px] font-semibold text-destructive">
+                        {r.ineligibleReason ?? "Not eligible for check-in"}
+                      </div>
+                    )}
                   </div>
                   {/* One obvious action. Reprint is deliberately NOT beside it —
                       two similar buttons next to each other is how the wrong one
                       gets pressed at a busy door. Reprints happen from Recent, or
                       via the already-checked-in prompt. */}
+                  {/* Still pressable when ineligible: the server is the
+                      authority, this row may be seconds stale, and a door needs
+                      to be able to TRY. It just no longer looks like the
+                      ordinary path. */}
                   <Button
                     className="min-h-12 px-5 text-[15px]"
+                    variant={r.eligible ? "default" : "outline"}
                     onClick={() => doCheckIn(r.orderCode)}
                     disabled={busy}
                   >
-                    Check in &amp; print
+                    {r.eligible ? "Check in & print" : "Try anyway"}
                   </Button>
                 </li>
               ))}

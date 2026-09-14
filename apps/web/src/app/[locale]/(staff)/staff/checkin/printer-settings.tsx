@@ -28,9 +28,13 @@ const TEST_BADGE = {
  * Printer settings for check-in: edit which printer QZ Tray prints to (blank =
  * system default) and fire a test print. The name must match what QZ Tray
  * reports — e.g. "Honeywell PC42d (203 dpi)".
+ *
+ * Rendered ALREADY OPEN. The panel owns the disclosure — label, open state,
+ * aria-expanded and aria-controls — and this component used to carry a second
+ * one with the same label, so pressing "Printer settings" produced a "Printer
+ * settings" button that had to be pressed again to reach the field.
  */
 export function PrinterSettings() {
-  const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
   const [language, setLanguage] = useState<PrinterLanguage>("zpl");
   const [msg, setMsg] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
@@ -74,58 +78,59 @@ export function PrinterSettings() {
 
   return (
     <div className="mb-4">
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        className="text-sm text-muted-foreground underline-offset-2 hover:underline"
-      >
-        {open ? "Hide printer settings" : "Printer settings"}
-      </button>
+      <div className="rounded-[var(--radius-lg)] border border-border p-3">
+        <label className="text-sm font-medium" htmlFor="printer-name">
+          Printer name (blank = system default)
+        </label>
+        <Input
+          id="printer-name"
+          className="mt-1"
+          placeholder="PC42d"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+        />
+        <label className="mt-3 flex flex-col gap-1 text-sm">
+          <span className="font-medium">Printer language</span>
+          <select
+            value={language}
+            onChange={(e) => setLanguage(e.target.value as PrinterLanguage)}
+            className="h-10 rounded-lg border border-input bg-transparent px-2 text-base md:text-sm"
+          >
+            <option value="zpl">ZPL — Honeywell PC42d</option>
+            <option value="tspl">TSPL — Xprinter XP-365B</option>
+          </select>
+          <span className="text-xs text-muted-foreground">
+            Leave on ZPL unless this station has the Xprinter. The two are not
+            interchangeable — the wrong one prints nothing at all.
+          </span>
+        </label>
 
-      {open && (
-        <div className="mt-2 rounded-[var(--radius-lg)] border border-border p-3">
-          <label className="text-sm font-medium" htmlFor="printer-name">
-            Printer name (blank = system default)
-          </label>
-          <Input
-            id="printer-name"
-            className="mt-1"
-            placeholder="PC42d"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-          />
-          <label className="mt-3 flex flex-col gap-1 text-sm">
-              <span className="font-medium">Printer language</span>
-              <select
-                value={language}
-                onChange={(e) => setLanguage(e.target.value as PrinterLanguage)}
-                className="h-10 rounded-lg border border-input bg-transparent px-2 text-base md:text-sm"
-              >
-                <option value="zpl">ZPL — Honeywell PC42d</option>
-                <option value="tspl">TSPL — Xprinter XP-365B</option>
-              </select>
-              <span className="text-xs text-muted-foreground">
-                Leave on ZPL unless this station has the Xprinter. The two are not
-                interchangeable — the wrong one prints nothing at all.
-              </span>
-          </label>
-
-          <div className="mt-3 flex gap-2">
-            <Button size="sm" onClick={save} disabled={busy}>Save</Button>
-            <Button size="sm" variant="outline" onClick={testPrint} disabled={busy}>
-              Test print
-            </Button>
-          </div>
-          {msg && (
-            <p className={`mt-2 text-sm ${msg.kind === "ok" ? "text-green-600" : "text-destructive"}`}>
-              {msg.text}
-            </p>
-          )}
-          <p className="mt-2 text-xs text-muted-foreground">
-            Requires QZ Tray running on this machine. The name must match what QZ Tray reports exactly (for this printer: PC42d).
-          </p>
+        <div className="mt-3 flex gap-2">
+          <Button size="sm" onClick={save} disabled={busy}>
+            Save
+          </Button>
+          <Button size="sm" variant="outline" onClick={testPrint} disabled={busy}>
+            Test print
+          </Button>
         </div>
-      )}
+        {/* role=status: a test print is run while looking at the PRINTER, not
+            at this line. text-green-600 was also the ~3.4:1 tone replaced on
+            the attendee side for failing contrast at small sizes. */}
+        {msg && (
+          <p
+            role="status"
+            className={`mt-2 text-sm font-medium ${
+              msg.kind === "ok" ? "text-[var(--brand-success-text)]" : "text-destructive"
+            }`}
+          >
+            {msg.text}
+          </p>
+        )}
+        <p className="mt-2 text-xs text-muted-foreground">
+          Requires QZ Tray running on this machine. The name must match what QZ Tray
+          reports exactly (for this printer: PC42d).
+        </p>
+      </div>
     </div>
   );
 }

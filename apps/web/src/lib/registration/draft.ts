@@ -114,9 +114,12 @@ export function loadDraft(slug: string): RegistrationDraft | null {
  * and offering to restore an empty one.
  */
 export function draftHasContent(draft: RegistrationDraft): boolean {
-  const { phoneCC: _ignored, ...typed } = draft.attendee;
+  const { firstName, lastName, email, phone, company, attendeeType, jobTitle, jobTitleOther } =
+    draft.attendee;
   return (
-    Object.values(typed).some((v) => v.trim() !== "") ||
+    [firstName, lastName, email, phone, company, attendeeType, jobTitle, jobTitleOther].some(
+      (v) => v.trim() !== "",
+    ) ||
     Object.keys(draft.quantities).length > 0 ||
     draft.subEvents.length > 0 ||
     Object.keys(draft.answers).length > 0
