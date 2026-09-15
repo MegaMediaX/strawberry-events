@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, within } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 /**
@@ -104,9 +104,19 @@ function panel(listId = LIST) {
   return { ...view, switchLane: (id: number) => view.rerender(ui(id)) };
 }
 
-/** Type a name and wait for the debounced search to answer. */
+/**
+ * Type a name and wait for the debounced search to answer.
+ *
+ * The wait is the point: typing only schedules the search, 220ms out. Without
+ * it this helper returns against pre-search DOM, and any caller asserting an
+ * ABSENCE — no walk-in offer, no rows — would pass whatever the search does.
+ * Callers that follow with `findBy*` retry their way past that; a `queryBy*`
+ * caller would not, and that is a test which cannot fail.
+ */
 async function search(user: ReturnType<typeof userEvent.setup>, query = "marven") {
+  const before = actions.searchAction.mock.calls.length;
   await user.type(screen.getByLabelText("Search attendees"), query);
+  await waitFor(() => expect(actions.searchAction.mock.calls.length).toBeGreaterThan(before));
 }
 
 beforeEach(() => {
@@ -362,6 +372,17 @@ describe("a check-in that works", () => {
     expect(screen.getByText("Badge printed")).toBeTruthy();
     // And the search box is clear for the next person.
     expect(screen.getByLabelText("Search attendees")).toHaveProperty("value", "");
+
+    // Remembered — which is the only route to Fix for a misspelt badge, and to
+    // Reprint for one that jammed. The banner covers the list while it is up,
+    // so the assertion is on what the panel persisted: every other Recent test
+    // seeds that storage itself, leaving the write uncovered.
+    await waitFor(() => {
+      const stored = window.sessionStorage.getItem(recentKey(EVENT, LIST));
+      expect(stored ? JSON.parse(stored) : []).toMatchObject([
+        { orderCode: "3XKQ7", name: "Marven Mouaalem", kind: "in" },
+      ]);
+    });
   });
 
   it("warns — and does not claim a badge — when the printer refuses", async () => {
