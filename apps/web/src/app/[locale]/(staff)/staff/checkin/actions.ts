@@ -10,6 +10,7 @@ import { createWalkIn } from "@/lib/staff/walkin";
 import { resolveRoleLabel, type BadgeTagValue } from "@/lib/badges/tags";
 import {
   assertCanCheckin,
+  assertDoorRoleInOrg,
   searchAttendees,
   checkInOrder,
   checkInBySecret,
@@ -349,6 +350,11 @@ export async function counterAction(
     assertCanCheckin(session);
     const mapping = await getEventForSession(session, eventId);
     if (!mapping) return null;
+    // ...and the same role again in THIS event's organization. The assertion
+    // above is satisfied by a check-in membership anywhere, which is how a
+    // finance member of this org reached these counts on the strength of a
+    // door role held somewhere else entirely.
+    assertDoorRoleInOrg(session, mapping.organizationId);
     const org = await prisma.organization.findUniqueOrThrow({
       where: { id: mapping.organizationId },
     });

@@ -1,9 +1,9 @@
 import type { AttendeeOrder, AttendeeTag } from "@prisma/client";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db/client";
-import { canAccessEvent } from "@/lib/auth/org-scope";
+import { canAccessEvent, hasRoleInOrg } from "@/lib/auth/org-scope";
 import { hasAnyRole, ForbiddenError } from "@/lib/auth/guards";
-import type { SessionContext } from "@/lib/auth/types";
+import type { SessionContext, MemberRole } from "@/lib/auth/types";
 import { resolvePretixContext } from "@/lib/pretix/context";
 import * as pretixCheckin from "@/lib/pretix/checkin";
 import { emit } from "@/lib/webhooks/service";
@@ -63,8 +63,33 @@ export function assertCanCheckin(session: SessionContext) {
   if (session.impersonating) {
     throw new ForbiddenError("Cannot check in while impersonating");
   }
-  if (!hasAnyRole(session, ["checkin_staff", "organizer_admin"])) {
+  if (!hasAnyRole(session, DOOR_ROLES)) {
     throw new ForbiddenError("Requires check-in staff or organizer admin");
+  }
+}
+
+/** The roles that may work a door. */
+const DOOR_ROLES: MemberRole[] = ["checkin_staff", "organizer_admin"];
+
+/**
+ * The door's authorization, IN THE ORGANIZATION THAT OWNS THE EVENT.
+ *
+ * `assertCanCheckin` asks whether a check-in role is held anywhere, which is
+ * not the same question and was not enough. A user who is `checkin_staff` in
+ * org A and `finance` in org B passed it on org A's membership, then passed
+ * `canAccessEvent` for every event in org B on finance's org-wide reach —
+ * ending up with attendee PII, check-in, reprints, attendee edits and real
+ * walk-in orders on events they were never staffed for. Both halves were
+ * individually correct; their union was the hole.
+ *
+ * Exported because a caller that reads door data without going through the
+ * functions below still has to apply it (see `counterAction`).
+ */
+export function assertDoorRoleInOrg(session: SessionContext, organizationId: string) {
+  if (!hasRoleInOrg(session, organizationId, DOOR_ROLES)) {
+    throw new ForbiddenError(
+      "Requires check-in staff or organizer admin in this event's organization",
+    );
   }
 }
 
@@ -76,6 +101,9 @@ async function resolveEvent(session: SessionContext, eventId: string) {
   ) {
     throw new ForbiddenError("Event not found or access denied");
   }
+  // Every door operation resolves its event through here, so this is the one
+  // place the per-organization role check cannot be forgotten.
+  assertDoorRoleInOrg(session, mapping.organizationId);
   return mapping;
 }
 

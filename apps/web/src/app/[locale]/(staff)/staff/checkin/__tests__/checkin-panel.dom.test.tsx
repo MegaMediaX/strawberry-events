@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 /**
@@ -65,6 +65,9 @@ vi.mock("@/lib/checkin/print-client", () => ({
 
 import { CheckinPanel } from "../checkin-panel";
 import { recentKey } from "@/lib/checkin/recent-store";
+// The real one, deliberately not mocked: the helper below has to skip exactly
+// the queries the panel skips, and that is the function deciding it.
+import { looksScannable } from "@/lib/checkin/scan-shape";
 
 const EVENT = "evt_1";
 const LIST = 7;
@@ -105,19 +108,49 @@ function panel(listId = LIST) {
 }
 
 /**
- * Type a name and wait for the debounced search to answer.
+ * Type a name and wait for the debounced search to have ANSWERED.
  *
  * The wait is the point: typing only schedules the search, 220ms out. Without
  * it this helper returns against pre-search DOM, and any caller asserting an
  * ABSENCE — no walk-in offer, no rows — would pass whatever the search does.
  * Callers that follow with `findBy*` retry their way past that; a `queryBy*`
  * caller would not, and that is a test which cannot fail.
+ *
+ * Three things it has to get right, each of which a weaker wait gets wrong:
+ *
+ * - The call has to carry the WHOLE query. Waiting for the call COUNT to grow
+ *   is satisfied by a debounce that fires mid-word — a >220ms gap between two
+ *   keystrokes on a loaded CI runner is enough — so the helper would return
+ *   after `searchAction(eventId, "mar")` with the real search still pending.
+ * - "Called" is not "answered". Every mock here resolves in a microtask today,
+ *   but a deferred one — which is how you would test "Searching…" — puts the
+ *   pre-result DOM back in front of an absence assertion. So it waits for the
+ *   indicator to clear, which is the panel saying the result landed.
+ * - Not every query searches. The panel deliberately skips the round trip for
+ *   a scanned code (`looksScannable`) and for an empty box, so there is no
+ *   call to wait for and waiting for one is a guaranteed timeout. Those wait
+ *   out the debounce instead.
  */
 async function search(user: ReturnType<typeof userEvent.setup>, query = "marven") {
-  const before = actions.searchAction.mock.calls.length;
-  await user.type(screen.getByLabelText("Search attendees"), query);
-  await waitFor(() => expect(actions.searchAction.mock.calls.length).toBeGreaterThan(before));
+  const input = screen.getByLabelText("Search attendees");
+  await user.clear(input);
+  await user.type(input, query);
+
+  const typed = query.trim();
+  if (!typed || looksScannable(typed)) {
+    await act(() => new Promise((resolve) => setTimeout(resolve, DEBOUNCE_SETTLE_MS)));
+    return;
+  }
+
+  await waitFor(() => expect(actions.searchAction).toHaveBeenCalledWith(EVENT, typed));
+  await waitFor(() => expect(screen.queryByText("Searching…")).toBeNull());
 }
+
+/**
+ * Comfortably past the panel's own SEARCH_DEBOUNCE_MS (220), which is not
+ * exported. Only used on the paths that issue no call to wait for.
+ */
+const DEBOUNCE_SETTLE_MS = 500;
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -294,6 +327,37 @@ describe("the door never offers to register someone it could not look up", () =>
     expect(
       screen.getByRole("button", { name: /register “marven” as a walk-in/i }),
     ).toBeTruthy();
+  });
+
+  it("looks up an eight-letter name instead of offering to register her again", async () => {
+    // SAMANTHA passes the badge-slug shape — the alphabet drops only I, L, O
+    // and U — so the door used to send her name to the scanner, never search,
+    // and offer to REGISTER a woman who was already registered and standing
+    // at the desk. The duplicate this whole screen exists to prevent.
+    const user = userEvent.setup();
+    actions.searchAction.mockResolvedValue({
+      ok: true,
+      rows: [{ ...attendeeRow, name: "Samantha Khoury" }],
+    });
+    panel();
+    await search(user, "SAMANTHA");
+
+    expect(actions.searchAction).toHaveBeenCalledWith(EVENT, "SAMANTHA");
+    expect(await screen.findByText("Samantha Khoury")).toBeTruthy();
+    expect(screen.queryByText(/No one matches/i)).toBeNull();
+  });
+
+  it("never offers to register someone off a lookup that never ran", async () => {
+    // The offer is driven by an EMPTY result, and a query the panel skips is
+    // empty too. Belt to the braces above: even for input that is genuinely a
+    // code, nothing may propose creating a second registration.
+    const user = userEvent.setup();
+    panel();
+    await search(user, "SZSZEC50");
+
+    expect(actions.searchAction).not.toHaveBeenCalled();
+    expect(screen.queryByText(/No one matches/i)).toBeNull();
+    expect(screen.queryByRole("button", { name: /as a walk-in/i })).toBeNull();
   });
 
   it("recovers once a search answers again", async () => {
