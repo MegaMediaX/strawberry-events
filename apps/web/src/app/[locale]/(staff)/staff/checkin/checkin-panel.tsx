@@ -670,8 +670,28 @@ export function CheckinPanel({
    */
   const searchUsable = result?.kind !== "auth" && !searchFailed;
 
+  /**
+   * ...and the emptiness is an ANSWER to what is currently typed.
+   *
+   * `rows` being empty is not evidence of anything on its own. It is also
+   * empty before the 220ms debounce has fired, and empty for every query the
+   * panel deliberately never sends — a scanned code, and until recently any
+   * eight-letter name the slug alphabet happened to accept. Offering to
+   * register someone off the back of a lookup that never ran is how SAMANTHA,
+   * already registered and standing at the desk, got a "register her as a
+   * walk-in" button. So the offer now requires that the search answered for
+   * exactly this text: `rowsQuery` is only written when a search resolves or
+   * is deliberately skipped, and the skip cases are excluded by shape.
+   */
+  const searchAnswered = rowsQuery.trim() === q.trim() && !looksScannable(q.trim());
+
   const showContextualWalkIn =
-    !walkIn && Boolean(q.trim()) && !searching && rows.length === 0 && searchUsable;
+    !walkIn &&
+    Boolean(q.trim()) &&
+    !searching &&
+    searchAnswered &&
+    rows.length === 0 &&
+    searchUsable;
 
   /**
    * Enter in the search box, which is also where a wedge scanner's payload

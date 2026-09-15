@@ -58,6 +58,29 @@ export function canAccessEvent(
 export { rolesInOrg };
 
 /**
+ * Whether the session holds one of `roles` IN A SPECIFIC ORGANIZATION.
+ *
+ * `hasAnyRole` answers "anywhere", which is the wrong question for anything
+ * operating on one organization's data. Paired with `canAccessEvent` it was
+ * exploitable: a user who is `checkin_staff` in org A and `finance` in org B
+ * passed the role check on the strength of org A, and then passed event access
+ * on the strength of finance's org-wide reach in org B — arriving at full door
+ * powers (attendee PII, check-in, badge reprints, walk-in orders) over every
+ * event in an organization where they were never staffed for the door.
+ *
+ * Roles are per-organization everywhere else in this file. This is the
+ * function that lets callers outside it say so too.
+ */
+export function hasRoleInOrg(
+  session: SessionContext,
+  organizationId: string,
+  roles: MemberRole[],
+): boolean {
+  if (session.isSuperAdmin) return true;
+  return rolesInOrg(session, organizationId).some((r) => roles.includes(r));
+}
+
+/**
  * Roles that genuinely see a whole organization.
  *
  * `checkin_staff` is deliberately NOT here: it is itself narrowed per membership

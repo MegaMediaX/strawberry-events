@@ -712,3 +712,56 @@ describe("phoneDigitsForQuery — a query is only a phone when it looks like one
     expect(phoneDigitsForQuery("12345")).toBe("");
   });
 });
+
+/**
+ * A role held in ONE organization is not a role held in another.
+ *
+ * The door's guard came in two halves that were each correct and, together,
+ * open: `assertCanCheckin` asked whether a check-in role was held ANYWHERE,
+ * and `canAccessEvent` asked whether this ORGANIZATION's events were reachable
+ * — which they are, org-wide, for finance. Hold both in different places and
+ * you have the door.
+ */
+describe("door powers do not cross organizations", () => {
+  /** checkin_staff for one event in orgA; only finance in orgB. */
+  const financeElsewhere: SessionContext = {
+    userId: "x1",
+    isSuperAdmin: false,
+    memberships: [
+      { organizationId: "orgA", role: "checkin_staff", assignedEventIds: ["loc1"] },
+      { organizationId: "orgB", role: "finance", assignedEventIds: [] },
+    ],
+  };
+
+  const orgBEvent = { ...mapping, id: "e2", organizationId: "orgB", localEventId: "loc2" };
+
+  beforeEach(() => {
+    mock(prisma.eventMapping.findUnique).mockResolvedValue(orgBEvent);
+  });
+
+  it("refuses attendee PII for an event in the org where they are only finance", async () => {
+    await expect(searchAttendees(financeElsewhere, "e2", "marven")).rejects.toThrow(
+      /organization/i,
+    );
+  });
+
+  it("refuses the check-in itself", async () => {
+    await expect(checkInOrder(financeElsewhere, "e2", "ABC12", 5)).rejects.toThrow();
+    expect(pretixCheckin.redeemCheckin).not.toHaveBeenCalled();
+  });
+
+  it("refuses a scan, a reprint, a correction and the counters", async () => {
+    await expect(checkInBySecret(financeElsewhere, "e2", "SEC1", 5)).rejects.toThrow();
+    await expect(reprintBadge(financeElsewhere, "e2", "ABC12")).rejects.toThrow();
+    await expect(
+      updateAttendeeDetails(financeElsewhere, "e2", "ABC12", { fullName: "X" }),
+    ).rejects.toThrow();
+    await expect(liveCounters(financeElsewhere, "e2", 5)).rejects.toThrow();
+  });
+
+  it("still admits them where they actually work the door", async () => {
+    mock(prisma.eventMapping.findUnique).mockResolvedValue(mapping);
+    const res = await checkInOrder(financeElsewhere, "e1", "ABC12", 5);
+    expect(res.ok).toBe(true);
+  });
+});

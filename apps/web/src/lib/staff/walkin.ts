@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/db/client";
 import { canAccessEvent } from "@/lib/auth/org-scope";
 import { hasAnyRole, ForbiddenError } from "@/lib/auth/guards";
+import { assertDoorRoleInOrg } from "@/lib/checkin/service";
 import type { SessionContext } from "@/lib/auth/types";
 import { register, type RegisterResult } from "@/lib/registration/service";
 import type { BadgeTagValue } from "@/lib/badges/tags";
@@ -60,6 +61,11 @@ export async function createWalkIn(
   if (!mapping || !canAccessEvent(session, mapping.organizationId, mapping.localEventId)) {
     throw new ForbiddenError("Event not found or access denied");
   }
+  // The role again, this time in the organization that owns the event. The
+  // assertion above answers "holds a staff role somewhere", which finance in
+  // another organization satisfied on someone else's check-in membership —
+  // and this call creates a real pretix order.
+  assertDoorRoleInOrg(session, mapping.organizationId);
 
   // pretix orders and our non-null email column need a value, so synthesize a
   // unique placeholder when a walk-in has no email. The `.invalid` TLD (RFC 2606)

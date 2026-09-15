@@ -32,17 +32,47 @@ const PRETIX_SECRET_RE = /^[a-z0-9]{16,}$/;
 export function looksScannable(value: string): boolean {
   const t = value.trim();
   if (!t) return false;
-  // A BARE slug must contain a letter. The alphabet includes every digit, so
-  // "70123456" — an ordinary Lebanese mobile — is a valid 8-character slug by
-  // shape, and treating it as one would send phone searches to the scan path
-  // and lose the attendee. Measured on production: 0 of 844 real slugs are
-  // all-digits (chance is ~1 in 10,700), while 932 attendees have an 8-digit
-  // phone. The URL form below is unaffected, because /c/ says what it is.
-  if (SLUG_RE.test(t.toUpperCase()) && /[A-Z]/i.test(t)) return true;
+  // A BARE slug must carry BOTH a letter and a digit.
+  //
+  // The letter, because the alphabet includes every digit: "70123456" — an
+  // ordinary Lebanese mobile — is a valid 8-character slug by shape, and
+  // treating it as one would send phone searches to the scan path and lose the
+  // attendee. Measured on production: 0 of 844 real slugs are all-digits
+  // (chance is ~1 in 10,700), while 932 attendees have an 8-digit phone.
+  //
+  // The digit, because the alphabet drops exactly I, L, O and U — so ordinary
+  // eight-letter names are valid slugs by shape. SAMANTHA, MARGARET, STEPHANE
+  // and JEANETTE all pass SLUG_RE. Treating those as codes meant the door
+  // never searched for them: it offered to REGISTER a woman standing in front
+  // of the operator who was already registered, which is the duplicate the
+  // whole screen is built to avoid, and Enter refused her ticket with "QR not
+  // recognized". A digit costs the ~1-in-8 real slug that happens to have none
+  // (0.6875^8), and that case is recovered by `decideEnter` below: it is
+  // searched first and falls through to the scanner once the search answers
+  // with nobody. A name never gets that far, because a registered attendee is
+  // found.
+  //
+  // The URL form is unaffected by both rules, because /c/ says what it is.
+  if (SLUG_RE.test(t.toUpperCase()) && /[A-Z]/i.test(t) && /[0-9]/.test(t)) return true;
   if (PRETIX_SECRET_RE.test(t)) return true;
   // Any URL, or anything carrying a /c/ path segment — resolveBadgeSlug does
   // the real extraction server-side; this only decides where to send it.
   return /^https?:\/\//i.test(t) || /\/c\/[^/?#\s]+/i.test(t);
+}
+
+/**
+ * Slug-shaped, but not conclusively a code.
+ *
+ * `looksScannable` requires a digit precisely so an eight-letter name is not
+ * mistaken for one, which leaves the digitless slug — roughly one in eight —
+ * looking exactly like a name. This recognises that shape so Enter can fall
+ * back to the scanner AFTER a search has answered with nobody, which is the
+ * one moment the ambiguity is resolved: a name that belongs to someone here
+ * matches a row, and a slug matches nothing.
+ */
+export function couldBeBareSlug(value: string): boolean {
+  const t = value.trim();
+  return SLUG_RE.test(t.toUpperCase()) && /[A-Z]/i.test(t);
 }
 
 /** What pressing Enter in the door's search box should do. */
@@ -80,6 +110,16 @@ export function decideEnter(
   // Exactly one match FOR WHAT IS CURRENTLY TYPED.
   if (rowsQuery.trim() === t && rows.length === 1) {
     return { kind: "checkIn", orderCode: rows[0].orderCode };
+  }
+
+  // Nothing matched, and the text has a slug's shape without a slug's digit.
+  // The search has ANSWERED for exactly this text (rowsQuery) and found
+  // nobody, so it is not the name of anyone at this event — send it to the
+  // scanner, which is where a badge code belongs. Gated on the answered query
+  // for the same reason the branch above is: acting on rows that answer an
+  // older question is how the wrong person gets admitted.
+  if (couldBeBareSlug(t) && rowsQuery.trim() === t && rows.length === 0) {
+    return { kind: "scan", text: t };
   }
 
   // Several, none, or results that answer a different question. Never guess:

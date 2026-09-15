@@ -329,14 +329,35 @@ describe("the door never offers to register someone it could not look up", () =>
     ).toBeTruthy();
   });
 
-  it("does not burn a round trip looking up a scanned code by name", async () => {
-    // A wedge scanner's payload lands in this same box. It is a code, not a
-    // name: searching for it is a wasted request in front of a queue, and it
-    // is how a badge slug once matched strangers by phone number.
+  it("looks up an eight-letter name instead of offering to register her again", async () => {
+    // SAMANTHA passes the badge-slug shape — the alphabet drops only I, L, O
+    // and U — so the door used to send her name to the scanner, never search,
+    // and offer to REGISTER a woman who was already registered and standing
+    // at the desk. The duplicate this whole screen exists to prevent.
+    const user = userEvent.setup();
+    actions.searchAction.mockResolvedValue({
+      ok: true,
+      rows: [{ ...attendeeRow, name: "Samantha Khoury" }],
+    });
+    panel();
+    await search(user, "SAMANTHA");
+
+    expect(actions.searchAction).toHaveBeenCalledWith(EVENT, "SAMANTHA");
+    expect(await screen.findByText("Samantha Khoury")).toBeTruthy();
+    expect(screen.queryByText(/No one matches/i)).toBeNull();
+  });
+
+  it("never offers to register someone off a lookup that never ran", async () => {
+    // The offer is driven by an EMPTY result, and a query the panel skips is
+    // empty too. Belt to the braces above: even for input that is genuinely a
+    // code, nothing may propose creating a second registration.
     const user = userEvent.setup();
     panel();
     await search(user, "SZSZEC50");
+
     expect(actions.searchAction).not.toHaveBeenCalled();
+    expect(screen.queryByText(/No one matches/i)).toBeNull();
+    expect(screen.queryByRole("button", { name: /as a walk-in/i })).toBeNull();
   });
 
   it("recovers once a search answers again", async () => {

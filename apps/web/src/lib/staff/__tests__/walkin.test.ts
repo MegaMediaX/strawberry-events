@@ -161,3 +161,39 @@ describe("createWalkIn — propagation of register() outcomes", () => {
     expect(prisma.auditLog.create).not.toHaveBeenCalled();
   });
 });
+
+/**
+ * The same cross-organization hole the check-in service had, on the call that
+ * creates a REAL pretix order. A check-in role in one organization plus
+ * finance in another added up to a walk-in registration in the second.
+ */
+describe("createWalkIn — a door role does not travel between organizations", () => {
+  const financeElsewhere: SessionContext = {
+    userId: "x1",
+    isSuperAdmin: false,
+    memberships: [
+      { organizationId: "orgA", role: "checkin_staff", assignedEventIds: ["loc1"] },
+      { organizationId: "orgB", role: "finance", assignedEventIds: [] },
+    ],
+  };
+
+  it("refuses to register a walk-in in the org where they are only finance", async () => {
+    mock(prisma.eventMapping.findUnique).mockResolvedValue({
+      ...mapping,
+      id: "e2",
+      organizationId: "orgB",
+      localEventId: "loc2",
+    });
+    await expect(createWalkIn(financeElsewhere, { ...input, eventId: "e2" })).rejects.toThrow(
+      /organization/i,
+    );
+    // No order, and nothing written to the audit log either.
+    expect(register).not.toHaveBeenCalled();
+    expect(prisma.auditLog.create).not.toHaveBeenCalled();
+  });
+
+  it("still registers one where they do work the door", async () => {
+    const res = await createWalkIn(financeElsewhere, input);
+    expect(res.orderCode).toBe("WALK1");
+  });
+});
