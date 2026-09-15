@@ -303,7 +303,8 @@ export async function walkInAndCheckInAction(
     if (!res.ok) {
       return {
         ok: false,
-        reason: `Registered as ${orderCode}, but check-in failed: ${res.reason ?? "unknown"}. Find them by name to retry.`,
+        registeredOrderCode: orderCode,
+        reason: `Registered as ${orderCode}, but check-in failed: ${res.reason ?? "unknown"}.`,
       };
     }
     return res;
@@ -313,7 +314,8 @@ export async function walkInAndCheckInAction(
     console.error(`[door] walk-in check-in failed (event=${eventId}, order=${orderCode})`, err);
     return {
       ok: false,
-      reason: `Registered as ${orderCode}, but check-in failed. Find them by name to retry.`,
+      registeredOrderCode: orderCode,
+      reason: `Registered as ${orderCode}, but check-in failed.`,
     };
   }
 }

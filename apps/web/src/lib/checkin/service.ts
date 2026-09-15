@@ -48,6 +48,17 @@ export interface CheckInResult {
    * after another, with nothing on screen that leads back to a sign-in.
    */
   authExpired?: true;
+  /**
+   * Set ONLY by the walk-in path, when the REGISTRATION succeeded and the
+   * check-in that follows it did not. The order exists in pretix.
+   *
+   * A flag rather than prose in `reason`, because the door has to act on it:
+   * the walk-in form stayed open and armed over this failure, and the only
+   * enabled control on screen was the button that registers — so the obvious
+   * next tap created a SECOND order for the same person. `register()` has no
+   * idempotency key to undo that.
+   */
+  registeredOrderCode?: string;
 }
 
 /**
