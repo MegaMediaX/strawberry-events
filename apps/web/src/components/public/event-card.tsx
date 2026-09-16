@@ -12,12 +12,10 @@ export interface EventCardData {
   coverUrl?: string | null;
   /** "28—30 Aug 2026 · Le Royal Hotel Beirut", already composed. */
   metaLine?: string | null;
-  /** Shown on the featured entry only, clamped to three lines. */
-  description?: string | null;
 }
 
 /**
- * An event entry: cover band, then type beneath it.
+ * An event entry in the grid: cover band, then type beneath it.
  *
  * The previous version stacked the title, status pill and CTA *on top of* the
  * cover behind a scrim. Event posters are admin-uploaded and already carry
@@ -25,17 +23,15 @@ export interface EventCardData {
  * artwork's own typography and neither read cleanly. A scrim solves contrast,
  * which was never the real problem — composition was. Type below the image
  * also means an unknown crop can never break the headline.
+ *
+ * The featured entry no longer comes through here. It had grown a `featured`
+ * branch in six places — band ratio, loading priority, type size, description,
+ * button shape, button label — describing a layout this one never was, and the
+ * opening shot it has to be now (full-bleed, title over the frame, one red
+ * action) shares no markup with a card. It lives in `featured-event-plate.tsx`
+ * and this file is the grid again.
  */
-export function EventCard({
-  event,
-  locale,
-  featured = false,
-}: {
-  event: EventCardData;
-  locale: string;
-  /** Wider band and larger display type — used for the first / only event. */
-  featured?: boolean;
-}) {
+export function EventCard({ event, locale }: { event: EventCardData; locale: string }) {
   // The card takes titleAr and then ignored it. The Arabic locale is retired
   // (lib/i18n/dir.ts), so this changes nothing today — but a branch kept for
   // the day it returns has to actually work on that day.
@@ -46,10 +42,11 @@ export function EventCard({
     <div
       className={[
         "overflow-hidden rounded-[var(--radius-xl)] bg-muted",
-        // 16/9 at every width. A 21/9 band cropped 36% off this event's 3:2
-        // poster — it survived only because that artwork happens to be centred
-        // with margin. Covers are admin-uploaded at arbitrary ratios, so the
-        // band stays close to the ratios posters are actually made at.
+        // 16/9 at every width, NOT the house --aspect-cinema. The cinema ratio
+        // is the frame a cover is SHOWN in — hero, plate, skeleton, all at one
+        // size. A grid thumbnail is an index entry, and 16/6 at a third of the
+        // page width is a 120px strip. Covers are admin-uploaded at arbitrary
+        // ratios, so the band stays close to what posters are made at.
         "aspect-[16/9]",
       ].join(" ")}
     >
@@ -58,11 +55,9 @@ export function EventCard({
         <img
           src={event.coverUrl}
           alt=""
-          // The featured cover is the LCP element; grid covers stay lazy.
-          loading={featured ? "eager" : "lazy"}
-          fetchPriority={featured ? "high" : "auto"}
+          loading="lazy"
           decoding="async"
-          className="h-full w-full object-cover object-center transition-transform duration-500 ease-out will-change-transform group-hover:scale-[1.03] motion-reduce:transition-none motion-reduce:group-hover:scale-100"
+          className="h-full w-full object-cover object-center"
           style={{ filter: "saturate(0.9) contrast(1.03)" }}
         />
       ) : (
@@ -89,12 +84,7 @@ export function EventCard({
         </span>
       </div>
 
-      <h2
-        className={[
-          "font-heading leading-[1.02] tracking-[-0.02em]",
-          featured ? "text-[40px] sm:text-[60px]" : "text-[24px]",
-        ].join(" ")}
-      >
+      <h2 className="font-heading text-[length:var(--display-4)] leading-[1.02] tracking-[-0.02em]">
         {title}
       </h2>
 
@@ -104,23 +94,14 @@ export function EventCard({
         </p>
       )}
 
-      {featured && event.description && (
-        <p className="mt-1 line-clamp-3 max-w-[52ch] text-[15px] leading-[1.55] text-muted-foreground">
-          {event.description}
-        </p>
-      )}
-
       {!event.comingSoon && (
-        <span
-          className={[
-            "mt-2 inline-flex items-center gap-1.5 self-start rounded-lg text-sm font-semibold",
-            featured
-              ? "h-11 bg-primary px-5 text-primary-foreground transition-colors group-hover:bg-primary/85"
-              : "",
-          ].join(" ")}
-        >
-          {featured ? "View event and register" : "View event"}
-          <ArrowRight className="h-4 w-4 transition-transform duration-300 ease-out group-hover:translate-x-0.5 motion-reduce:transition-none motion-reduce:group-hover:translate-x-0" />
+        // No hover transform on the band or the arrow. Both were decoration
+        // that moved on a pointer the phone does not have, and between them
+        // they spent two durations (500ms, 300ms) that appear nowhere in the
+        // motion table.
+        <span className="mt-2 inline-flex items-center gap-1.5 self-start rounded-lg text-sm font-semibold">
+          View event
+          <ArrowRight aria-hidden="true" className="h-4 w-4" />
         </span>
       )}
     </div>
@@ -128,7 +109,7 @@ export function EventCard({
 
   if (event.comingSoon) {
     return (
-      <div className="group cursor-default opacity-70">
+      <div className="cursor-default opacity-70">
         {band}
         {body}
       </div>
@@ -139,7 +120,7 @@ export function EventCard({
     <Link
       href={href}
       aria-label={title}
-      className="group block rounded-[var(--radius-xl)] outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+      className="block rounded-[var(--radius-xl)] outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
     >
       {band}
       {body}
