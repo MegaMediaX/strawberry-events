@@ -36,7 +36,7 @@ export function SaveContactButton({ contact }: { contact: VCardInput }) {
     <button
       type="button"
       onClick={save}
-      className="mt-6 inline-flex min-h-11 w-full items-center justify-center rounded-xl bg-primary px-5 text-[14px] font-semibold tracking-[0.02em] text-primary-foreground transition-opacity outline-none hover:opacity-90 focus-visible:ring-3 focus-visible:ring-ring/50"
+      className="mt-6 inline-flex min-h-11 w-full items-center justify-center rounded-xl bg-primary px-5 text-[14px] font-semibold tracking-[0.02em] text-primary-foreground transition-opacity outline-none hover:opacity-90 focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
     >
       {saved ? "Saved to your downloads" : "Save contact"}
     </button>

@@ -76,7 +76,7 @@ export function WaitlistJoin({ eventId }: { eventId: string }) {
             <p
               id={statusId}
               role="status"
-              className="mt-2 text-sm font-medium text-destructive"
+              className="mt-2 text-sm font-medium text-destructive-text"
             >
               {result.text}
             </p>

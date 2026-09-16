@@ -35,6 +35,8 @@
   --color-secondary: var(--secondary);
   --color-primary-foreground: var(--primary-foreground);
   --color-primary: var(--primary);
+  --color-primary-text: var(--primary-text);
+  --color-destructive-text: var(--destructive-text);
   --color-popover-foreground: var(--popover-foreground);
   --color-popover: var(--popover);
   --color-card-foreground: var(--card-foreground);
@@ -58,6 +60,11 @@
   --popover-foreground: #111111;
   --primary: #b10b0b;
   --primary-foreground: #ffffff;
+  /* The red an inline LINK is set in. Identical to --primary in light mode,
+     where the brand red is already 6.56:1 on the page — the split exists for
+     dark mode, where --primary is a fill colour that cannot be read as text.
+     Same pattern, same reason as --brand-success-text below. */
+  --primary-text: #b10b0b;
   --secondary: #e7e5e5;
   --secondary-foreground: #111111;
   --muted: #e7e5e5;
@@ -65,8 +72,18 @@
   --accent: #2c3338;
   --accent-foreground: #ffffff;
   --destructive: #dc2626;
+  /* Same red, dark enough to BE TEXT on a tinted error panel. --destructive is
+     a fill: as 13px on its own /10 wash it lands at 3.78:1, under the floor —
+     and the one message it carries is the one that unblocks a stuck
+     registration. Use --destructive for fills and icons, this one for words. */
+  --destructive-text: #991b1b;
   --border: #d4d0ce;
-  --input: #d4d0ce;
+  /* Dividers (--border) may be faint; a form control's EDGE may not. 1.4.11
+     puts the boundary of an interactive component at 3:1, and the old shared
+     #d4d0ce measured 1.40:1 on the cream page. Split from --border so the
+     hairlines between sections stay quiet while the field you type in has a
+     visible edge: 3.33:1 on the page, 3.65:1 on a card. */
+  --input: #8a8580;
   /* Focus ring is the charcoal brand tone, NOT the strawberry red: red is
      reserved for --destructive, so a focused field never reads as an invalid
      one (WCAG 1.4.1 — colour must not be the only signal). */
@@ -89,9 +106,7 @@
      shadow-[var(--shadow-2)]. */
   --shadow-1: 0 1px 2px rgba(17, 17, 17, 0.05);
   --shadow-2: 0 2px 4px -2px rgba(17, 17, 17, 0.06), 0 8px 20px -8px rgba(17, 17, 17, 0.1);
-  --shadow-3: 0 4px 8px -4px rgba(17, 17, 17, 0.08), 0 20px 40px -16px rgba(17, 17, 17, 0.16);
   --shadow-well: inset 0 1px 2px rgba(17, 17, 17, 0.07);
-  --shadow-chrome: 0 -8px 24px -12px rgba(17, 17, 17, 0.14);
 
   /* Height of the sticky public header (h-16 on its inner row). Anything else
      that sticks below it offsets by this — the registration stepper used
@@ -127,15 +142,29 @@
   --popover-foreground: #f7f4f1;
   --primary: #cc1414;
   --primary-foreground: #ffffff;
+  /* #cc1414 as TEXT on this canvas is 2.25:1 on a card and 2.78:1 on the page
+     — and it styled the Terms, Privacy and data-use links a registrant must
+     read before consenting. Lifted to a tint that carries: 6.76:1 on card,
+     8.37:1 on page, 5.17:1 on a muted panel. The button keeps --primary. */
+  --primary-text: #fca5a5;
   --secondary: #3f444b;
   --secondary-foreground: #f7f4f1;
   --muted: #3f444b;
-  --muted-foreground: #9ba0a6;
+  /* Secondary text lands on three grounds in dark mode — page, card, and the
+     muted panel itself (the QR fallback box, quote wells, empty states). The
+     old #9ba0a6 cleared the first two and measured 3.73:1 on the third, so
+     the same class was compliant or not depending on what it sat on. Lifted
+     until the WORST ground clears: 4.75:1 on muted, 6.21:1 on card, 7.70:1 on
+     the page. */
+  --muted-foreground: #b0b5bb;
   --accent: #f7f4f1;
   --accent-foreground: #111111;
   --destructive: #ef4444;
+  /* See the light-theme note: 3.86:1 on its own wash here. */
+  --destructive-text: #fca5a5;
   --border: #3f444b;
-  --input: #3f444b;
+  /* 1.31:1 against a card before this. See the light-theme note. */
+  --input: #7b8187;
   /* See the light-theme note: focus stays neutral so it cannot be mistaken
      for the red destructive/invalid state. */
   --ring: #9ba0a6;
@@ -152,10 +181,7 @@
   --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(247, 244, 241, 0.05);
   --shadow-2: 0 2px 4px -2px rgba(0, 0, 0, 0.5), 0 10px 24px -10px rgba(0, 0, 0, 0.6),
     inset 0 1px 0 rgba(247, 244, 241, 0.06);
-  --shadow-3: 0 4px 8px -4px rgba(0, 0, 0, 0.55), 0 24px 48px -18px rgba(0, 0, 0, 0.7),
-    inset 0 1px 0 rgba(247, 244, 241, 0.07);
   --shadow-well: inset 0 1px 2px rgba(0, 0, 0, 0.35);
-  --shadow-chrome: 0 -10px 28px -14px rgba(0, 0, 0, 0.65);
   --chart-1: oklch(0.87 0 0);
   --chart-2: oklch(0.556 0 0);
   --chart-3: oklch(0.439 0 0);
@@ -205,6 +231,19 @@
   }
   html {
     @apply font-sans;
+    /*
+     * Keep a Tab-focused field out from under the sticky chrome.
+     *
+     * The public header sticks at --nav-height, and on the registration route
+     * the step ribbon sticks directly below it (~54px) — about 118px of bar in
+     * total. A browser scrolling a focused element into view puts it at the
+     * top of the viewport, i.e. underneath both, so tabbing through the form
+     * hid the field being typed into (WCAG 2.2 SC 2.4.11). The error path
+     * never showed this: it calls scrollIntoView({ block: "center" }) by hand.
+     * scroll-padding-top fixes the ordinary path for every scroll the browser
+     * performs, including anchor jumps, without a line of JavaScript.
+     */
+    scroll-padding-top: calc(var(--nav-height) + 4rem);
   }
   /* Arabic needs more vertical breathing room than Latin. */
   [dir="rtl"] body {
