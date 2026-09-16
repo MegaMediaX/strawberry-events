@@ -1,13 +1,14 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { motion } from "framer-motion";
+import { motion, useReducedMotion } from "framer-motion";
 import { CheckCircle2, Clock, XCircle, Ban, MessageCircle } from "lucide-react";
 import { registrationState } from "@/lib/approval/state";
 import { hasLocation, locationLine, directionsUrl } from "@/lib/events/location";
 import { QrCodeDisplay } from "./qr-code-display";
 import { AddToCalendar } from "./add-to-calendar";
 import { eventMetaLine } from "@/lib/events/format";
+import { DUR, EASE_OUT } from "@/lib/motion";
 import { shouldShowTicketQr, shouldOfferTicketRecovery } from "./ticket-reveal";
 import type { AttendeeView } from "@/lib/registration/attendee-view";
 
@@ -16,7 +17,7 @@ const STATE_CONFIG = {
   issued: {
     Icon: CheckCircle2,
     iconCls: "text-emerald-500",
-    heading: "You're in!",
+    heading: "You're registered.",
     bg: "from-emerald-500/5 to-transparent",
   },
   pending_approval: {
@@ -74,13 +75,20 @@ export function AttendeeStateView({
     ? eventMetaLine(order.schedule.from, order.schedule.to, null)
     : null;
   const offerRecovery = shouldOfferTicketRecovery(state, canRevealTicket);
+  const reduce = useReducedMotion();
 
   return (
     <main className="mx-auto max-w-md px-4 py-12">
+      {/* The ticket screen had the only unguarded entrance left on the public
+          side: a 20px slide that played for everyone, including someone who
+          asked their device for no motion — and it played again on every
+          reopen of the emailed link, which is what the door queue is. The
+          reduced twin drops the transform and keeps a short fade; the QR is
+          inside this element and never gets its own motion either way. */}
       <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.35, ease: "easeOut" }}
+        initial={reduce ? { opacity: 0 } : { opacity: 0, y: 20 }}
+        animate={reduce ? { opacity: 1 } : { opacity: 1, y: 0 }}
+        transition={{ duration: reduce ? DUR.micro : DUR.slow, ease: EASE_OUT }}
         className={`rounded-[var(--radius-xl)] border border-border bg-gradient-to-b ${bg} p-8 text-center`}
       >
         <Icon className={`mx-auto h-12 w-12 ${iconCls}`} />
@@ -165,7 +173,7 @@ export function AttendeeStateView({
             )}
             {directionsUrl(order.eventMapping) && (
               <a
-                className="mt-1 inline-block text-primary underline"
+                className="mt-1 inline-block text-primary-text underline"
                 href={directionsUrl(order.eventMapping)!}
                 target="_blank"
                 rel="noopener noreferrer"
@@ -183,7 +191,11 @@ export function AttendeeStateView({
               href={order.eventMapping.whatsappChannelUrl}
               target="_blank"
               rel="noopener noreferrer"
-              className="mt-6 inline-flex w-full items-center justify-center gap-2 rounded-[var(--radius-lg)] bg-[#25D366] px-4 py-3 font-medium text-white transition-opacity hover:opacity-90"
+              /* WhatsApp's own green with white on it is 1.98:1 — brand
+                 colour, not a text pair. The green stays (it is how the
+                 button is recognised) and the label goes dark on it:
+                 #111111 on #25D366 measures 9.52:1. */
+              className="mt-6 inline-flex w-full items-center justify-center gap-2 rounded-[var(--radius-lg)] bg-[#25D366] px-4 py-3 font-medium text-[#111111] transition-opacity hover:opacity-90"
             >
               <MessageCircle className="h-5 w-5" />
               Join our WhatsApp channel

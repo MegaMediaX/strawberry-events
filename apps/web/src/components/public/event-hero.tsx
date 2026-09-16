@@ -1,7 +1,8 @@
 "use client";
 
-import { motion } from "framer-motion";
+import { motion, useReducedMotion } from "framer-motion";
 import { Calendar, MapPin } from "lucide-react";
+import { DUR, EASE_OUT } from "@/lib/motion";
 
 export function EventHero({
   title,
@@ -18,6 +19,8 @@ export function EventHero({
 }) {
   const isOpen = statusLabel === "Open";
   const isSoldOut = statusLabel === "Sold out";
+
+  const reduce = useReducedMotion();
 
   const badge = (
     <span
@@ -63,14 +66,22 @@ export function EventHero({
     );
   }
 
-  // With a cover: show the FULL image (never cropped) at its natural aspect,
-  // with the title + meta below it. Works for wide banners and standard photos.
+  // With a cover: a FIXED cinematic band with the title + meta below it.
+  //
+  // This comment used to promise the full image at its natural aspect, "never
+  // cropped". The code below has never done that: the band is locked to 16/6
+  // and the image is object-cover, so any cover that is not 2.667:1 is cut —
+  // a 3:2 poster loses about 44% of its height. Nobody decided that; the
+  // comment and the classes simply disagreed, and the comment was believed.
+  // Stated honestly here so the crop is a decision someone can now make
+  // (enforce an upload ratio, or letterbox the whole image) rather than a
+  // surprise. The layout is unchanged by this commit.
   if (coverUrl) {
     return (
       <motion.div
-        initial={{ opacity: 0, y: 16 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.4, ease: "easeOut" }}
+        initial={reduce ? { opacity: 0 } : { opacity: 0, y: 16 }}
+        animate={reduce ? { opacity: 1 } : { opacity: 1, y: 0 }}
+        transition={{ duration: reduce ? DUR.micro : DUR.slow, ease: EASE_OUT }}
       >
         <div className="relative aspect-[16/6] w-full overflow-hidden rounded-[var(--radius-xl)] bg-muted/30">
           {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -94,9 +105,9 @@ export function EventHero({
   // No cover — gradient hero with overlaid title.
   return (
     <motion.div
-      initial={{ opacity: 0, y: 16 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.4, ease: "easeOut" }}
+      initial={reduce ? { opacity: 0 } : { opacity: 0, y: 16 }}
+      animate={reduce ? { opacity: 1 } : { opacity: 1, y: 0 }}
+      transition={{ duration: reduce ? DUR.micro : DUR.slow, ease: EASE_OUT }}
       className="relative overflow-hidden rounded-[var(--radius-xl)] p-6 sm:p-10"
       style={{ backgroundImage: "var(--gradient-hero-strong)" }}
     >

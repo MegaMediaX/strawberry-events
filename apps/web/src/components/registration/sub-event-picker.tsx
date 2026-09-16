@@ -191,10 +191,10 @@ export function SubEventPicker({ locale, subEvents, selected, totalAllowance, on
                       />
                     )}
                     {soldOut && (
-                      <span className="mt-1 block text-xs text-destructive">Sold out</span>
+                      <span className="mt-1 block text-xs text-destructive-text">Sold out</span>
                     )}
                     {hasConflict && (
-                      <span className="mt-1 block text-xs text-destructive">
+                      <span className="mt-1 block text-xs text-destructive-text">
                         {`Overlaps with "${conflictTitle}"`}
                       </span>
                     )}

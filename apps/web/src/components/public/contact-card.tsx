@@ -65,6 +65,11 @@ export function ContactCard({
 
       {email || phone ? (
         <dl className="mt-8 space-y-4">
+          {/* Underlined at REST, not on hover. These two were styled exactly
+              like the text around them — no colour shift, no underline until
+              a pointer arrived — on a page whose entire purpose is handing a
+              stranger a way to make contact, read one-handed on a phone where
+              hover does not exist (WCAG 1.4.1). */}
           {email ? (
             <div>
               <dt className="text-[11px] font-semibold tracking-[0.14em] text-muted-foreground uppercase">
@@ -72,7 +77,7 @@ export function ContactCard({
               </dt>
               <dd className="mt-1 text-[15px] break-all">
                 <a
-                  className="inline-flex min-h-11 items-center underline-offset-2 hover:underline"
+                  className="inline-flex min-h-11 items-center underline underline-offset-2"
                   href={`mailto:${email}`}
                 >
                   {email}
@@ -88,7 +93,7 @@ export function ContactCard({
               <dd className="mt-1 text-[15px]">
                 {/* tel: strips spaces — some diallers choke on them. */}
                 <a
-                  className="inline-flex min-h-11 items-center underline-offset-2 hover:underline"
+                  className="inline-flex min-h-11 items-center underline underline-offset-2"
                   href={`tel:${phone.replace(/[^+\d]/g, "")}`}
                 >
                   {phone}

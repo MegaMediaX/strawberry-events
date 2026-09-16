@@ -1244,7 +1244,7 @@ export function RegistrationWizard({
           always present so screen readers pick up the change in place. */}
       <div role="alert" aria-live="assertive" id={fid.error} ref={errorRef} tabIndex={-1}>
         {err && (
-          <p className="mt-3 rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm font-medium text-destructive">
+          <p className="mt-3 rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm font-medium text-destructive-text">
             {err}
           </p>
         )}

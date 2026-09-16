@@ -9,6 +9,11 @@ vi.mock("framer-motion", async () => {
       div: (props: { children?: unknown; className?: string }) =>
         createElement("div", { className: props.className }, props.children as never),
     },
+    // The component reads this to pick its reduced-motion twin. Rendered
+    // through renderToStaticMarkup there is no media query to read, and the
+    // answer changes no markup — but the export has to exist, or the module
+    // mock swallows the component whole.
+    useReducedMotion: () => false,
   };
 });
 
@@ -62,7 +67,7 @@ describe("AttendeeStateView — ticket secret boundary", () => {
 
   it("still shows the order status and event when the QR is withheld", () => {
     const html = render({ order: issuedOrder });
-    expect(html).toContain("You&#x27;re in!");
+    expect(html).toContain("You&#x27;re registered.");
     expect(html).toContain("Demo Expo");
     expect(html).toContain("3XKQ7");
   });

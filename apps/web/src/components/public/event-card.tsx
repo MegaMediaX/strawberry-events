@@ -139,7 +139,7 @@ export function EventCard({
     <Link
       href={href}
       aria-label={title}
-      className="group block rounded-[var(--radius-xl)] outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
+      className="group block rounded-[var(--radius-xl)] outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
     >
       {band}
       {body}
