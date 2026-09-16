@@ -113,6 +113,10 @@ describe("failures the door cannot see are not read out to attendees", () => {
     // The order EXISTS — losing that code would strand a real registration.
     expect(res.reason).toContain("9ZZQ2");
     expect(res.reason).not.toContain("502");
-    expect(res.reason).toMatch(/find them by name/i);
+    // And it says so in a field the door can ACT on, rather than only in
+    // prose. The panel reads this to close the walk-in form — which stayed
+    // open and armed over this failure, one tap away from a second order for
+    // the same person — and to put the code in the search box instead.
+    expect(res.registeredOrderCode).toBe("9ZZQ2");
   });
 });

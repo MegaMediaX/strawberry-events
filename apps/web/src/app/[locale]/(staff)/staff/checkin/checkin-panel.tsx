@@ -139,6 +139,18 @@ export function CheckinPanel({
   const [confirmReprint, setConfirmReprint] = useState<
     { orderCode: string; fullName: string } | null
   >(null);
+  /**
+   * Something the door was handed while it was busy, and did not read.
+   *
+   * Every dispatcher below refuses while a request is in flight, which is
+   * right — the last response to resolve wins the shared banner, and a reprint
+   * is not idempotent. What was wrong is that it refused SILENTLY. A wedge
+   * scanner fires whether or not anything is listening, so the queue's next
+   * badge went into a box nobody read, and the check-in that was in flight
+   * then cleared that box on success: green ENTER banner, empty field, and no
+   * sign anywhere that a person had been skipped.
+   */
+  const [ignoredWhileBusy, setIgnoredWhileBusy] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [editing, setEditing] = useState<EditTarget | null>(null);
   // Three unrelated async operations, three flags. Sharing one meant a fast
@@ -164,6 +176,11 @@ export function CheckinPanel({
   // it cannot see current state without a ref.
   const editingRef = useRef<EditTarget | null>(null);
   const walkInRef = useRef(false);
+  // The search box as it is now, and as it was when the in-flight request was
+  // dispatched. Refs because the dispatchers are memoized per action, not per
+  // keystroke — see `beginDispatch`.
+  const qRef = useRef("");
+  const qAtDispatch = useRef("");
   // Read by openEdit's re-entrancy guard. A ref rather than the state value so
   // the callback keeps a stable identity.
   const openingEditRef = useRef(false);
@@ -299,8 +316,17 @@ export function CheckinPanel({
         if (kind === "in") bumpDoorCount();
         // Clear the search so the next person starts from an empty field rather
         // than the previous attendee's results.
-        setQ("");
-        setRows([]);
+        //
+        // Only if it still holds what it held when this request went out. A
+        // wedge scanner fires into whatever has focus, so the next attendee's
+        // badge can land in the box while this check-in is on the wire — and
+        // clearing it then destroyed a payload the door had already refused to
+        // read, with a green ENTER banner over the top of it. Keeping it means
+        // the operator can simply press Enter again.
+        if (qRef.current === qAtDispatch.current) {
+          setQ("");
+          setRows([]);
+        }
         searchRef.current?.focus();
 
         // The banner must not go green until a badge has actually come out. The
@@ -384,14 +410,31 @@ export function CheckinPanel({
 
   /* ----------------------------------------------------------------- actions */
 
+  /**
+   * Open a request: clear the last "not read" notice, and record what was in
+   * the search box as this request started.
+   *
+   * The box matters because a successful check-in clears it (see
+   * `handleResult`), and between dispatch and response the operator may have
+   * typed — or a wedge scanner may have fired — the NEXT person into it. That
+   * clear then destroyed a payload nobody had read, leaving no evidence the
+   * person existed. So the clear only applies if the box still holds what it
+   * held when we asked.
+   */
+  const beginDispatch = useCallback(() => {
+    setIgnoredWhileBusy(false);
+    qAtDispatch.current = qRef.current;
+    setResult({ kind: "working" });
+  }, []);
+
   const doCheckIn = useCallback(
     (orderCode: string) => {
       // Same guard as doScan. A double-tap on a touchscreen fires twice before
       // React commits `disabled`, and the LAST response to resolve wins the
       // shared result state — which may not be the one the operator just asked
       // for.
-      if (pending) return;
-      setResult({ kind: "working" });
+      if (pending) return void setIgnoredWhileBusy(true);
+      beginDispatch();
       start(async () =>
         handleResult(
           await checkInAction(eventId, orderCode, listId).catch((err: unknown) =>
@@ -401,7 +444,7 @@ export function CheckinPanel({
         ),
       );
     },
-    [eventId, listId, pending, handleResult],
+    [eventId, listId, pending, handleResult, beginDispatch],
   );
 
   const doReprint = useCallback(
@@ -410,8 +453,8 @@ export function CheckinPanel({
       // check-in idempotent, but reprintBadge has no such protection — a second
       // call prints a second physical badge, which is the exact fraud vector
       // the confirm dialog exists to prevent.
-      if (pending) return;
-      setResult({ kind: "working" });
+      if (pending) return void setIgnoredWhileBusy(true);
+      beginDispatch();
       start(async () =>
         handleResult(
           await reprintAction(eventId, orderCode).catch((err: unknown) =>
@@ -421,13 +464,13 @@ export function CheckinPanel({
         ),
       );
     },
-    [eventId, pending, handleResult],
+    [eventId, pending, handleResult, beginDispatch],
   );
 
   const doScan = useCallback(
     (text: string) => {
-      if (pending) return;
-      setResult({ kind: "working" });
+      if (pending) return void setIgnoredWhileBusy(true);
+      beginDispatch();
       start(async () =>
         handleResult(
           await scanAction(eventId, text, listId).catch((err: unknown) =>
@@ -437,7 +480,7 @@ export function CheckinPanel({
         ),
       );
     },
-    [eventId, listId, pending, handleResult],
+    [eventId, listId, pending, handleResult, beginDispatch],
   );
 
   /* --------------------------------------------------- search as you type */
@@ -535,6 +578,10 @@ export function CheckinPanel({
   }, [confirmReprint]);
 
   /* ------------------------------------------ inline form focus + refs */
+
+  useEffect(() => {
+    qRef.current = q;
+  }, [q]);
 
   useEffect(() => {
     editingRef.current = editing;
@@ -701,7 +748,9 @@ export function CheckinPanel({
     (e: React.KeyboardEvent<HTMLInputElement>) => {
       if (e.key !== "Enter") return;
       e.preventDefault();
-      if (busy) return;
+      // Busy is a refusal, and it says so. A scanner's Enter arrives here too,
+      // so this is the path a whole person used to disappear down.
+      if (busy) return void setIgnoredWhileBusy(true);
 
       // The decision is a pure function so it can be tested; this only
       // dispatches it.
@@ -903,6 +952,19 @@ export function CheckinPanel({
           />
 
           <div className="mt-3">
+            {/* A refusal the operator can act on, where the refusal happened.
+                role="alert" because it is about someone who is NOT being dealt
+                with — the one case at this door worth interrupting for. It
+                clears itself on the next dispatch. */}
+            {ignoredWhileBusy && (
+              <p
+                role="alert"
+                className="mb-2 rounded-md border border-amber-500 bg-amber-400/15 p-2 text-[14px] font-semibold"
+              >
+                NOT READ — the door was still finishing the last one. Scan or
+                press Enter again.
+              </p>
+            )}
             {q.trim() && searching && (
               <p className="text-[14px] text-muted-foreground">Searching…</p>
             )}
@@ -959,6 +1021,26 @@ export function CheckinPanel({
                         return;
                       }
                       if (!res.ok) {
+                        if (res.registeredOrderCode) {
+                          // Half of this succeeded: the order EXISTS. Leaving
+                          // the filled form open left the operator looking at
+                          // one enabled control — Register — while the search
+                          // box behind it was disabled, so the obvious next tap
+                          // made a SECOND pretix order for the same person.
+                          //
+                          // So the form closes, and the order code goes into
+                          // the search box: the row it finds carries the
+                          // ordinary "Check in & print", which is the retry.
+                          setWalkIn(false);
+                          setQ(res.registeredOrderCode);
+                          setResult({
+                            kind: "warn",
+                            name: who,
+                            detail: `Registered as ${res.registeredOrderCode} — NOT checked in yet. They are in the search box: check them in from their row. Do not register them again.`,
+                          });
+                          searchRef.current?.focus();
+                          return;
+                        }
                         setResult({ kind: "err", name: who, detail: res.reason ?? "Could not register." });
                         return;
                       }

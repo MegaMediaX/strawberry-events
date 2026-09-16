@@ -42,7 +42,17 @@ const actions = vi.hoisted(() => ({
 vi.mock("../actions", () => actions);
 // The scanner reaches for a camera, the printer pill for QZ Tray, and the
 // counter for a server action. None of them is what this suite is about.
-vi.mock("../qr-scanner", () => ({ QrScanner: () => null }));
+// The camera is stubbed to a button that fires one payload. It is the only
+// input on this screen that does NOT go through the search box — so it is the
+// only way to reach the dispatchers' own busy guards, which is where a scan
+// taken during an in-flight request lands.
+vi.mock("../qr-scanner", () => ({
+  QrScanner: ({ onScan }: { onScan: (text: string) => void }) => (
+    <button type="button" onClick={() => onScan("SZSZEC50")}>
+      fire camera scan
+    </button>
+  ),
+}));
 vi.mock("../printer-status", () => ({ PrinterStatus: () => null }));
 vi.mock("../printer-settings", () => ({ PrinterSettings: () => null }));
 vi.mock("../door-counters", () => ({ DoorCounters: () => null, bumpDoorCount: vi.fn() }));
@@ -373,6 +383,164 @@ describe("the door never offers to register someone it could not look up", () =>
     await user.type(screen.getByLabelText("Search attendees"), "n");
     expect(await screen.findByText("Marven Mouaalem")).toBeTruthy();
     expect(screen.queryByText("SESSION ENDED")).toBeNull();
+  });
+});
+
+/**
+ * Both halves of a walk-in, and what the door does when only one of them works.
+ */
+describe("a walk-in that registered but did not check in", () => {
+  const halfDone = {
+    ok: false as const,
+    registeredOrderCode: "9ZZQ2",
+    reason: "Registered as 9ZZQ2, but check-in failed.",
+  };
+
+  async function submitWalkIn(user: ReturnType<typeof userEvent.setup>) {
+    await user.click(screen.getByRole("button", { name: /register a walk-in/i }));
+    await user.type(screen.getByLabelText("First name"), "Elias");
+    await user.type(screen.getByLabelText("Last name"), "Daou");
+    await user.click(screen.getByRole("button", { name: /register, check in & print/i }));
+  }
+
+  it("closes the form rather than leaving the Register button armed", async () => {
+    // The order EXISTS. The form stayed open and filled over this failure, and
+    // the search box behind it is disabled while it is — so the only enabled
+    // control on screen was the one that registers, and the obvious next tap
+    // made a SECOND pretix order for the same person.
+    const user = userEvent.setup();
+    actions.walkInAndCheckInAction.mockResolvedValue(halfDone);
+    panel();
+    await submitWalkIn(user);
+
+    expect(await screen.findByText(/NOT checked in yet/i)).toBeTruthy();
+    expect(screen.queryByLabelText("First name")).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: /register, check in & print/i }),
+    ).toBeNull();
+    expect(actions.walkInAndCheckInAction).toHaveBeenCalledTimes(1);
+  });
+
+  it("hands the operator the order code to finish the job with", async () => {
+    const user = userEvent.setup();
+    actions.walkInAndCheckInAction.mockResolvedValue(halfDone);
+    actions.searchAction.mockResolvedValue({
+      ok: true,
+      rows: [{ ...attendeeRow, orderCode: "9ZZQ2", name: "Elias Daou" }],
+    });
+    panel();
+    await submitWalkIn(user);
+
+    // The code is in the box, so the row it finds carries the ordinary
+    // "Check in & print" — the retry, without registering anyone again.
+    await waitFor(() =>
+      expect(screen.getByLabelText("Search attendees")).toHaveProperty("value", "9ZZQ2"),
+    );
+    expect(await screen.findByRole("button", { name: /check in & print/i })).toBeTruthy();
+  });
+
+  it("still reports an ordinary registration failure as one", async () => {
+    // Nothing was created here, so the form stays open with what they typed.
+    const user = userEvent.setup();
+    actions.walkInAndCheckInAction.mockResolvedValue({
+      ok: false,
+      reason: "Ticket type is sold out.",
+    });
+    panel();
+    await submitWalkIn(user);
+
+    expect(await screen.findByText(/sold out/i)).toBeTruthy();
+    expect(screen.getByLabelText("First name")).toHaveProperty("value", "Elias");
+  });
+});
+
+/**
+ * A door that is busy refuses — the last response to resolve wins the banner,
+ * and a reprint is not idempotent. The bug was that it refused in silence.
+ */
+describe("nobody is skipped without the door saying so", () => {
+  /** A check-in that stays on the wire until the test lets it finish. */
+  function pendingCheckIn() {
+    let release!: (v: unknown) => void;
+    actions.checkInAction.mockImplementation(
+      () => new Promise((resolve) => { release = resolve; }),
+    );
+    return (value: unknown) => release(value);
+  }
+
+  it("says a scan was not read, instead of dropping it", async () => {
+    const user = userEvent.setup();
+    actions.searchAction.mockResolvedValue({ ok: true, rows: [attendeeRow] });
+    const finish = pendingCheckIn();
+    panel();
+    await search(user);
+    await user.click(await screen.findByRole("button", { name: /check in & print/i }));
+
+    // The next attendee's badge, fired by a wedge scanner into the box that
+    // still has focus, while the first check-in is in flight.
+    await user.type(screen.getByLabelText("Search attendees"), "SZSZEC50{Enter}");
+
+    expect(await screen.findByRole("alert")).toHaveProperty(
+      "textContent",
+      expect.stringMatching(/not read/i),
+    );
+    expect(actions.scanAction).not.toHaveBeenCalled();
+    finish({ ok: true, badge });
+  });
+
+  it("says a CAMERA scan was not read either", async () => {
+    // The camera does not go through the search box, so it reaches the
+    // dispatcher's own guard rather than the Enter handler's. Both used to
+    // drop the person in silence.
+    const user = userEvent.setup();
+    actions.searchAction.mockResolvedValue({ ok: true, rows: [attendeeRow] });
+    const finish = pendingCheckIn();
+    panel();
+    await search(user);
+    await user.click(await screen.findByRole("button", { name: /check in & print/i }));
+
+    await user.click(screen.getByRole("button", { name: /fire camera scan/i }));
+
+    expect(await screen.findByRole("alert")).toHaveProperty(
+      "textContent",
+      expect.stringMatching(/not read/i),
+    );
+    expect(actions.scanAction).not.toHaveBeenCalled();
+    finish({ ok: true, badge });
+  });
+
+  it("does not wipe the payload it refused to read", async () => {
+    // The clear on a successful check-in used to take the NEXT person's badge
+    // with it: green ENTER banner, empty box, no trace that anyone was missed.
+    const user = userEvent.setup();
+    actions.searchAction.mockResolvedValue({ ok: true, rows: [attendeeRow] });
+    const finish = pendingCheckIn();
+    panel();
+    await search(user);
+    await user.click(await screen.findByRole("button", { name: /check in & print/i }));
+
+    await user.type(screen.getByLabelText("Search attendees"), "SZSZEC50{Enter}");
+    finish({ ok: true, badge });
+
+    expect(await screen.findByText("ENTER")).toBeTruthy();
+    // Still there — the box also still holds the name that was searched, which
+    // is exactly what a wedge scanner types into — so the payload survives and
+    // pressing Enter again is all it takes.
+    const box = screen.getByLabelText("Search attendees") as HTMLInputElement;
+    expect(box.value).toContain("SZSZEC50");
+  });
+
+  it("clears the box normally when nothing arrived meanwhile", async () => {
+    const user = userEvent.setup();
+    actions.searchAction.mockResolvedValue({ ok: true, rows: [attendeeRow] });
+    actions.checkInAction.mockResolvedValue({ ok: true, badge });
+    panel();
+    await search(user);
+    await user.click(await screen.findByRole("button", { name: /check in & print/i }));
+
+    expect(await screen.findByText("ENTER")).toBeTruthy();
+    expect(screen.getByLabelText("Search attendees")).toHaveProperty("value", "");
+    expect(screen.queryByRole("alert")).toBeNull();
   });
 });
 
