@@ -668,6 +668,11 @@ model BadgePrintLog {
   printedByUserId String?
   reprint         Boolean  @default(false)
   createdAt       DateTime @default(now())
+  /// Set when the door confirms the badge physically came out. A row with
+  /// neither this nor failureReason was dispatched and never reported on.
+  confirmedAt     DateTime?
+  /// Why the print did not produce a badge, as the door saw it.
+  failureReason   String?
 
   badgeTemplate BadgeTemplate? @relation(fields: [badgeTemplateId], references: [id], onDelete: SetNull)
 

@@ -59,6 +59,16 @@ export interface CheckInResult {
    * idempotency key to undo that.
    */
   registeredOrderCode?: string;
+  /**
+   * The badge_print_logs row this dispatch created, so the door can report
+   * back what the printer actually did (see `recordPrintOutcome`).
+   *
+   * Present on every result that carries a badge. The log row is written here,
+   * server-side, the moment the check-in succeeds — but the print happens in
+   * the browser seconds later, so without this the table could only ever say
+   * that a badge was SENT to a printer.
+   */
+  printLogId?: string;
 }
 
 /**
@@ -186,12 +196,28 @@ export function phoneDigitsForQuery(query: string): string {
   return digits.length >= 6 ? digits : "";
 }
 
+/**
+ * Neutralise LIKE's own wildcards in text an operator typed.
+ *
+ * Without this, `%` matches every attendee at the event and `_` matches any
+ * single character — so one stray character returns 25 strangers, each row
+ * carrying a live "Check in & print" beside a name that was never searched
+ * for. Same family as the phone-digit bug documented above, with a rarer
+ * trigger: a pasted string, or a fat-fingered shift key.
+ *
+ * Backslash first, or it would escape the escapes added after it. Postgres
+ * takes backslash as LIKE's default escape character.
+ */
+export function escapeLike(value: string): string {
+  return value.replace(/\\/g, "\\\\").replace(/[%_]/g, (c) => `\\${c}`);
+}
+
 export function searchAttendeeOrders(
   eventMappingId: string,
   query: string,
 ): Promise<AttendeeOrder[]> {
   const q = query.trim();
-  const like = `%${q}%`;
+  const like = `%${escapeLike(q)}%`;
   const digits = phoneDigitsForQuery(q);
   const phoneClause = digits
     ? Prisma.sql`OR regexp_replace(coalesce("phone", ''), '\D', '', 'g') LIKE ${`%${digits}%`}`
@@ -344,7 +370,7 @@ async function checkInResolvedOrder(
     };
   }
 
-  await prisma.badgePrintLog.create({
+  const printLog = await prisma.badgePrintLog.create({
     data: {
       eventMappingId: mapping.id,
       attendeeRef: order.orderCode,
@@ -368,7 +394,7 @@ async function checkInResolvedOrder(
   // Mint the slug only once the check-in has actually succeeded, so a refused
   // scan does not burn a code onto a row whose badge was never printed.
   const badgeSlug = await ensureBadgeSlug(order);
-  return { ok: true, badge: { ...badgeOf(order), badgeSlug } };
+  return { ok: true, badge: { ...badgeOf(order), badgeSlug }, printLogId: printLog.id };
 }
 
 /**
@@ -462,7 +488,7 @@ export async function reprintBadge(
   const elig = checkinEligibility(order);
   if (!elig.ok) return { ok: false, reason: elig.reason };
 
-  await prisma.badgePrintLog.create({
+  const printLog = await prisma.badgePrintLog.create({
     data: {
       eventMappingId: mapping.id,
       attendeeRef: order.orderCode,
@@ -485,7 +511,7 @@ export async function reprintBadge(
   // Mint the slug only once the check-in has actually succeeded, so a refused
   // scan does not burn a code onto a row whose badge was never printed.
   const badgeSlug = await ensureBadgeSlug(order);
-  return { ok: true, badge: { ...badgeOf(order), badgeSlug } };
+  return { ok: true, badge: { ...badgeOf(order), badgeSlug }, printLogId: printLog.id };
 }
 
 /** Live counters for a check-in list (pretix source of truth). */
@@ -536,6 +562,39 @@ export interface AttendeeCorrection {
   roleTag?: BadgeTagValue;
   /** Only meaningful alongside roleTag `other`; see the resolver below. */
   roleLabel?: string;
+}
+
+/**
+ * Record what the printer actually did with a dispatched badge.
+ *
+ * The log row is written when the check-in succeeds, server-side; the print
+ * happens in the browser seconds later. Without this call the table could only
+ * ever say a badge was SENT — so a jam, an offline printer and a clean print
+ * were indistinguishable, and "who got a badge" was wrong in exactly the cases
+ * someone would be reading it to find out.
+ *
+ * The door calls this for EVERY print it resolves, including ones whose screen
+ * update it drops because the operator has moved on to the next attendee. That
+ * case had no trace at all: the attendee sat in "Just now" as a normal
+ * admission, no badge in hand, nothing anywhere recording the failure.
+ *
+ * Scoped to the event, so a caller cannot write outcomes onto another event's
+ * rows by guessing ids. Failures here are the caller's to swallow: this is
+ * bookkeeping behind an attendee who is already through the door.
+ */
+export async function recordPrintOutcome(
+  session: SessionContext,
+  eventId: string,
+  printLogId: string,
+  failureReason: string | null,
+): Promise<void> {
+  const mapping = await resolveEvent(session, eventId);
+  await prisma.badgePrintLog.updateMany({
+    where: { id: printLogId, eventMappingId: mapping.id },
+    data: failureReason
+      ? { failureReason: failureReason.slice(0, FREE_TEXT_MAX) }
+      : { confirmedAt: new Date() },
+  });
 }
 
 /**
@@ -594,13 +653,24 @@ export async function updateAttendeeDetails(
   }
   if (patch.email !== undefined) {
     const email = patch.email.trim();
-    // A blank email is allowed (walk-ins get a synthesised one), but a
-    // malformed one is not: it flows to the ticket mail and to pretix.
+    // A malformed email is refused: it flows to the ticket mail and to pretix.
+    //
+    // So is an EMPTIED one, and that is the change. The column is non-null, so
+    // a blank was quietly dropped — `if (email)` — while the save still
+    // returned ok and reprinted the badge. The operator was told the
+    // correction had been applied when the old address was still on the row.
+    // Refusing says which field, and why, at the moment they can act on it.
+    if (!email) {
+      return {
+        ok: false,
+        reason: "An email address is required — it cannot be cleared here.",
+      };
+    }
     if (tooLong(email, FREE_TEXT_MAX)) return { ok: false, reason: "That email address is too long." };
-    if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
       return { ok: false, reason: "That email address is not valid." };
     }
-    if (email) data.email = email;
+    data.email = email;
   }
   if (patch.phone !== undefined) {
     const phone = patch.phone.trim();

@@ -32,6 +32,7 @@ import {
   correctAttendeeAction,
   attendeeForEditAction,
   walkInAndCheckInAction,
+  printOutcomeAction,
   type AttendeeRow,
 } from "./actions";
 
@@ -333,11 +334,33 @@ export function CheckinPanel({
         // check-in itself already succeeded either way, so this never blocks
         // entry — it only stops the UI claiming a badge exists when it does not.
         const ticket = printOwner.current.claim();
+        const printLogId = res.printLogId;
         void thermalPrint(b).then((printError) => {
+          // Every outcome goes on the record, whether or not it still owns the
+          // screen. The log row was written when the badge was DISPATCHED, so
+          // without this it said "printed" for jams and offline printers alike.
+          if (printLogId) {
+            void printOutcomeAction(eventId, printLogId, printError ?? null).catch(
+              (err: unknown) => console.error("[door] printOutcomeAction rejected", err),
+            );
+          }
+
           // Superseded: the operator has already moved on to someone else, and
           // this screen is now theirs. Dropping the update is right — writing it
           // would show THIS attendee's outcome under the NEXT attendee's name.
-          if (!printOwner.current.owns(ticket)) return;
+          //
+          // But dropping it silently was not: the attendee sits in "Just now"
+          // as an ordinary admission with no badge in hand, and nothing on
+          // screen or in the console said so. The log row above now carries the
+          // failure; this says it where whoever is watching the door can see it.
+          if (!printOwner.current.owns(ticket)) {
+            if (printError) {
+              console.error(
+                `[door] print failed for ${who} (${res.badge?.orderCode}) after the screen moved on: ${printError}`,
+              );
+            }
+            return;
+          }
 
           if (printError) {
             // Only now, and only if this print still owns the screen.
@@ -405,7 +428,7 @@ export function CheckinPanel({
         detail: res.reason ?? "Check-in failed — try search, or use the help desk",
       });
     },
-    [remember, thermalPrint, showSessionEnded],
+    [eventId, remember, thermalPrint, showSessionEnded],
   );
 
   /* ----------------------------------------------------------------- actions */

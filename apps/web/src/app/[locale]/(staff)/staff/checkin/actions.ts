@@ -11,6 +11,7 @@ import { resolveRoleLabel, type BadgeTagValue } from "@/lib/badges/tags";
 import {
   assertCanCheckin,
   assertDoorRoleInOrg,
+  recordPrintOutcome,
   searchAttendees,
   checkInOrder,
   checkInBySecret,
@@ -370,5 +371,27 @@ export async function counterAction(
   } catch (err) {
     console.error(`[door] counterAction failed (event=${eventId}, list=${listId})`, err);
     return null;
+  }
+}
+
+/**
+ * Tell the server what the printer did with a badge it dispatched.
+ *
+ * Fire-and-forget from the door's point of view: the attendee is already
+ * through, and nothing on screen depends on this landing. It returns nothing
+ * and swallows its own failures, so a bookkeeping error can never surface as a
+ * refusal in front of a queue.
+ */
+export async function printOutcomeAction(
+  eventId: string,
+  printLogId: string,
+  failureReason: string | null,
+): Promise<void> {
+  try {
+    const session = await getSessionContext();
+    if (!session) return;
+    await recordPrintOutcome(session, eventId, printLogId, failureReason);
+  } catch (err) {
+    console.error(`[door] printOutcomeAction failed (event=${eventId}, log=${printLogId})`, err);
   }
 }
