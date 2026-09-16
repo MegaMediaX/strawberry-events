@@ -37,6 +37,7 @@ const actions = vi.hoisted(() => ({
   correctAttendeeAction: vi.fn(),
   attendeeForEditAction: vi.fn(),
   walkInAndCheckInAction: vi.fn(),
+  printOutcomeAction: vi.fn(),
 }));
 
 vi.mock("../actions", () => actions);
@@ -166,6 +167,9 @@ beforeEach(() => {
   vi.clearAllMocks();
   window.sessionStorage.clear();
   actions.searchAction.mockResolvedValue({ ok: true, rows: [] });
+  // A server action always returns a promise; the panel chains .catch on this
+  // one so a bookkeeping failure cannot surface in front of a queue.
+  actions.printOutcomeAction.mockResolvedValue(undefined);
 });
 
 afterEach(() => {
@@ -615,6 +619,44 @@ describe("a check-in that works", () => {
         { orderCode: "3XKQ7", name: "Marven Mouaalem", kind: "in" },
       ]);
     });
+  });
+
+  it("tells the server what the printer did, either way", async () => {
+    // The log row is written when the badge is DISPATCHED, server-side, and
+    // the print happens here seconds later — so without this call the table
+    // said "printed" for a jam and a clean print alike.
+    const user = userEvent.setup();
+    actions.searchAction.mockResolvedValue({ ok: true, rows: [attendeeRow] });
+    actions.checkInAction.mockResolvedValue({ ok: true, badge, printLogId: "plog_1" });
+    panel();
+    await search(user);
+    await user.click(await screen.findByRole("button", { name: /check in & print/i }));
+
+    expect(await screen.findByText("ENTER")).toBeTruthy();
+    await waitFor(() =>
+      expect(actions.printOutcomeAction).toHaveBeenCalledWith(EVENT, "plog_1", null),
+    );
+  });
+
+  it("records the reason when the badge never came out", async () => {
+    const user = userEvent.setup();
+    const { printBadge } = await import("@/lib/checkin/print-badge");
+    const { PrintError } = await import("@/lib/checkin/print-client");
+    vi.mocked(printBadge).mockRejectedValueOnce(new PrintError("Printer offline", "printer"));
+    actions.searchAction.mockResolvedValue({ ok: true, rows: [attendeeRow] });
+    actions.checkInAction.mockResolvedValue({ ok: true, badge, printLogId: "plog_1" });
+    panel();
+    await search(user);
+    await user.click(await screen.findByRole("button", { name: /check in & print/i }));
+
+    expect(await screen.findByText("Not printed")).toBeTruthy();
+    await waitFor(() =>
+      expect(actions.printOutcomeAction).toHaveBeenCalledWith(
+        EVENT,
+        "plog_1",
+        "Printer offline",
+      ),
+    );
   });
 
   it("warns — and does not claim a badge — when the printer refuses", async () => {

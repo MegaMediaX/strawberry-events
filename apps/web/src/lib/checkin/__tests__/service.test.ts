@@ -12,7 +12,7 @@ vi.mock("@/lib/db/client", () => ({
       update: vi.fn(),
     },
     organization: { findUnique: vi.fn() },
-    badgePrintLog: { create: vi.fn() },
+    badgePrintLog: { create: vi.fn(), updateMany: vi.fn() },
     auditLog: { create: vi.fn() },
     $queryRaw: vi.fn(),
   },
@@ -29,6 +29,9 @@ import {
   checkInBySecret,
   reprintBadge,
   updateAttendeeDetails,
+  recordPrintOutcome,
+  escapeLike,
+  searchAttendeeOrders,
   phoneDigitsForQuery,
   searchAttendees,
   liveCounters,
@@ -82,6 +85,7 @@ beforeEach(() => {
   // resolves to. Default to "this row had none, the write won".
   mock(prisma.attendeeOrder.updateMany).mockResolvedValue({ count: 1 });
   mock(prisma.attendeeOrder.findUnique).mockResolvedValue({ badgeSlug: null });
+  mock(prisma.badgePrintLog.create).mockResolvedValue({ id: "plog_1" });
   // clearAllMocks() resets call history but NOT implementations, so re-assert
   // the happy-path redeem to keep tests isolated from the duplicate-case test.
   mock(pretixCheckin.redeemCheckin).mockResolvedValue({ status: "ok" });
@@ -763,5 +767,104 @@ describe("door powers do not cross organizations", () => {
     mock(prisma.eventMapping.findUnique).mockResolvedValue(mapping);
     const res = await checkInOrder(financeElsewhere, "e1", "ABC12", 5);
     expect(res.ok).toBe(true);
+  });
+});
+
+/**
+ * badge_print_logs recorded a badge being SENT to a printer, and was read as a
+ * record of badges that came out of one.
+ */
+describe("the print log says what the printer actually did", () => {
+  it("hands the door the row to report against", async () => {
+    const res = await checkInOrder(staff, "e1", "ABC12", 5);
+    expect(res.printLogId).toBe("plog_1");
+    // And the row starts with neither outcome — dispatched, nothing known yet.
+    const created = mock(prisma.badgePrintLog.create).mock.calls[0][0].data;
+    expect(created.confirmedAt).toBeUndefined();
+    expect(created.failureReason).toBeUndefined();
+  });
+
+  it("marks the badge confirmed when the door says it came out", async () => {
+    await recordPrintOutcome(staff, "e1", "plog_1", null);
+    const [args] = mock(prisma.badgePrintLog.updateMany).mock.calls[0];
+    expect(args.data.confirmedAt).toBeInstanceOf(Date);
+    expect(args.data.failureReason).toBeUndefined();
+  });
+
+  it("records WHY a badge never came out", async () => {
+    await recordPrintOutcome(staff, "e1", "plog_1", "Printer offline");
+    const [args] = mock(prisma.badgePrintLog.updateMany).mock.calls[0];
+    expect(args.data.failureReason).toBe("Printer offline");
+    expect(args.data.confirmedAt).toBeUndefined();
+  });
+
+  it("cannot write an outcome onto another event's row", async () => {
+    // Scoped in the WHERE, not merely filtered after the fact: the id is
+    // supplied by the caller.
+    await recordPrintOutcome(staff, "e1", "plog_from_elsewhere", null);
+    const [args] = mock(prisma.badgePrintLog.updateMany).mock.calls[0];
+    expect(args.where).toEqual({ id: "plog_from_elsewhere", eventMappingId: "e1" });
+  });
+
+  it("refuses an outcome from someone who cannot work this door", async () => {
+    await expect(recordPrintOutcome(finance, "e1", "plog_1", null)).rejects.toThrow();
+    expect(prisma.badgePrintLog.updateMany).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * LIKE has wildcards of its own, and the door's search box is where an
+ * operator types a name.
+ */
+describe("a typed % does not match the whole event", () => {
+  it("escapes LIKE's wildcards", () => {
+    expect(escapeLike("50%")).toBe("50\\%");
+    expect(escapeLike("a_b")).toBe("a\\_b");
+    // Backslash first, or it escapes the escapes.
+    expect(escapeLike("a\\b")).toBe("a\\\\b");
+  });
+
+  it("leaves an ordinary name alone", () => {
+    expect(escapeLike("Marven Mouaalem")).toBe("Marven Mouaalem");
+    expect(escapeLike("o'brien")).toBe("o'brien");
+  });
+
+  it("and the query the door actually runs uses the escaped pattern", () => {
+    // The helper being correct proves nothing if the search does not call it:
+    // an unescaped "%" returns 25 arbitrary attendees, each with a live
+    // "Check in & print" beside a name nobody searched for.
+    mock(prisma.$queryRaw).mockResolvedValue([]);
+    void searchAttendeeOrders("e1", "50%");
+    const values = mock(prisma.$queryRaw).mock.calls[0].slice(1);
+    expect(values).toContain("%50\\%%");
+    expect(values).not.toContain("%50%%");
+  });
+});
+
+/**
+ * The email column is non-null, so a cleared field was dropped — and the save
+ * still reported success and reprinted the badge.
+ */
+describe("a correction that cannot be applied is not reported as saved", () => {
+  it("refuses an emptied email instead of ignoring it", async () => {
+    const res = await updateAttendeeDetails(staff, "e1", "ABC12", { email: "  " });
+    expect(res.ok).toBe(false);
+    expect(res.reason).toMatch(/required/i);
+    // And nothing was written: the old address is still on the row, which is
+    // what the operator would otherwise have been told was corrected.
+    expect(prisma.attendeeOrder.update).not.toHaveBeenCalled();
+  });
+
+  it("still saves a real email", async () => {
+    mock(prisma.attendeeOrder.update).mockResolvedValue(
+      order({ email: "marven@strawberry.agency" }),
+    );
+    const res = await updateAttendeeDetails(staff, "e1", "ABC12", {
+      email: "marven@strawberry.agency",
+    });
+    expect(res.ok).toBe(true);
+    expect(mock(prisma.attendeeOrder.update).mock.calls[0][0].data.email).toBe(
+      "marven@strawberry.agency",
+    );
   });
 });
