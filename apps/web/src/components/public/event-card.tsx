@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { ArrowRight } from "lucide-react";
 import { coverFocus, focusPosition } from "@/lib/events/cover-focus";
+import { dissolve } from "@/lib/motion";
 
 export interface EventCardData {
   slug: string;
@@ -131,6 +132,8 @@ export function EventCard({ event, locale }: { event: EventCardData; locale: str
     <Link
       href={href}
       aria-label={title}
+      /* Same scene change as the featured plate, from the grid. */
+      transitionTypes={dissolve()}
       className="block rounded-[var(--radius-xl)] outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
     >
       {band}
