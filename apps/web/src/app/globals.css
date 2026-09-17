@@ -100,6 +100,16 @@
   --gradient-hero: linear-gradient(135deg, #b10b0b 0%, #2c3338 100%);
   --gradient-hero-strong: linear-gradient(160deg, #b10b0b 0%, #1d2327 100%);
 
+  /* THE MOTION TABLE, in CSS.
+     The same three durations and the same single curve that lib/motion.ts
+     declares for framer-motion. Two copies, because a stylesheet cannot import
+     a module — so a test parses this file and fails if they ever drift.
+     Everything the site animates spends from here. */
+  --ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --dur-quick: 140ms;
+  --dur-base: 280ms;
+  --dur-slow: 420ms;
+
   /* The light that passes over the ticket once. A plain rgba rather than a
      color-mix: the build emits an opaque `var(--foreground)` FALLBACK ahead of
      any color-mix it sees, so a browser that did not support the function got
@@ -376,5 +386,86 @@
   [dir="rtl"] h3 {
     line-height: 1.4;
     letter-spacing: 0;
+  }
+}
+
+/* ------------------------------------------------------------------------ */
+/* THE EDIT                                                                  */
+/*                                                                           */
+/* Scenes are cut together, not slid past each other. The site had no         */
+/* transition between routes at all: every navigation replaced the whole page */
+/* at once, so the index and the event page read as two documents rather than */
+/* two shots of the same thing.                                              */
+/*                                                                           */
+/* A DISSOLVE is the only move, and it is opt-in per link. Registration gets  */
+/* no transition type, which means it gets no animation — the form is excluded*/
+/* BY DEFAULT rather than by a rule somebody has to remember at each call     */
+/* site. Nothing here slides: a positional transition on a page someone is    */
+/* navigating with a thumb is the most common trigger for motion sensitivity, */
+/* and a cross-fade says "same place, next shot" without moving anything.     */
+/* ------------------------------------------------------------------------ */
+
+::view-transition-old(.dissolve) {
+  animation: var(--dur-base) var(--ease) both dissolve-out;
+}
+::view-transition-new(.dissolve) {
+  /* Delayed until the old frame has left, so the two never overlap into a
+     grey double-exposure of two different pages. */
+  animation: var(--dur-base) var(--ease) var(--dur-quick) both dissolve-in;
+}
+
+@keyframes dissolve-out {
+  to {
+    opacity: 0;
+  }
+}
+@keyframes dissolve-in {
+  from {
+    opacity: 0;
+  }
+}
+
+/* The header is the anchor. A header that cross-fades with the page tells the
+   viewer the whole viewport changed; one that stays put tells them the CONTENT
+   did, which is the truth. `display: none` on the outgoing snapshot prevents
+   the moment where both are on screen at once.
+   Named here rather than by a wrapper element in the layout, because the bar
+   is `sticky top-0` and every element around it is another link in the chain
+   its stickiness depends on. */
+.site-header {
+  view-transition-name: site-header;
+}
+::view-transition-group(site-header) {
+  animation: none;
+  z-index: 100;
+}
+::view-transition-old(site-header) {
+  display: none;
+}
+::view-transition-new(site-header) {
+  animation: none;
+}
+
+/* The root's own cross-fade would run underneath the named ones and show
+   through wherever the two pages differ in height — a second, slower dissolve
+   nobody asked for. */
+::view-transition-group(root) {
+  animation: none;
+}
+
+/*
+ * The reduced twin for the whole edit, in one rule.
+ *
+ * Content swaps instantly, which is the browser's behaviour without view
+ * transitions at all — so someone who asks for no motion gets exactly the site
+ * as it was before this stage, rather than a version of it with the motion
+ * turned down.
+ */
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-old(*),
+  ::view-transition-new(*),
+  ::view-transition-group(*) {
+    animation-duration: 0s !important;
+    animation-delay: 0s !important;
   }
 }

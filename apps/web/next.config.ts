@@ -8,6 +8,24 @@ const nextConfig: NextConfig = {
   output: "standalone",
   poweredByHeader: false,
   /**
+   * Cuts between routes, via React's <ViewTransition> and the browser's own
+   * View Transitions API.
+   *
+   * This is the ONE experimental flag in the product, and it is worth naming
+   * what it does and does not risk. It enables Next's integration only — the
+   * component is React's and the animation is the browser's. A browser without
+   * the API simply does not animate; the navigation is the same navigation it
+   * always was. Nothing renders conditionally on it, no data path touches it,
+   * and the registration form is excluded by default rather than by a rule
+   * (see lib/motion.ts: a link with no transition type is a cut).
+   *
+   * The flag is experimental in the sense that its API may change between Next
+   * versions, which is an upgrade cost, not a runtime one.
+   */
+  experimental: {
+    viewTransition: true,
+  },
+  /**
    * The badge QR encodes an UPPERCASE path so the encoder can use QR
    * alphanumeric mode, which is ~31% denser than byte mode — lowercase would
    * push the symbol past the space the label reserves for it. URL paths are

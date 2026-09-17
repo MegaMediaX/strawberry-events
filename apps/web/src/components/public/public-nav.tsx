@@ -10,7 +10,7 @@ export async function PublicNav({ locale }: { locale: string }) {
   const session = await getSessionContext();
 
   return (
-    <header className="sticky top-0 z-40 border-b border-border/60 bg-background/80 backdrop-blur">
+    <header className="site-header sticky top-0 z-40 border-b border-border/60 bg-background/80 backdrop-blur">
       {/* A FIXED height, not padding-derived: the registration stepper sticks
           directly below this bar and needs a number to offset by. Keep this
           and --nav-height in globals.css in step. */}

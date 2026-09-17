@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { ArrowRight } from "lucide-react";
+import { dissolve } from "@/lib/motion";
 import { CinemaFrame, CinemaTitle } from "./cinema-frame";
 import { coverFocus } from "@/lib/events/cover-focus";
 import type { EventCardData } from "./event-card";
@@ -36,7 +37,17 @@ export function FeaturedEventPlate({
   const href = `/${locale}/events/${event.slug}`;
 
   return (
-    <Link href={href} aria-label={title} className="group block outline-none">
+    /* The index is the trailer and the event page is the feature: this is the
+       one link in the flow that is a scene change rather than a step, so it is
+       the one that dissolves. See lib/motion.ts — an untagged link is a cut,
+       which is how the registration form is excluded without anyone having to
+       remember to exclude it. */
+    <Link
+      href={href}
+      aria-label={title}
+      transitionTypes={dissolve()}
+      className="group block outline-none"
+    >
       <CinemaFrame coverUrl={event.coverUrl} focus={coverFocus(event.focusX, event.focusY)} priority>
         <CinemaTitle title={title}>{title}</CinemaTitle>
 
