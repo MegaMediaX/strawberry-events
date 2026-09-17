@@ -38,6 +38,8 @@ function toCardData(e: EventMapping, range: DateRange | undefined): EventCardDat
     comingSoon: e.comingSoon,
     coverUrl: e.coverImagePath ? coverImageUrl(e.coverImagePath) : null,
     metaLine: eventMetaLine(range?.from ?? null, range?.to ?? null, e.venueName),
+    focusX: e.coverFocusX,
+    focusY: e.coverFocusY,
   };
 }
 

@@ -92,6 +92,51 @@ describe("eventMetadata", () => {
     expect(twitterCard(meta)).toBe("summary_large_image");
   });
 
+  /**
+   * A preview that declares its image's size lets a scraper reserve the right
+   * box instead of reflowing when the picture lands. The size comes from the
+   * file's own header, recorded at upload.
+   */
+  it("declares the cover's real dimensions when they are known", () => {
+    const meta = eventMetadata({
+      event: { ...event, coverWidth: 1600, coverHeight: 900 },
+      dateFrom: FROM,
+      dateTo: TO,
+      path: "/en/events/strawberry-summit",
+    });
+    expect(meta.openGraph?.images).toEqual([
+      {
+        url: "/media/event-cover/evt123-abc.jpg",
+        alt: "Strawberry Summit",
+        width: 1600,
+        height: 900,
+      },
+    ]);
+  });
+
+  /**
+   * Half a size is not a size, and a WRONG one is worse than none: the scraper
+   * reserves a box the picture does not fill. Covers uploaded before the
+   * dimensions column existed carry neither, and the preview is silent about
+   * it — exactly as every preview was before this.
+   */
+  it.each([
+    ["neither dimension", { coverWidth: null, coverHeight: null }],
+    ["only a width", { coverWidth: 1600, coverHeight: null }],
+    ["only a height", { coverWidth: null, coverHeight: 900 }],
+    ["a zero width", { coverWidth: 0, coverHeight: 900 }],
+  ])("declares no dimensions given %s", (_label, size) => {
+    const meta = eventMetadata({
+      event: { ...event, ...size },
+      dateFrom: FROM,
+      dateTo: TO,
+      path: "/en/events/strawberry-summit",
+    });
+    expect(meta.openGraph?.images).toEqual([
+      { url: "/media/event-cover/evt123-abc.jpg", alt: "Strawberry Summit" },
+    ]);
+  });
+
   it("distinguishes the registration page from the event page", () => {
     const meta = eventMetadata({
       event,

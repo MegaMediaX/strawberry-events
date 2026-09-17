@@ -21,6 +21,13 @@ export interface ShareableEvent {
   descriptionAr: string | null;
   coverImagePath: string | null;
   venueName: string | null;
+  /**
+   * The cover's intrinsic size, read from its own header at upload time.
+   * Null for covers uploaded before that was recorded — the preview then
+   * declares no dimensions, exactly as it always did, rather than a guess.
+   */
+  coverWidth?: number | null;
+  coverHeight?: number | null;
 }
 
 /**
@@ -90,6 +97,13 @@ export function eventMetadata({
   const title = `${titlePrefix}${eventTitle}`;
   const description = shareDescription(event, dateFrom, dateTo, locale);
   const image = event.coverImagePath ? coverImageUrl(event.coverImagePath) : null;
+  // Declared so a scraper can reserve the right box instead of reflowing when
+  // the picture lands. Only when BOTH are known: half a size is not a size,
+  // and a wrong one is worse than none.
+  const size =
+    event.coverWidth && event.coverHeight
+      ? { width: event.coverWidth, height: event.coverHeight }
+      : null;
 
   return {
     title,
@@ -101,7 +115,7 @@ export function eventMetadata({
       description,
       url: path,
       siteName: "Strawberry Agency Events",
-      ...(image ? { images: [{ url: image, alt: eventTitle }] } : {}),
+      ...(image ? { images: [{ url: image, alt: eventTitle, ...(size ?? {}) }] } : {}),
     },
     twitter: {
       card: image ? "summary_large_image" : "summary",

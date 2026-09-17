@@ -1,26 +1,66 @@
 "use client";
 
-import { motion, useReducedMotion } from "framer-motion";
 import { Calendar, MapPin } from "lucide-react";
-import { DUR, EASE_OUT } from "@/lib/motion";
+import { CinemaFrame, CinemaTitle } from "./cinema-frame";
+import { coverFocus } from "@/lib/events/cover-focus";
 
+/**
+ * The feature: the event's own picture, at full width, with its name on it.
+ *
+ * Two things were resolved here rather than deferred again.
+ *
+ * **The crop is now a decision.** This file used to promise the full image at
+ * its natural aspect, "never cropped", while locking a 16/6 band and applying
+ * object-cover — so every cover that was not 2.667:1 had been cut in
+ * production all along, a 3:2 poster losing about 44% of its height, and a
+ * portrait one losing over seventy per cent. Owning the crop is what the
+ * review recommended and what the code already did; what was missing was any
+ * way for the person who uploaded the picture to say WHICH part survives.
+ * That is `coverFocusX/Y`, chosen in the admin and applied here. Letterboxing
+ * instead was the alternative, and it loses the widescreen frame the whole
+ * direction rests on.
+ *
+ * **The hero left the column.** It was an 1024px band with ~208px of cream on
+ * either side of a 1440px screen, which is a picture in a document rather than
+ * a frame. The title moves onto it, in the serif, at title-card size — the
+ * event page's own headline was the most important line in the product and was
+ * set in the heavy sans, because Instrument Serif ships weight 400 only and
+ * nobody wrote that down.
+ *
+ * The About, Location and ticket rail below are untouched, and so is the
+ * status badge: it already solved the same problem this frame solves, with a
+ * near-opaque plate that reads on any artwork.
+ *
+ * **The entrance fade is gone**, and that is a change of mind about the last
+ * stage's own work. It was a `motion.div` opening at `opacity: 0`, which was
+ * survivable on a band inside a column and is not on the element that is now
+ * the page's largest paint: rendered without JavaScript — a static render, a
+ * script that has not arrived yet, a blocked bundle — the entire feature was
+ * an empty 540px hole with the event's name invisible inside it. Caught by
+ * screenshotting the built page rather than by reading it. A fade-up on the
+ * biggest thing on the screen is also the decoration the direction's fourth
+ * rule rejects, and the cut between pages belongs to the last stage, not to
+ * one component's own entrance.
+ */
 export function EventHero({
   title,
   dateLabel,
   locationLabel,
   statusLabel,
   coverUrl,
+  focusX,
+  focusY,
 }: {
   title: string;
   dateLabel: string | null;
   locationLabel: string | null;
   statusLabel: string;
   coverUrl?: string | null;
+  focusX?: number | null;
+  focusY?: number | null;
 }) {
   const isOpen = statusLabel === "Open";
   const isSoldOut = statusLabel === "Sold out";
-
-  const reduce = useReducedMotion();
 
   const badge = (
     <span
@@ -29,7 +69,7 @@ export function EventHero({
          is unreadable over a pale crop. A near-opaque dark plate reads on any
          artwork; the state is carried by a dot and the word, not by the
          plate's tint. */
-      className="absolute end-4 top-4 inline-flex items-center gap-1.5 rounded-full bg-black/75 px-3 py-1 text-xs font-semibold text-white backdrop-blur"
+      className="absolute end-4 top-4 z-10 inline-flex items-center gap-1.5 rounded-full bg-black/75 px-3 py-1 text-xs font-semibold text-white backdrop-blur"
     >
       <span
         aria-hidden="true"
@@ -46,76 +86,27 @@ export function EventHero({
     </span>
   );
 
-  function meta(light: boolean) {
-    const cls = light ? "text-white/85" : "text-muted-foreground";
-    return (
-      <div className={`mt-3 flex flex-wrap gap-x-5 gap-y-1.5 text-sm ${cls}`}>
-        {dateLabel && (
-          <span className="flex items-center gap-1.5">
-            <Calendar className="h-4 w-4 opacity-70" />
-            {dateLabel}
-          </span>
-        )}
-        {locationLabel && (
-          <span className="flex items-center gap-1.5">
-            <MapPin className="h-4 w-4 opacity-70" />
-            {locationLabel}
-          </span>
-        )}
-      </div>
-    );
-  }
+  const meta = (
+    <div className="flex flex-wrap gap-x-5 gap-y-1.5 text-sm text-white">
+      {dateLabel && (
+        <span className="flex items-center gap-1.5">
+          <Calendar aria-hidden="true" className="h-4 w-4" />
+          {dateLabel}
+        </span>
+      )}
+      {locationLabel && (
+        <span className="flex items-center gap-1.5">
+          <MapPin aria-hidden="true" className="h-4 w-4" />
+          {locationLabel}
+        </span>
+      )}
+    </div>
+  );
 
-  // With a cover: a FIXED cinematic band with the title + meta below it.
-  //
-  // This comment used to promise the full image at its natural aspect, "never
-  // cropped". The code below has never done that: the band is locked to 16/6
-  // and the image is object-cover, so any cover that is not 2.667:1 is cut —
-  // a 3:2 poster loses about 44% of its height. Nobody decided that; the
-  // comment and the classes simply disagreed, and the comment was believed.
-  // Stated honestly here so the crop is a decision someone can now make
-  // (enforce an upload ratio, or letterbox the whole image) rather than a
-  // surprise. The layout is unchanged by this commit.
-  if (coverUrl) {
-    return (
-      <motion.div
-        initial={reduce ? { opacity: 0 } : { opacity: 0, y: 16 }}
-        animate={reduce ? { opacity: 1 } : { opacity: 1, y: 0 }}
-        transition={{ duration: reduce ? DUR.micro : DUR.slow, ease: EASE_OUT }}
-      >
-        <div className="relative aspect-[var(--aspect-cinema)] w-full overflow-hidden rounded-[var(--radius-xl)] bg-muted/30">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={coverUrl}
-            alt={title}
-            className="absolute inset-0 h-full w-full object-cover"
-          />
-          {badge}
-        </div>
-        <div className="mt-4">
-          <h1 className="max-w-3xl text-2xl font-extrabold leading-[1.05] tracking-tight sm:text-4xl">
-            {title}
-          </h1>
-          {meta(false)}
-        </div>
-      </motion.div>
-    );
-  }
-
-  // No cover — gradient hero with overlaid title.
   return (
-    <motion.div
-      initial={reduce ? { opacity: 0 } : { opacity: 0, y: 16 }}
-      animate={reduce ? { opacity: 1 } : { opacity: 1, y: 0 }}
-      transition={{ duration: reduce ? DUR.micro : DUR.slow, ease: EASE_OUT }}
-      className="relative overflow-hidden rounded-[var(--radius-xl)] p-6 sm:p-10"
-      style={{ backgroundImage: "var(--gradient-hero-strong)" }}
-    >
-      {badge}
-      <h1 className="max-w-2xl text-3xl font-extrabold leading-[1.05] tracking-tight text-white sm:text-5xl">
-        {title}
-      </h1>
-      {meta(true)}
-    </motion.div>
+    <CinemaFrame coverUrl={coverUrl} focus={coverFocus(focusX, focusY)} priority overlay={badge}>
+      <CinemaTitle title={title}>{title}</CinemaTitle>
+      {meta}
+    </CinemaFrame>
   );
 }

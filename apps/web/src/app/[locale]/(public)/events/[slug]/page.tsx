@@ -88,7 +88,11 @@ export default async function EventDetailPage({
       : null;
 
   return (
-    <main className="mx-auto max-w-5xl px-4 py-8 pb-24 lg:pb-8">
+    // The column is applied per-section, not to <main>: the hero is the
+    // feature and runs edge to edge, while everything below it stays in the
+    // 1024px measure. Its own type is aligned to that same measure from
+    // inside, so the two read as one page.
+    <main className="pb-24 lg:pb-8">
       <EventHero
         title={title}
         dateLabel={fmtDate(dateFrom)}
@@ -97,9 +101,11 @@ export default async function EventDetailPage({
           event.comingSoon ? "Coming soon" : soldOut ? "Sold out" : "Open"
         }
         coverUrl={event.coverImagePath ? coverImageUrl(event.coverImagePath) : null}
+        focusX={event.coverFocusX}
+        focusY={event.coverFocusY}
       />
 
-      <div className="mt-8 grid grid-cols-1 gap-8 lg:grid-cols-[1fr_320px]">
+      <div className="mx-auto mt-10 grid max-w-5xl grid-cols-1 gap-8 px-4 sm:px-6 lg:grid-cols-[1fr_320px]">
         <div>
           {description && (
             <section>

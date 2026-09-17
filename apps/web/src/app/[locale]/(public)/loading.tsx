@@ -12,7 +12,7 @@
  */
 export default function PublicLoading() {
   return (
-    <main className="mx-auto max-w-5xl px-4 py-8" aria-busy="true">
+    <main aria-busy="true">
       <p className="sr-only" role="status">
         Loading…
       </p>
@@ -24,10 +24,12 @@ export default function PublicLoading() {
             navigation. A skeleton that is the wrong shape is worse than none:
             it promises a layout it does not deliver. Sharing the token means
             it cannot drift back. */}
-        <div className="aspect-[var(--aspect-cinema)] w-full rounded-[var(--radius-xl)] bg-muted" />
-        <div className="mt-6 h-9 w-3/4 rounded-md bg-muted" />
-        <div className="mt-3 h-4 w-1/3 rounded-md bg-muted" />
-        <div className="mt-8 grid grid-cols-1 gap-8 lg:grid-cols-[1fr_320px]">
+        {/* Full-bleed and unrounded, because the hero is: the band it stands
+            in for now runs edge to edge, and the title card stands ON it
+            rather than below it. A skeleton that is the wrong shape is worse
+            than none — it promises a layout it does not deliver. */}
+        <div className="aspect-[var(--aspect-cinema)] min-h-60 w-full bg-muted" />
+        <div className="mx-auto mt-10 grid max-w-5xl grid-cols-1 gap-8 px-4 sm:px-6 lg:grid-cols-[1fr_320px]">
           <div className="flex flex-col gap-3">
             <div className="h-4 w-full rounded-md bg-muted" />
             <div className="h-4 w-11/12 rounded-md bg-muted" />

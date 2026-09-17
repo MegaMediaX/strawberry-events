@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { ArrowRight } from "lucide-react";
+import { coverFocus, focusPosition } from "@/lib/events/cover-focus";
 
 export interface EventCardData {
   slug: string;
@@ -12,6 +13,13 @@ export interface EventCardData {
   coverUrl?: string | null;
   /** "28—30 Aug 2026 · Le Royal Hotel Beirut", already composed. */
   metaLine?: string | null;
+  /**
+   * Which part of the cover survives the crop, as percentages. Every surface
+   * that shows this event's picture reads the same pair, so the index, the
+   * hero and the link preview cannot disagree about what the picture is of.
+   */
+  focusX?: number | null;
+  focusY?: number | null;
 }
 
 /**
@@ -57,8 +65,11 @@ export function EventCard({ event, locale }: { event: EventCardData; locale: str
           alt=""
           loading="lazy"
           decoding="async"
-          className="h-full w-full object-cover object-center"
-          style={{ filter: "saturate(0.9) contrast(1.03)" }}
+          className="h-full w-full object-cover"
+          style={{
+            objectPosition: focusPosition(coverFocus(event.focusX, event.focusY)),
+            filter: "saturate(0.9) contrast(1.03)",
+          }}
         />
       ) : (
         <div
