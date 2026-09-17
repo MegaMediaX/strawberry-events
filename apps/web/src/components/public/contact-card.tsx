@@ -12,6 +12,17 @@ import type { VCardInput } from "@/lib/checkin/vcard";
  */
 export interface ContactCardProps {
   name: string;
+  /**
+   * The event this badge belongs to, and where and when it was.
+   *
+   * Both used to be the string "LEBTECH 2026" written into this file. This is
+   * a multi-event platform: every badge printed for every other event resolved
+   * to a card announcing an event its holder did not attend, and the vCard
+   * carried that claim into the scanner's phone book permanently.
+   */
+  eventName: string;
+  /** "Beirut · 28—30 Aug 2026", already composed, or null when unknown. */
+  metLine: string | null;
   /** Company if given, else "Freelancer"/"Student". 53% of attendees give no company. */
   affiliation: string | null;
   /**
@@ -29,6 +40,8 @@ export interface ContactCardProps {
 
 export function ContactCard({
   name,
+  eventName,
+  metLine,
   jobTitle,
   affiliation,
   typeLabel,
@@ -39,10 +52,13 @@ export function ContactCard({
   return (
     <div className="rounded-2xl border border-border bg-card p-6 shadow-sm sm:p-8">
       <p className="text-[11px] font-semibold tracking-[0.18em] text-muted-foreground uppercase">
-        LEBTECH 2026 &middot; 6th Edition
+        {eventName}
       </p>
 
-      <h1 className="mt-4 font-[family-name:var(--font-heading)] text-4xl leading-[1.1] text-foreground">
+      {/* Someone's name in lights. The display scale rather than a hand-typed
+          size, and the serif rather than the sans — this is the one line the
+          page exists for, and it is read by a stranger holding a phone. */}
+      <h1 className="font-heading mt-4 text-[length:var(--display-3)] leading-[1.05] tracking-[-0.02em] text-balance text-foreground">
         {name}
       </h1>
 
@@ -112,9 +128,15 @@ export function ContactCard({
       <SaveContactButton contact={contact} />
 
       {/* Addressed to whoever scanned, not to the person on the badge. */}
-      <p className="mt-6 text-[13px] leading-[1.5] text-muted-foreground">
-        Met at LEBTECH 2026 &middot; Beirut, 28&ndash;30 August
-      </p>
+      {metLine ? (
+        <p className="mt-6 text-[13px] leading-[1.5] text-muted-foreground">
+          Met at {eventName} &middot; {metLine}
+        </p>
+      ) : (
+        <p className="mt-6 text-[13px] leading-[1.5] text-muted-foreground">
+          Met at {eventName}
+        </p>
+      )}
     </div>
   );
 }

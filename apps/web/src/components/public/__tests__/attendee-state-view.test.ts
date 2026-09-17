@@ -1,21 +1,13 @@
 import { describe, it, expect, vi } from "vitest";
 
-// framer-motion is stubbed to a plain div: this suite is about what reaches the
-// markup, not about animation.
-vi.mock("framer-motion", async () => {
-  const { createElement } = await import("react");
-  return {
-    motion: {
-      div: (props: { children?: unknown; className?: string }) =>
-        createElement("div", { className: props.className }, props.children as never),
-    },
-    // The component reads this to pick its reduced-motion twin. Rendered
-    // through renderToStaticMarkup there is no media query to read, and the
-    // answer changes no markup — but the export has to exist, or the module
-    // mock swallows the component whole.
-    useReducedMotion: () => false,
-  };
-});
+// The ticket screen watches for its own ticket while a registration is
+// pending, which means it reads the router. Under renderToStaticMarkup there
+// is no router mounted and useRouter throws outright, so it is stubbed — the
+// polling itself lives in an effect that never runs here, and its RULES are
+// asserted directly in ticket-refresh.test.ts.
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ refresh: vi.fn() }),
+}));
 
 // The real QR renders asynchronously in an effect, which never runs under
 // renderToStaticMarkup. Stub it so the secret it was handed is visible in the

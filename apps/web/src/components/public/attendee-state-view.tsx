@@ -1,15 +1,16 @@
 "use client";
 
-import type { ReactNode } from "react";
-import { motion, useReducedMotion } from "framer-motion";
+import { useCallback, useEffect, useRef, type ReactNode } from "react";
+import { useRouter } from "next/navigation";
 import { CheckCircle2, Clock, XCircle, Ban, MessageCircle } from "lucide-react";
 import { registrationState } from "@/lib/approval/state";
 import { hasLocation, locationLine, directionsUrl } from "@/lib/events/location";
 import { QrCodeDisplay } from "./qr-code-display";
 import { AddToCalendar } from "./add-to-calendar";
 import { eventMetaLine } from "@/lib/events/format";
-import { DUR, EASE_OUT } from "@/lib/motion";
 import { shouldShowTicketQr, shouldOfferTicketRecovery } from "./ticket-reveal";
+import { claimFirstView, browserRevealStore } from "./ticket-reveal-memory";
+import { shouldWatchForTicket, WATCH_INTERVAL_MS, WATCH_LIMIT } from "./ticket-refresh";
 import type { AttendeeView } from "@/lib/registration/attendee-view";
 
 
@@ -46,6 +47,9 @@ const STATE_CONFIG = {
   },
 } as const;
 
+/** Added to the heading block on a first view. See app/globals.css. */
+const SHEEN_CLASSES = ["ticket-sheen"];
+
 interface AttendeeStateViewProps {
   order: AttendeeView;
   /**
@@ -75,31 +79,98 @@ export function AttendeeStateView({
     ? eventMetaLine(order.schedule.from, order.schedule.to, null)
     : null;
   const offerRecovery = shouldOfferTicketRecovery(state, canRevealTicket);
-  const reduce = useReducedMotion();
+
+  /**
+   * The payoff, once per ticket.
+   *
+   * Two conditions, and neither is known while rendering: whether this browser
+   * has opened this ticket before (only localStorage knows) and whether the QR
+   * has finished drawing (a flourish over a pulsing grey square reveals a
+   * loading state). So the class is added imperatively once both land.
+   *
+   * Deliberately NOT React state. State would re-render the screen whose whole
+   * job is to hold a barcode still, and setting it from an effect is the
+   * cascading render the hooks lint rightly refuses. The server renders, and a
+   * browser with storage blocked keeps, the plain ticket — the sweep is the
+   * only thing that ever gets added, never taken away.
+   */
+  const headingRef = useRef<HTMLDivElement>(null);
+  const firstView = useRef(false);
+  // No QR on this screen means nothing to wait for.
+  const qrSettled = useRef(!showQr);
+
+  const playReveal = useCallback(() => {
+    if (!firstView.current || !qrSettled.current) return;
+    headingRef.current?.classList.add(...SHEEN_CLASSES);
+  }, []);
+
+  useEffect(() => {
+    firstView.current = claimFirstView(order.orderCode, browserRevealStore());
+    playReveal();
+  }, [order.orderCode, playReveal]);
+
+  const onQrSettled = useCallback(() => {
+    qrSettled.current = true;
+    playReveal();
+  }, [playReveal]);
+
+  /**
+   * Wait for the ticket, instead of making the attendee think of reloading.
+   *
+   * Payment-pending and approval-pending are waiting rooms: someone else acts
+   * and the QR appears. This route is force-dynamic, so its data was only ever
+   * as fresh as the request that fetched it — an attendee could sit on
+   * "Payment pending" while an organiser marked them paid across the room.
+   *
+   * `router.refresh()` re-runs the server component and merges the result
+   * without discarding client state, so the reveal memory and the scroll
+   * position survive. Paused while the tab is hidden, because a phone in a
+   * pocket is not watching, and capped: a tab left open overnight must not
+   * spend the night polling a route that queries pretix.
+   */
+  const router = useRouter();
+  const watching = shouldWatchForTicket(state);
+  useEffect(() => {
+    if (!watching) return;
+    let spent = 0;
+    const id = setInterval(() => {
+      if (document.visibilityState !== "visible") return;
+      spent += 1;
+      if (spent > WATCH_LIMIT) {
+        clearInterval(id);
+        return;
+      }
+      router.refresh();
+    }, WATCH_INTERVAL_MS);
+    return () => clearInterval(id);
+  }, [watching, router]);
 
   return (
     <main className="mx-auto max-w-md px-4 py-12">
-      {/* The ticket screen had the only unguarded entrance left on the public
-          side: a 20px slide that played for everyone, including someone who
-          asked their device for no motion — and it played again on every
-          reopen of the emailed link, which is what the door queue is. The
-          reduced twin drops the transform and keeps a short fade; the QR is
-          inside this element and never gets its own motion either way. */}
-      <motion.div
-        initial={reduce ? { opacity: 0 } : { opacity: 0, y: 20 }}
-        animate={reduce ? { opacity: 1 } : { opacity: 1, y: 0 }}
-        transition={{ duration: reduce ? DUR.micro : DUR.slow, ease: EASE_OUT }}
+      {/* The plate no longer animates itself in. That entrance played for
+          EVERY view of an emailed link — which is a door queue — and it opened
+          at opacity 0, so a slow script left the ticket blank. What replaces
+          it is below: one sweep of light across the heading, on the first view
+          of this ticket in this browser, and never over the QR. */}
+      <div
         className={`rounded-[var(--radius-xl)] border border-border bg-gradient-to-b ${bg} p-8 text-center`}
       >
-        <Icon className={`mx-auto h-12 w-12 ${iconCls}`} />
-        <h1 className="mt-4 text-2xl font-bold tracking-tight">{heading}</h1>
-        <p className="mt-1 font-medium text-foreground">{order.eventMapping.titleEn}</p>
-        <p className="mt-0.5 font-mono text-xs text-muted-foreground">{order.orderCode}</p>
+        <div ref={headingRef} className="-m-2 rounded-[var(--radius-lg)] p-2">
+          <Icon className={`mx-auto h-12 w-12 ${iconCls}`} />
+          <h1 className="font-heading mt-4 text-[length:var(--display-4)] leading-tight tracking-[-0.01em]">
+            {heading}
+          </h1>
+          <p className="mt-1 font-medium text-foreground">{order.eventMapping.titleEn}</p>
+          <p className="mt-0.5 font-mono text-xs text-muted-foreground">{order.orderCode}</p>
+        </div>
 
         {showQr && (
           <div className="mt-8 flex flex-col items-center gap-3">
             <div className="rounded-[var(--radius-lg)] border-2 border-primary/20 bg-background p-4 shadow-sm">
-              <QrCodeDisplay value={order.pretixSecret ?? order.orderCode} />
+              <QrCodeDisplay
+                value={order.pretixSecret ?? order.orderCode}
+                onSettled={onQrSettled}
+              />
             </div>
             <p className="text-xs text-muted-foreground">Present this QR at the entrance.</p>
           </div>
@@ -119,13 +190,21 @@ export function AttendeeStateView({
         {state === "pending_approval" && (
           <p className="mt-6 text-sm text-muted-foreground">
             Your registration is awaiting organizer approval. We&apos;ll email you once it&apos;s reviewed.
-            No ticket is issued yet.
+            No ticket is issued yet.{" "}
+            <span className="font-medium text-foreground">
+              This page updates on its own — you do not need to reload it.
+            </span>
           </p>
         )}
         {state === "pending_payment" && (
           <p className="mt-6 text-sm text-muted-foreground">
             Your spot is reserved. Pay on arrival or as instructed by the organizer; your
-            ticket and QR are issued once payment is confirmed.
+            ticket and QR are issued once payment is confirmed.{" "}
+            {/* Said out loud, because a screen that silently refreshes itself
+                is indistinguishable from one that has frozen. */}
+            <span className="font-medium text-foreground">
+              This page updates on its own — you do not need to reload it.
+            </span>
           </p>
         )}
         {state === "rejected" && (
@@ -201,7 +280,7 @@ export function AttendeeStateView({
               Join our WhatsApp channel
             </a>
           )}
-      </motion.div>
+      </div>
     </main>
   );
 }

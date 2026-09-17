@@ -1,15 +1,36 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import QRCode from "qrcode";
 import { qrViewState } from "./qr-state";
 
 /** ISO/IEC 18004 minimum. Anything less and readers hunt for the symbol. */
 export const QR_QUIET_ZONE_MODULES = 4;
 
-export function QrCodeDisplay({ value }: { value: string }) {
+export function QrCodeDisplay({
+  value,
+  onSettled,
+}: {
+  value: string;
+  /**
+   * Fired once the symbol is drawn — or has definitively failed and the
+   * fallback code is on screen. The ticket screen holds its reveal until this
+   * says the payoff is actually there: a plate that rises over a pulsing grey
+   * square is a reveal of a loading state.
+   */
+  onSettled?: () => void;
+}) {
   const [src, setSrc] = useState<string | null>(null);
   const [error, setError] = useState(false);
+
+  // The latest-ref pattern: kept in a ref so a caller passing an inline arrow
+  // cannot restart QR generation on every render, and assigned in an effect
+  // rather than during render, because a ref is not readable or writable while
+  // rendering.
+  const settled = useRef(onSettled);
+  useEffect(() => {
+    settled.current = onSettled;
+  }, [onSettled]);
 
   useEffect(() => {
     let active = true;
@@ -22,10 +43,18 @@ export function QrCodeDisplay({ value }: { value: string }) {
     // can actually lock onto.
     QRCode.toDataURL(value, { width: 220, margin: QR_QUIET_ZONE_MODULES })
       .then((url) => {
-        if (active) setSrc(url);
+        if (!active) return;
+        setSrc(url);
+        settled.current?.();
       })
       .catch(() => {
-        if (active) setError(true);
+        if (!active) return;
+        setError(true);
+        // A failure settles too. The fallback below is a readable code that
+        // gets someone through a door, and it is as much the payoff as the
+        // symbol would have been — holding the reveal for a QR that is never
+        // coming would leave the screen waiting forever.
+        settled.current?.();
       });
     return () => {
       active = false;
