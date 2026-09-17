@@ -6,22 +6,50 @@ import { isBadgeSlug } from "@/lib/checkin/badge-slug";
 import { badgeProfilesEnabled } from "@/lib/checkin/badge-profile-flag";
 import { badgeProfileUrl } from "@/lib/checkin/badge-slug";
 import { formatPhone } from "@/lib/checkin/vcard";
+import { eventMetaLine } from "@/lib/events/format";
+import { getEventDateRange } from "@/lib/events/date-range";
 import { ContactCard } from "@/components/public/contact-card";
 
 export const dynamic = "force-dynamic";
 
 /**
- * Never let an attendee's name reach a link preview or a search result. The
- * page itself is noindex via the layout; this keeps the title generic too, so
- * a badge photographed and shared in a group chat does not unfurl as a name.
+ * Never let an attendee's name reach a link preview or a search result.
+ *
+ * The title is the EVENT's name — which this file used to hard-code as
+ * "LEBTECH 2026", on a platform that runs many events, so every other event's
+ * badges unfurled under a name their holder had nothing to do with. It is
+ * still never the attendee's: a badge photographed and shared in a group chat
+ * must not preview as a person.
+ *
+ * `generateMetadata` rather than a static export, because the title now
+ * depends on which badge this is. It deliberately repeats the page's own
+ * lookups instead of sharing them — Next runs both, and a badge slug is a
+ * single indexed row.
  */
-export const metadata: Metadata = {
-  title: "LEBTECH 2026",
-  // noindex lived on the old dedicated /c root layout. That layout had to go —
-  // the route was unreachable outside [locale] — so the directive moves here.
-  // These pages carry attendee names and must never be indexed.
-  robots: { index: false, follow: false, nocache: true },
-};
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ slug: string }>;
+}): Promise<Metadata> {
+  const base: Metadata = {
+    // noindex lived on the old dedicated /c root layout. That layout had to
+    // go — the route was unreachable outside [locale] — so the directive moves
+    // here. These pages carry attendee names and must never be indexed.
+    robots: { index: false, follow: false, nocache: true },
+  };
+  if (!badgeProfilesEnabled()) return base;
+
+  const { slug } = await params;
+  const normalized = slug.toUpperCase();
+  if (!isBadgeSlug(normalized)) return base;
+
+  const order = await prisma.attendeeOrder.findUnique({
+    where: { badgeSlug: normalized },
+    // The event's name only. Nothing about the person reaches a preview.
+    select: { eventMapping: { select: { titleEn: true } } },
+  });
+  return { ...base, title: order?.eventMapping.titleEn ?? "Event badge" };
+}
 
 /**
  * What the badge QR resolves to.
@@ -72,6 +100,10 @@ export default async function BadgeProfilePage({
       email: true,
       phone: true,
       phoneCC: true,
+      // The event this badge is for. Not personal data, and the reason the
+      // card can stop claiming every attendee came to one particular event.
+      eventMappingId: true,
+      eventMapping: { select: { titleEn: true, venueName: true, city: true } },
     },
   });
 
@@ -81,7 +113,7 @@ export default async function BadgeProfilePage({
   // person.
   if (!order || order.badgeProfileRevokedAt || order.status === "canceled") notFound();
 
-  const name = order.attendeeName?.trim() || "LEBTECH Attendee";
+  const name = order.attendeeName?.trim() || "Attendee";
   const company = order.company?.trim() || null;
   const jobTitle = order.jobTitle?.trim() || null;
   const email = order.email?.trim() || null;
@@ -109,6 +141,14 @@ export default async function BadgeProfilePage({
   const showType = Boolean(company) && typeLabel !== null && typeKey !== "company";
   const phone = formatPhone(order.phone, order.phoneCC);
 
+  // Where and when, from the event's own sub-events — the same source the
+  // listing and the ticket draw their dates from. Null for an event with no
+  // schedule stored, and the card then simply says where it was met.
+  const eventName = order.eventMapping.titleEn;
+  const { from, to } = await getEventDateRange(order.eventMappingId);
+  const place = order.eventMapping.venueName ?? order.eventMapping.city ?? null;
+  const metLine = eventMetaLine(from, to, place) || null;
+
   const contact = {
     fullName: name,
     company,
@@ -120,13 +160,18 @@ export default async function BadgeProfilePage({
     email,
     phone,
     url: badgeProfileUrl(normalized).replace("HTTPS://", "https://").toLowerCase(),
-    note: "Met at LEBTECH 2026, Beirut - 28-30 August.",
+    // This lands in the scanner's phone book and stays there. It said
+    // "Met at LEBTECH 2026, Beirut - 28-30 August" for every badge of every
+    // event this platform has ever run.
+    note: metLine ? `Met at ${eventName} - ${metLine}.` : `Met at ${eventName}.`,
   };
 
   return (
     <main className="mx-auto flex min-h-screen w-full max-w-md flex-col justify-center px-6 py-12">
       <ContactCard
         name={name}
+        eventName={eventName}
+        metLine={metLine}
         jobTitle={jobTitle}
         affiliation={affiliation}
         typeLabel={showType ? typeLabel : null}
@@ -136,7 +181,7 @@ export default async function BadgeProfilePage({
       />
 
       <p className="mt-6 px-2 text-center text-[12px] leading-[1.5] text-muted-foreground">
-        Shared from this attendee&rsquo;s LEBTECH badge, with their registration details.
+        Shared from this attendee&rsquo;s event badge, with their registration details.
         To have this page taken down, contact{" "}
         <a
           className="underline-offset-2 hover:underline"
