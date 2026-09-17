@@ -8,6 +8,12 @@
  *
  * It also no longer repeats "Strawberry Agency Events", which the site header states
  * ~100px higher up.
+ *
+ * It used to be the page's h1 as well — quiet type, top billing — which meant
+ * the index's generic label outranked the event being sold in the document
+ * outline too, not just visually. The featured event's title card carries the
+ * h1 now (`featured-event-plate.tsx`, or the empty state when nothing is
+ * open); this is the rule above the frame and nothing more.
  */
 export function EventsHeroBanner({
   openCount,
@@ -24,12 +30,9 @@ export function EventsHeroBanner({
 
   return (
     <header className="border-b border-border pt-2 pb-3 sm:pt-6">
-      {/* Still the page's h1 even though it is visually quiet — demoting the
-          type must not delete the document outline. The event titles below are
-          h2s beneath it. */}
-      <h1 className="text-[11px] font-semibold tracking-[0.14em] text-muted-foreground uppercase tabular-nums">
+      <p className="text-[11px] font-semibold tracking-[0.14em] text-muted-foreground uppercase tabular-nums">
         {parts.join(" · ")}
-      </h1>
+      </p>
     </header>
   );
 }

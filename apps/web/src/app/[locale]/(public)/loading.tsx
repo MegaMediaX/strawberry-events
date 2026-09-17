@@ -17,12 +17,14 @@ export default function PublicLoading() {
         Loading…
       </p>
       <div className="animate-pulse motion-reduce:animate-none">
-        {/* Same ratio as EventHero's cover band (aspect-[16/6]). These used to
-            disagree — 16/9 rising to 21/9 against a hero at 16/6 — so the page
-            visibly jumped the moment the real content arrived, on every
-            force-dynamic navigation. A skeleton that is the wrong shape is
-            worse than none: it promises a layout it does not deliver. */}
-        <div className="aspect-[16/6] w-full rounded-[var(--radius-xl)] bg-muted" />
+        {/* The house frame, read from the same token the hero and the index
+            plate read (--aspect-cinema). These used to disagree — 16/9 rising
+            to 21/9 against a hero at 16/6 — so the page visibly jumped the
+            moment the real content arrived, on every force-dynamic
+            navigation. A skeleton that is the wrong shape is worse than none:
+            it promises a layout it does not deliver. Sharing the token means
+            it cannot drift back. */}
+        <div className="aspect-[var(--aspect-cinema)] w-full rounded-[var(--radius-xl)] bg-muted" />
         <div className="mt-6 h-9 w-3/4 rounded-md bg-muted" />
         <div className="mt-3 h-4 w-1/3 rounded-md bg-muted" />
         <div className="mt-8 grid grid-cols-1 gap-8 lg:grid-cols-[1fr_320px]">

@@ -83,7 +83,7 @@ export function EventHero({
         animate={reduce ? { opacity: 1 } : { opacity: 1, y: 0 }}
         transition={{ duration: reduce ? DUR.micro : DUR.slow, ease: EASE_OUT }}
       >
-        <div className="relative aspect-[16/6] w-full overflow-hidden rounded-[var(--radius-xl)] bg-muted/30">
+        <div className="relative aspect-[var(--aspect-cinema)] w-full overflow-hidden rounded-[var(--radius-xl)] bg-muted/30">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src={coverUrl}
