@@ -20,10 +20,17 @@ jobs:
     defaults:
       run:
         working-directory: apps/web
-    # A real database, so the integration and e2e suites actually run. They are
-    # gated on TEST_DATABASE_URL and silently self-skipped for as long as it was
-    # unset — 12 files and 37 cases, including registration, check-in, seats and
-    # the public API. A green check meant unit tests only.
+    # A real database, so the integration suites actually run. They are gated on
+    # TEST_DATABASE_URL and silently self-skipped for as long as it was unset —
+    # 20 files and 119 cases, including registration, check-in, seats, merges
+    # and the public API. A green check meant unit tests only.
+    #
+    # That failure mode is silent by construction: `describe.skipIf` reports a
+    # skip, vitest exits 0, and the check goes green having proved nothing. So
+    # the wiring below is asserted from inside the suite rather than trusted —
+    # src/lib/db/__tests__/ci-database.test.ts fails the run if TEST_DATABASE_URL
+    # is missing, if DATABASE_URL disagrees with it, or if the database is
+    # reachable but unmigrated. Drop a line from this job and CI says so.
     # 16-alpine matches production (16.15).
     services:
       postgres:
@@ -70,8 +77,12 @@ jobs:
 
       # TEST_DATABASE_URL is only the GATE the suites check (`skipIf(!run)`);
       # the Prisma client itself reads DATABASE_URL, so both are needed and must
-      # point at the same database. Suites needing a live pretix instance still
-      # self-skip — PRETIX_* stays unset, so this remains hermetic.
+      # point at the same database — set one alone and the suites either skip or
+      # connect somewhere unintended. The guard suite checks both.
+      #
+      # The 4 files that still self-skip here need a LIVE PRETIX INSTANCE, not a
+      # database: the three *.e2e.test.ts (E2E_LIVE + PRETIX_API_TOKEN) and
+      # pretix/adapter.live.test.ts. PRETIX_* stays unset, so CI is hermetic.
       - name: Test
         run: npm test
         env:
