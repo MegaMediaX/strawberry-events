@@ -493,6 +493,21 @@ model EventMapping {
   // under the server uploads dir and is served via /media/event-cover/<file>.
   // Never a user-supplied path — generated server-side to prevent traversal.
   coverImagePath       String?
+  // WHICH PART OF THE COVER SURVIVES THE CROP, as percentages of the image.
+  //
+  // Every surface that shows a cover crops it to the house cinematic ratio, and
+  // until now it cropped from the centre — so a poster with its subject high
+  // or low lost the subject. These are the CSS object-position the public
+  // surfaces apply: 50/50 is centre, which is exactly what every existing row
+  // did, so the defaults change nothing for covers already uploaded.
+  coverFocusX          Int          @default(50)
+  coverFocusY          Int          @default(50)
+  // Intrinsic pixel size of the stored cover, read from the file's own header
+  // at upload time. Link previews declare these so a scraper can reserve the
+  // right box; null means the cover predates this (or is a format we do not
+  // measure), and the preview simply omits the dimensions as it always did.
+  coverWidth           Int?
+  coverHeight          Int?
   createdAt            DateTime     @default(now())
   updatedAt            DateTime     @updatedAt
 

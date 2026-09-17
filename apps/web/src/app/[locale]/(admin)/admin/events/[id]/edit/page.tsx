@@ -59,6 +59,12 @@ export default async function EditEventPage({
         locale={locale}
         eventId={event.id}
         initialUrl={event.coverImagePath ? coverImageUrl(event.coverImagePath) : null}
+        initialSize={
+          event.coverWidth && event.coverHeight
+            ? { width: event.coverWidth, height: event.coverHeight }
+            : null
+        }
+        initialFocus={{ x: event.coverFocusX, y: event.coverFocusY }}
       />
     </div>
   );

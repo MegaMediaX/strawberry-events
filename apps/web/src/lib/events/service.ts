@@ -8,7 +8,8 @@ import { resolvePretixContext } from "@/lib/pretix/context";
 import * as pretixEvents from "@/lib/pretix/events";
 import * as pretixProducts from "@/lib/pretix/products";
 import { PretixError } from "@/lib/pretix/errors";
-import { saveCoverImage, deleteCoverImage } from "./cover-image";
+import { saveCoverImage, deleteCoverImage, imageDimensions } from "./cover-image";
+import { coverFocus, CENTER } from "./cover-focus";
 import type { EventInput, TicketInput, SubEventInput } from "./schema";
 import { sha256 } from "@/lib/crypto";
 import { signInvite } from "@/lib/tokens/invite";
@@ -284,9 +285,24 @@ export async function setEventCover(
   if (!mapping) throw new Error("Event not found or access denied");
 
   const filename = await saveCoverImage(mapping.id, bytes);
+  // The file's own size, read from its header while the bytes are in hand.
+  // Unknown is a real answer (an unusual encoder variant, a format we do not
+  // measure) and is stored as null rather than guessed: link previews declare
+  // these to scrapers, and a wrong size is worse than none.
+  const size = imageDimensions(bytes);
   const updated = await prisma.eventMapping.update({
     where: { id: mapping.id },
-    data: { coverImagePath: filename },
+    data: {
+      coverImagePath: filename,
+      coverWidth: size?.width ?? null,
+      coverHeight: size?.height ?? null,
+      // A new picture is a new crop. Keeping the previous focus would point at
+      // a part of an image that no longer exists — the old one's subject, at
+      // the old one's coordinates — so it resets to centre, which is the same
+      // crop every cover got before any of this existed.
+      coverFocusX: CENTER.x,
+      coverFocusY: CENTER.y,
+    },
   });
   // Remove the superseded file after the DB points at the new one.
   if (mapping.coverImagePath && mapping.coverImagePath !== filename) {
@@ -307,10 +323,47 @@ export async function removeEventCover(
 
   const updated = await prisma.eventMapping.update({
     where: { id: mapping.id },
-    data: { coverImagePath: null },
+    data: {
+      coverImagePath: null,
+      coverWidth: null,
+      coverHeight: null,
+      coverFocusX: CENTER.x,
+      coverFocusY: CENTER.y,
+    },
   });
   await deleteCoverImage(mapping.coverImagePath);
   await writeAudit(session, mapping.organizationId, "event.cover_removed", "event", mapping.id);
+  return updated;
+}
+
+/**
+ * Choose which part of the cover survives the crop.
+ *
+ * Every public surface frames the cover at the house cinematic ratio, and a
+ * frame crops: a 3:4 poster keeps 28% of its height. Until this existed the
+ * 28% was always the middle, so a poster with its subject high lost it, with
+ * nobody able to intervene. Same org gate and same audit trail as the upload
+ * itself — it changes what an attendee sees of an event.
+ *
+ * Values are clamped, not rejected. This cannot fail in a way that leaves the
+ * organiser unable to fix their own picture.
+ */
+export async function setCoverFocus(
+  session: SessionContext,
+  eventId: string,
+  x: unknown,
+  y: unknown,
+): Promise<EventMapping> {
+  assertCanManageEvents(session);
+  const mapping = await getEventForSession(session, eventId);
+  if (!mapping) throw new Error("Event not found or access denied");
+
+  const focus = coverFocus(x, y);
+  const updated = await prisma.eventMapping.update({
+    where: { id: mapping.id },
+    data: { coverFocusX: focus.x, coverFocusY: focus.y },
+  });
+  await writeAudit(session, mapping.organizationId, "event.cover_focus_set", "event", mapping.id);
   return updated;
 }
 

@@ -142,10 +142,30 @@ describe("the featured plate's frame", () => {
   /**
    * The frame's own top edge is unscrimmed picture and may be white, so a
    * single white indicator there is not guaranteed to be visible. The pair is.
+   *
+   * It sits INSIDE the frame, shown by `group-focus-visible`, rather than on
+   * the anchor: an inset shadow on the anchor is painted beneath its children,
+   * and the frame's background and cover image are children — so the ring the
+   * anchor drew was invisible under its own picture.
    */
   it("gives focus a two-tone indicator, since the ground is unknown", () => {
     const html = render();
-    expect(html).toContain("focus-visible:shadow-[inset_0_0_0_4px_#ffffff,inset_0_0_0_8px_#111111]");
+    expect(html).toContain("shadow-[inset_0_0_0_4px_#ffffff,inset_0_0_0_8px_#111111]");
+    expect(html).toContain("group-focus-visible:block");
+    // On the anchor, the indicator would be painted under the cover.
+    expect(html).not.toMatch(/<a[^>]*shadow-\[inset/);
+  });
+
+  /**
+   * The crop is a decision now, and this is where it is applied. A cover with
+   * its subject high keeps the subject only if the focus reaches the image.
+   */
+  it("crops the cover to the focus the organiser chose", () => {
+    expect(render({ focusX: 20, focusY: 85 })).toContain("object-position:20% 85%");
+  });
+
+  it("falls back to centre, which is what every cover got before", () => {
+    expect(render({ focusX: null, focusY: null })).toContain("object-position:50% 50%");
   });
 
   it("still resolves the Arabic title if that locale is ever restored", () => {

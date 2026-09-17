@@ -62,6 +62,90 @@ export function detectImageType(bytes: Uint8Array): "jpg" | "png" | "webp" | nul
   return null;
 }
 
+/** The stored file's own intrinsic size, in pixels. */
+export interface ImageSize {
+  width: number;
+  height: number;
+}
+
+/**
+ * Read an image's intrinsic size from its own header.
+ *
+ * Needed because a link preview that declares its image's dimensions lets a
+ * scraper reserve the right box instead of reflowing when the picture lands —
+ * and nothing in this system knew how big a cover was. Parsed rather than
+ * decoded: these are the first few dozen bytes of a file we have already
+ * validated by magic number, and pulling in an image library to learn two
+ * integers would be the largest dependency in the upload path.
+ *
+ * Returns null whenever the header is truncated, unrecognised, or a variant
+ * this does not read. That is deliberate and the callers treat it as "unknown":
+ * a WRONG declared size is worse for a scraper than no size at all.
+ */
+export function imageDimensions(bytes: Uint8Array): ImageSize | null {
+  const be16 = (i: number) => (bytes[i] << 8) | bytes[i + 1];
+  const be32 = (i: number) =>
+    ((bytes[i] << 24) | (bytes[i + 1] << 16) | (bytes[i + 2] << 8) | bytes[i + 3]) >>> 0;
+  const le16 = (i: number) => bytes[i] | (bytes[i + 1] << 8);
+
+  switch (detectImageType(bytes)) {
+    case "png": {
+      // IHDR is fixed: it is always the first chunk, at a fixed offset.
+      if (bytes.length < 24) return null;
+      return { width: be32(16), height: be32(20) };
+    }
+
+    case "jpg": {
+      // JPEG has no fixed header — the size lives in a frame marker that can
+      // sit behind any number of variable-length segments (EXIF thumbnails,
+      // colour profiles), so the marker chain has to be walked.
+      let i = 2;
+      while (i + 9 < bytes.length) {
+        if (bytes[i] !== 0xff) return null;
+        let marker = bytes[i + 1];
+        // Fill bytes: any number of 0xFF may pad before the marker itself.
+        let j = i + 1;
+        while (marker === 0xff && j + 1 < bytes.length) marker = bytes[++j];
+        // SOF0–SOF15 carry the frame size. C4 (DHT), C8 (JPG) and CC (DAC)
+        // share the range and do not.
+        const isSOF =
+          marker >= 0xc0 && marker <= 0xcf && marker !== 0xc4 && marker !== 0xc8 && marker !== 0xcc;
+        if (isSOF) return { height: be16(j + 4), width: be16(j + 6) };
+        const length = be16(j + 1);
+        if (length < 2) return null;
+        i = j + 1 + length;
+      }
+      return null;
+    }
+
+    case "webp": {
+      // Three container variants, and a cover can arrive as any of them.
+      const fourCC = String.fromCharCode(...bytes.slice(12, 16));
+      if (fourCC === "VP8X" && bytes.length >= 30) {
+        // Extended: a 24-bit canvas size, stored minus one.
+        const w = bytes[24] | (bytes[25] << 8) | (bytes[26] << 16);
+        const h = bytes[27] | (bytes[28] << 8) | (bytes[29] << 16);
+        return { width: w + 1, height: h + 1 };
+      }
+      if (fourCC === "VP8L" && bytes.length >= 25 && bytes[20] === 0x2f) {
+        // Lossless: 14 bits each, packed, stored minus one.
+        const bits = bytes[21] | (bytes[22] << 8) | (bytes[23] << 16) | (bytes[24] << 24);
+        return { width: (bits & 0x3fff) + 1, height: ((bits >>> 14) & 0x3fff) + 1 };
+      }
+      if (fourCC === "VP8 " && bytes.length >= 30) {
+        // Lossy: the key frame's start code has to be where it belongs, or
+        // this is not a shape we can read.
+        if (!(bytes[23] === 0x9d && bytes[24] === 0x01 && bytes[25] === 0x2a)) return null;
+        return { width: le16(26) & 0x3fff, height: le16(28) & 0x3fff };
+      }
+      return null;
+    }
+
+    default:
+      return null;
+  }
+}
+
 export class CoverImageError extends Error {}
 
 /**
