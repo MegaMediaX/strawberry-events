@@ -212,3 +212,46 @@ describe("the scrim tokens as declared", () => {
     expect(Math.max(...alphas)).toBeGreaterThan(0);
   });
 });
+
+/**
+ * The paper layer.
+ *
+ * The attendee flow prints on its own stock rather than the app's cards, so it
+ * has its own grounds — and a palette that is correct on --card proves nothing
+ * about --paper. The stamp is the case that bites: it is a colour chosen to
+ * look like stamped ink, and looking like ink is not the same as being
+ * readable on the stock it is struck onto.
+ */
+describe("paper", () => {
+  for (const theme of ["light", "dark"] as const) {
+    it(`stamps readable ink on the stock (${theme})`, () => {
+      // The stamp's word IS the state — see Stamp in components/paper. That
+      // makes it text, and text answers to 4.5:1.
+      expect(contrast(token("paper-stamp", theme), token("paper", theme))).toBeGreaterThanOrEqual(
+        TEXT,
+      );
+    });
+
+    it(`prints body copy on the stock (${theme})`, () => {
+      expect(contrast(token("paper-ink", theme), token("paper", theme))).toBeGreaterThanOrEqual(
+        TEXT,
+      );
+    });
+
+    it(`keeps secondary copy readable on the stock (${theme})`, () => {
+      // The stub sets its labels in --muted-foreground, which was tuned against
+      // the page, the card and the muted panel — not against --paper. A stock
+      // lighter or darker than all three would slip under the floor here and
+      // nowhere else.
+      expect(
+        contrast(token("muted-foreground", theme), token("paper", theme)),
+      ).toBeGreaterThanOrEqual(TEXT);
+    });
+
+    it(`draws a rule that is visible without pretending to be text (${theme})`, () => {
+      // Decorative, so no 4.5:1 — but a rule nobody can see is not a rule. The
+      // floor is only that it is distinguishable from the stock at all.
+      expect(contrast(token("paper-rule", theme), token("paper", theme))).toBeGreaterThan(1.2);
+    });
+  }
+});
