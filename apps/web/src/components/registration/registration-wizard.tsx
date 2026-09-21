@@ -3,11 +3,11 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { stepMotion } from "@/lib/motion";
-import { Checkbox } from "@/components/ui/checkbox";
+import { Tick } from "@/components/paper/field";
 import { Programme } from "./programme";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { Press } from "@/components/paper/press";
+import { Ink, Caption } from "@/components/paper/field";
+
 import { centsToPrice } from "@/lib/pretix/mappers";
 import { Stepper } from "./stepper";
 import { PhoneCountryField } from "./phone-country-field";
@@ -198,7 +198,7 @@ export function RegistrationWizard({
   const CONFIRM_STEP = hasSubEvents ? CONFIRM_STEP_WITH_SUB : CONFIRM_STEP_NO_SUB;
 
   const reduce = useReducedMotion();
-  // Explicit ids: <Label> and <Input> were siblings with no htmlFor/id pair, so
+  // Explicit ids: <Caption> and <Ink> were siblings with no htmlFor/id pair, so
   // nothing associated them and every field was announced unlabelled.
   const uid = useId();
   const fid = {
@@ -604,11 +604,11 @@ export function RegistrationWizard({
                 </p>
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                   <div className="flex flex-col gap-1.5">
-                    <Label htmlFor={fid.firstName}>
+                    <Caption htmlFor={fid.firstName}>
                       First name <RequiredMark />
-                    </Label>
-                    <Input
-                      className="well h-11"
+                    </Caption>
+                    <Ink
+                      className=""
                       id={fid.firstName}
                       required
                       aria-required="true"
@@ -619,11 +619,11 @@ export function RegistrationWizard({
                     />
                   </div>
                   <div className="flex flex-col gap-1.5">
-                    <Label htmlFor={fid.lastName}>
+                    <Caption htmlFor={fid.lastName}>
                       Last name <RequiredMark />
-                    </Label>
-                    <Input
-                      className="well h-11"
+                    </Caption>
+                    <Ink
+                      className=""
                       id={fid.lastName}
                       required
                       aria-required="true"
@@ -635,11 +635,11 @@ export function RegistrationWizard({
                   </div>
                 </div>
                 <div className="flex flex-col gap-1.5">
-                  <Label htmlFor={fid.email}>
+                  <Caption htmlFor={fid.email}>
                     Email <RequiredMark />
-                  </Label>
-                  <Input
-                    className="well h-11"
+                  </Caption>
+                  <Ink
+                    className=""
                     id={fid.email}
                     type="email"
                     required
@@ -651,9 +651,9 @@ export function RegistrationWizard({
                   />
                 </div>
                 <div className="flex flex-col gap-1.5">
-                  <Label htmlFor={fid.phone}>
+                  <Caption htmlFor={fid.phone}>
                     Phone <RequiredMark />
-                  </Label>
+                  </Caption>
                   <PhoneCountryField
                     id={fid.phone}
                     required
@@ -668,16 +668,16 @@ export function RegistrationWizard({
                 {attendeeTypeEnabled && (
                   <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                     <div className="flex flex-col gap-1.5">
-                      <Label htmlFor={fid.attendeeType}>
+                      <Caption htmlFor={fid.attendeeType}>
                         Attendee type
                         {attendeeTypeRequired ? <RequiredMark /> : null}
-                      </Label>
+                      </Caption>
                       <select
                         id={fid.attendeeType}
                         required={attendeeTypeRequired}
                         aria-required={attendeeTypeRequired || undefined}
                         {...invalidProps(fid.attendeeType)}
-                        className="well h-11 w-full rounded-lg border border-input px-3 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+                        className="paper-ink"
                         value={a.attendeeType}
                         onChange={(e) =>
                           setA({
@@ -700,11 +700,11 @@ export function RegistrationWizard({
                     </div>
                     {a.attendeeType === "company" && (
                       <div className="flex flex-col gap-1.5">
-                        <Label htmlFor={fid.company}>
+                        <Caption htmlFor={fid.company}>
                           Company name <RequiredMark />
-                        </Label>
-                        <Input
-                          className="well h-11"
+                        </Caption>
+                        <Ink
+                          className=""
                           id={fid.company}
                           required
                           aria-required="true"
@@ -717,11 +717,11 @@ export function RegistrationWizard({
                     )}
                     {a.attendeeType === "company" && (
                       <div className="flex flex-col gap-1.5">
-                        <Label htmlFor={fid.jobTitle}>Job title (optional)</Label>
+                        <Caption htmlFor={fid.jobTitle}>Job title (optional)</Caption>
                         <select
                           id={fid.jobTitle}
                           {...invalidProps(fid.jobTitle)}
-                          className="well h-11 w-full rounded-lg border border-input px-3 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+                          className="paper-ink"
                           value={a.jobTitle}
                           onChange={(e) =>
                             setA({
@@ -746,11 +746,11 @@ export function RegistrationWizard({
                     )}
                     {a.attendeeType === "company" && a.jobTitle === JOB_TITLE_OTHER && (
                       <div className="flex flex-col gap-1.5">
-                        <Label htmlFor={fid.jobTitleOther}>
+                        <Caption htmlFor={fid.jobTitleOther}>
                           Your job title <RequiredMark />
-                        </Label>
-                        <Input
-                          className="well h-11"
+                        </Caption>
+                        <Ink
+                          className=""
                           id={fid.jobTitleOther}
                           required
                           aria-required="true"
@@ -794,7 +794,7 @@ export function RegistrationWizard({
                 {tickets.map((t) => (
                   <div
                     key={t.id}
-                    className="flex items-center justify-between gap-3 rounded-[var(--radius-lg)] border border-border bg-card p-5 shadow-[var(--shadow-1)]"
+                    className="flex items-center justify-between gap-3 paper-plate p-5"
                   >
                     <div className="min-w-0">
                       <div className="font-heading text-[22px] leading-[1.15] tracking-[-0.01em]">
@@ -836,10 +836,10 @@ export function RegistrationWizard({
                       </button>
                     ) : (
                     <div className="flex items-center gap-2">
-                      <Button
+                      <Press
                         type="button"
-                        variant="outline"
-                        size="icon-lg"
+                        variant="ruled"
+                        size="icon"
                         className="size-11"
                         aria-label={`Remove one ${t.title} ticket`}
                         disabled={(qty[t.id] ?? 0) === 0}
@@ -848,7 +848,7 @@ export function RegistrationWizard({
                         }
                       >
                         −
-                      </Button>
+                      </Press>
                       {/* aria-live so the new count is announced after a tap;
                           the buttons themselves keep their static labels. */}
                       <span
@@ -858,10 +858,10 @@ export function RegistrationWizard({
                       >
                         {qty[t.id] ?? 0}
                       </span>
-                      <Button
+                      <Press
                         type="button"
-                        variant="outline"
-                        size="icon-lg"
+                        variant="ruled"
+                        size="icon"
                         className="size-11"
                         aria-label={`Add one ${t.title} ticket`}
                         disabled={!canAddMainTicket}
@@ -871,7 +871,7 @@ export function RegistrationWizard({
                         }}
                       >
                         +
-                      </Button>
+                      </Press>
                     </div>
                     )}
                   </div>
@@ -895,7 +895,7 @@ export function RegistrationWizard({
                   return (
                     <label
                       key={category}
-                      className="flex min-h-11 cursor-pointer items-center justify-between gap-3 rounded-[var(--radius-lg)] border border-border bg-card p-5 shadow-[var(--shadow-1)]"
+                      className="flex min-h-11 cursor-pointer items-center justify-between gap-3 border border-[color:var(--paper-rule)] p-5"
                     >
                       <div>
                         <div className="font-medium">{category}</div>
@@ -915,7 +915,7 @@ export function RegistrationWizard({
                   );
                 })}
                 {seatSections && seatSections.length > 0 && (
-                  <div className="mt-2 rounded-[var(--radius-lg)] border border-border bg-card p-5 shadow-[var(--shadow-1)]">
+                  <div className="mt-2 paper-plate p-5">
                     <div className="mb-2 font-medium">Choose your seat(s)</div>
                     {/* The map needs to know how many seats this order is for,
                         so it can say so up front and stop at that number
@@ -930,7 +930,7 @@ export function RegistrationWizard({
                 )}
 
                 {scopedFields.length > 0 && (
-                  <div className="mt-2 flex flex-col gap-4 rounded-[var(--radius-lg)] border border-border bg-card p-5 shadow-[var(--shadow-1)]">
+                  <div className="mt-2 flex flex-col gap-4 paper-plate p-5">
                     <div className="font-medium">Additional details</div>
                     {scopedFields.map((f) => {
                       const label = locale === "ar" && f.labelAr ? f.labelAr : f.labelEn;
@@ -943,17 +943,20 @@ export function RegistrationWizard({
                       // announced unlabelled.
                       const fieldId = `${uid}-field-${f.id}`;
                       const helpId = help ? `${fieldId}-help` : undefined;
-                      const cls =
-                        "well h-11 w-full rounded-lg border border-input px-3 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50";
+                      // The organiser's own custom fields get the same rule as
+                      // every built-in one. They were styled from this string
+                      // rather than a component, which is exactly how they had
+                      // drifted out of the rest of the form's look before.
+                      const cls = "paper-ink";
                       return (
                         <div key={f.id} className="flex flex-col gap-1.5">
-                          <Label htmlFor={fieldId}>
+                          <Caption htmlFor={fieldId}>
                             {label} {f.required ? <RequiredMark /> : null}
-                          </Label>
+                          </Caption>
                           {f.type === "textarea" ? (
                             <textarea
                               id={fieldId}
-                              className="well w-full rounded-lg border border-input px-3 py-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+                              className="paper-ink"
                               rows={3}
                               required={f.required}
                               aria-required={f.required || undefined}
@@ -992,9 +995,9 @@ export function RegistrationWizard({
                               Yes
                             </label>
                           ) : (
-                            <Input
+                            <Ink
                               id={fieldId}
-                              className="well h-11"
+                              className=""
                               type={f.type === "email" ? "email" : f.type === "date" ? "date" : "text"}
                               required={f.required}
                               aria-required={f.required || undefined}
@@ -1070,7 +1073,7 @@ export function RegistrationWizard({
                     never shown again — a typo was unrecoverable and invisible. */}
                 <section className="flex flex-col gap-3">
                   <Eyebrow>Your details</Eyebrow>
-                  <div className="rounded-[var(--radius-lg)] border border-border bg-card p-5 text-sm shadow-[var(--shadow-1)]">
+                  <div className="paper-plate p-5 text-sm">
                     <dl className="flex flex-col gap-2">
                       <div className="flex justify-between gap-4">
                         <dt className="text-muted-foreground">Name</dt>
@@ -1116,18 +1119,18 @@ export function RegistrationWizard({
                     <p className="mt-3 border-t border-border pt-3 text-xs text-muted-foreground">
                       Your ticket is emailed to this address.
                     </p>
-                    <Button
+                    <Press
                       type="button"
-                      variant="outline"
+                      variant="ruled"
                       size="lg"
-                      className="mt-3 h-11"
+                      className="mt-3"
                       onClick={() => setStep(0)}
                     >
                       Edit details
-                    </Button>
+                    </Press>
                   </div>
                 </section>
-                <div className="rounded-[var(--radius-lg)] border border-border bg-card p-5 text-sm shadow-[var(--shadow-1)]">
+                <div className="paper-plate p-5 text-sm">
                   <div className="font-medium">Order summary</div>
                   {tickets
                     .filter((t) => (qty[t.id] ?? 0) > 0)
@@ -1161,7 +1164,7 @@ export function RegistrationWizard({
                 {answeredFields.length > 0 && (
                   <section className="flex flex-col gap-3">
                     <Eyebrow>Additional details</Eyebrow>
-                    <div className="rounded-[var(--radius-lg)] border border-border bg-card p-5 text-sm shadow-[var(--shadow-1)]">
+                    <div className="paper-plate p-5 text-sm">
                       <dl className="flex flex-col gap-2">
                         {answeredFields.map(({ field, label, value }) => (
                           <div key={field.id} className="flex justify-between gap-4">
@@ -1173,7 +1176,7 @@ export function RegistrationWizard({
                     </div>
                   </section>
                 )}
-                <Checkbox checked={terms} onCheckedChange={setTerms}>
+                <Tick checked={terms} onCheckedChange={setTerms}>
                   <span>
                     I agree to the{" "}
                     <a
@@ -1185,8 +1188,8 @@ export function RegistrationWizard({
                       Terms and Conditions
                     </a>
                   </span>
-                </Checkbox>
-                <Checkbox checked={privacy} onCheckedChange={setPrivacy}>
+                </Tick>
+                <Tick checked={privacy} onCheckedChange={setPrivacy}>
                   <span>
                     I agree to the{" "}
                     <a
@@ -1198,10 +1201,10 @@ export function RegistrationWizard({
                       Privacy Policy
                     </a>
                   </span>
-                </Checkbox>
+                </Tick>
                 {/* Worded by the organiser; shown verbatim. Do not paraphrase
                     to fit the layout — it is the text people consent to. */}
-                <Checkbox checked={dataUse} onCheckedChange={setDataUse}>
+                <Tick checked={dataUse} onCheckedChange={setDataUse}>
                   <span>
                     By registering, you agree that your personal information will be used solely
                     for event-related purposes and will not be shared with any third party without
@@ -1215,7 +1218,7 @@ export function RegistrationWizard({
                       Read the full disclaimer
                     </a>
                   </span>
-                </Checkbox>
+                </Tick>
               </div>
             )}
           </motion.div>
@@ -1224,7 +1227,7 @@ export function RegistrationWizard({
 
       {hasSubEvents && (
         <aside className="sticky top-24 hidden lg:block">
-          <div className="rounded-[var(--radius-lg)] border border-border bg-card p-6 shadow-[var(--shadow-1)]">
+          <div className="paper-plate p-6">
             <Eyebrow>The programme</Eyebrow>
             <Programme
               className="mt-3"
@@ -1256,24 +1259,24 @@ export function RegistrationWizard({
         className="fixed inset-x-0 bottom-0 z-40 flex items-center justify-between gap-3 border-t border-border bg-background/90 px-4 py-3 backdrop-blur"
         style={{ paddingBottom: "calc(0.75rem + env(safe-area-inset-bottom))" }}
       >
-        <Button
+        <Press
           type="button"
-          variant="ghost"
+          variant="quiet"
           size="lg"
-          className="h-11"
+          className=""
           onClick={() => setStep((s) => Math.max(0, s - 1))}
           disabled={step === 0 || busy}
         >
           Back
-        </Button>
+        </Press>
         {step < CONFIRM_STEP ? (
-          <Button type="submit" size="lg" className="h-11 px-6">
+          <Press type="submit" size="lg">
             Next
-          </Button>
+          </Press>
         ) : (
-          <Button type="submit" size="lg" className="h-11 px-6" disabled={busy}>
+          <Press type="submit" size="lg" disabled={busy}>
             {busy ? "Submitting…" : "Complete registration"}
-          </Button>
+          </Press>
         )}
       </div>
     </form>

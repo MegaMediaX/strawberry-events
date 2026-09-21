@@ -1,6 +1,6 @@
 "use client";
 
-import { Input } from "@/components/ui/input";
+import { Ink } from "@/components/paper/field";
 
 const CODES = ["+961", "+971", "+966", "+20", "+1", "+44", "+33", "+49", "+90"];
 
@@ -40,7 +40,7 @@ export function PhoneCountryField({
           </option>
         ))}
       </select>
-      <Input
+      <Ink
         className="well h-11"
         id={id}
         type="tel"
