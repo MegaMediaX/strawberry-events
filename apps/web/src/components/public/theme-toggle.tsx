@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { Moon, Sun } from "lucide-react";
 import { THEME_STORAGE_KEY } from "@/lib/theme/theme";
-import { Button } from "@/components/ui/button";
+import { Press } from "@/components/paper/press";
 
 /**
  * `initialDark` is resolved on the server from the theme cookie (the same value
@@ -29,8 +29,8 @@ export function ThemeToggle({ initialDark = false }: { initialDark?: boolean }) 
   }
 
   return (
-    <Button
-      variant="ghost"
+    <Press
+      variant="quiet"
       size="icon"
       // size="icon" is 32px, below the 40px touch-target floor the rest of the
       // public flow now holds to.
@@ -39,6 +39,6 @@ export function ThemeToggle({ initialDark = false }: { initialDark?: boolean }) 
       onClick={toggle}
     >
       {dark ? <Sun className="size-4" /> : <Moon className="size-4" />}
-    </Button>
+    </Press>
   );
 }

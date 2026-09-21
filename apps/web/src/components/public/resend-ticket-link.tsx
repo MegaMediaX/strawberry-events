@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { Button } from "@/components/ui/button";
+import { Press } from "@/components/paper/press";
 import { resendTicketLinkAction } from "@/app/[locale]/(public)/events/[slug]/confirmation/[orderCode]/actions";
 
 /**
@@ -21,8 +21,8 @@ export function ResendTicketLink({
 
   return (
     <div className="flex flex-col items-center gap-2">
-      <Button
-        variant="outline"
+      <Press
+        variant="ruled"
         disabled={pending}
         onClick={() =>
           start(async () => {
@@ -32,7 +32,7 @@ export function ResendTicketLink({
         }
       >
         Email me my ticket link
-      </Button>
+      </Press>
       {msg && <p className="text-xs text-muted-foreground">{msg}</p>}
     </div>
   );

@@ -50,7 +50,7 @@ export function AvailabilityBar({
   return (
     <div>
       <div
-        className="h-1.5 w-full overflow-hidden rounded-full"
+        className="h-1.5 w-full overflow-hidden"
         style={{ background: "var(--border)" }}
         role="progressbar"
         aria-label="Tickets sold"
