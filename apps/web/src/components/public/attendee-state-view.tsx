@@ -11,39 +11,45 @@ import { eventMetaLine } from "@/lib/events/format";
 import { shouldShowTicketQr, shouldOfferTicketRecovery } from "./ticket-reveal";
 import { claimFirstView, browserRevealStore } from "./ticket-reveal-memory";
 import { shouldWatchForTicket, WATCH_INTERVAL_MS, WATCH_LIMIT } from "./ticket-refresh";
+import { Ticket, TicketBody, TicketStub } from "@/components/paper/plate";
+import { Stamp } from "@/components/paper/stamp";
+import { PressLink } from "@/components/paper/press";
 import type { AttendeeView } from "@/lib/registration/attendee-view";
 
 
 const STATE_CONFIG = {
   issued: {
     Icon: CheckCircle2,
-    iconCls: "text-emerald-500",
     heading: "You're registered.",
-    bg: "from-emerald-500/5 to-transparent",
+    /* The stamp's word IS the state. It is never the colour alone: the tint
+       shifts only within tones that clear 4.5:1 on the stock, and the word and
+       icon carry the meaning on their own (WCAG 1.4.1). */
+    stamp: "Admit one",
+    tone: "ink" as const,
   },
   pending_approval: {
     Icon: Clock,
-    iconCls: "text-amber-500",
     heading: "Registration under review",
-    bg: "from-amber-500/5 to-transparent",
+    stamp: "Under review",
+    tone: "ink" as const,
   },
   pending_payment: {
     Icon: Clock,
-    iconCls: "text-blue-500",
     heading: "Payment pending",
-    bg: "from-blue-500/5 to-transparent",
+    stamp: "Unpaid",
+    tone: "ink" as const,
   },
   rejected: {
     Icon: XCircle,
-    iconCls: "text-destructive",
     heading: "Registration not approved",
-    bg: "from-destructive/5 to-transparent",
+    stamp: "Not approved",
+    tone: "faded" as const,
   },
   canceled: {
     Icon: Ban,
-    iconCls: "text-muted-foreground",
     heading: "Registration canceled",
-    bg: "from-muted/40 to-transparent",
+    stamp: "Void",
+    tone: "faded" as const,
   },
 } as const;
 
@@ -72,7 +78,7 @@ export function AttendeeStateView({
   ticketRecovery,
 }: AttendeeStateViewProps) {
   const state = registrationState(order);
-  const { Icon, iconCls, heading, bg } = STATE_CONFIG[state];
+  const { Icon, heading, stamp, tone } = STATE_CONFIG[state];
   const showQr = shouldShowTicketQr(state, canRevealTicket);
   // Venue-pinned, like every other date in the flow.
   const whenLine = order.schedule
@@ -152,135 +158,161 @@ export function AttendeeStateView({
           at opacity 0, so a slow script left the ticket blank. What replaces
           it is below: one sweep of light across the heading, on the first view
           of this ticket in this browser, and never over the QR. */}
-      <div
-        className={`rounded-[var(--radius-xl)] border border-border bg-gradient-to-b ${bg} p-8 text-center`}
-      >
-        <div ref={headingRef} className="-m-2 rounded-[var(--radius-lg)] p-2">
-          <Icon className={`mx-auto h-12 w-12 ${iconCls}`} />
-          <h1 className="font-heading mt-4 text-[length:var(--display-4)] leading-tight tracking-[-0.01em]">
-            {heading}
-          </h1>
-          <p className="mt-1 font-medium text-foreground">{order.eventMapping.titleEn}</p>
-          <p className="mt-0.5 font-mono text-xs text-muted-foreground">{order.orderCode}</p>
-        </div>
+      <Ticket>
+        <TicketBody className="px-7 pt-8 pb-9 text-center">
+          <div ref={headingRef} className="-m-2 p-2">
+            {/* The stamp carries the state; the icon is supplementary and
+                hidden from the accessibility tree because the stamp's own word
+                already says it and a duplicate announcement helps nobody. */}
+            <Stamp tone={tone} icon={<Icon className="h-3.5 w-3.5" aria-hidden="true" />}>
+              {stamp}
+            </Stamp>
+            <h1 className="font-heading mt-5 text-[length:var(--display-4)] leading-[1.05] tracking-[-0.01em]">
+              {heading}
+            </h1>
+            <p className="mt-3 font-medium">{order.eventMapping.titleEn}</p>
+          </div>
 
-        {showQr && (
-          <div className="mt-8 flex flex-col items-center gap-3">
-            <div className="rounded-[var(--radius-lg)] border-2 border-primary/20 bg-background p-4 shadow-sm">
-              <QrCodeDisplay
-                value={order.pretixSecret ?? order.orderCode}
-                onSettled={onQrSettled}
-              />
+          {showQr && (
+            <div className="mt-7 flex flex-col items-center gap-3">
+              {/* The QR sits in a ruled well rather than a rounded, shadowed
+                  box. The quiet zone ISO/IEC 18004 requires is the padding —
+                  it is why this has generous inset padding and why nothing is
+                  allowed to encroach on it. */}
+              <div className="border border-[color:var(--paper-rule)] bg-white p-4">
+                <QrCodeDisplay
+                  value={order.pretixSecret ?? order.orderCode}
+                  onSettled={onQrSettled}
+                />
+              </div>
+              <p className="text-xs text-muted-foreground">Present this QR at the entrance.</p>
             </div>
-            <p className="text-xs text-muted-foreground">Present this QR at the entrance.</p>
-          </div>
-        )}
+          )}
 
-        {offerRecovery && (
-          <div className="mt-8 flex flex-col items-center gap-3">
-            <p className="text-sm text-muted-foreground">
-              Your ticket is ready. For security, the entrance QR is only shown
-              on the personal ticket link we emailed you — an order code alone
-              is not enough to open it.
+          {offerRecovery && (
+            <div className="mt-7 flex flex-col items-center gap-3">
+              <p className="text-sm text-muted-foreground">
+                Your ticket is ready. For security, the entrance QR is only shown
+                on the personal ticket link we emailed you — an order code alone
+                is not enough to open it.
+              </p>
+              {ticketRecovery}
+            </div>
+          )}
+
+          {state === "pending_approval" && (
+            <p className="mt-6 text-sm text-muted-foreground">
+              Your registration is awaiting organizer approval. We&apos;ll email you once it&apos;s reviewed.
+              No ticket is issued yet.{" "}
+              <span className="font-medium text-foreground">
+                This page updates on its own — you do not need to reload it.
+              </span>
             </p>
-            {ticketRecovery}
+          )}
+          {state === "pending_payment" && (
+            <p className="mt-6 text-sm text-muted-foreground">
+              Your spot is reserved. Pay on arrival or as instructed by the organizer; your
+              ticket and QR are issued once payment is confirmed.{" "}
+              {/* Said out loud, because a screen that silently refreshes itself
+                  is indistinguishable from one that has frozen. */}
+              <span className="font-medium text-foreground">
+                This page updates on its own — you do not need to reload it.
+              </span>
+            </p>
+          )}
+          {state === "rejected" && (
+            <p className="mt-6 text-sm text-muted-foreground">
+              Unfortunately this registration was not approved. Contact the organizer if you have questions.
+            </p>
+          )}
+          {state === "canceled" && (
+            <p className="mt-6 text-sm text-muted-foreground">This registration was canceled.</p>
+          )}
+        </TicketBody>
+
+        {/* The stub. What is worth keeping once the door has scanned the body:
+            the code, when, and where. */}
+        <TicketStub className="px-7 pt-7 pb-8">
+          {/* The order code is the ticket's serial number, so it is set like
+              one — mono, letterspaced, and the largest thing on the stub. */}
+          <div className="text-[0.625rem] font-medium uppercase tracking-[0.18em] text-muted-foreground">
+            Order
           </div>
-        )}
+          <p className="mt-1.5 font-mono text-lg tracking-[0.12em]">{order.orderCode}</p>
 
-        {state === "pending_approval" && (
-          <p className="mt-6 text-sm text-muted-foreground">
-            Your registration is awaiting organizer approval. We&apos;ll email you once it&apos;s reviewed.
-            No ticket is issued yet.{" "}
-            <span className="font-medium text-foreground">
-              This page updates on its own — you do not need to reload it.
-            </span>
-          </p>
-        )}
-        {state === "pending_payment" && (
-          <p className="mt-6 text-sm text-muted-foreground">
-            Your spot is reserved. Pay on arrival or as instructed by the organizer; your
-            ticket and QR are issued once payment is confirmed.{" "}
-            {/* Said out loud, because a screen that silently refreshes itself
-                is indistinguishable from one that has frozen. */}
-            <span className="font-medium text-foreground">
-              This page updates on its own — you do not need to reload it.
-            </span>
-          </p>
-        )}
-        {state === "rejected" && (
-          <p className="mt-6 text-sm text-muted-foreground">
-            Unfortunately this registration was not approved. Contact the organizer if you have questions.
-          </p>
-        )}
-        {state === "canceled" && (
-          <p className="mt-6 text-sm text-muted-foreground">This registration was canceled.</p>
-        )}
+          {state !== "rejected" && state !== "canceled" && whenLine && (
+            <div className="mt-6">
+              <div className="text-[0.625rem] font-medium uppercase tracking-[0.18em] text-muted-foreground">
+                When
+              </div>
+              <p className="mt-1.5 text-sm tabular-nums">{whenLine}</p>
+              {/* No icsHref on purpose. That route resolves through
+                  getPublicEvent, which only answers for visibility=public AND
+                  liveOnPretix — so a staff walk-in's ticket, or any ticket for
+                  an event taken down after it ran, got a dead Apple-Calendar
+                  button beside a working Google one. Without it the component
+                  builds the .ics in the browser from the same data, which needs
+                  no route and no visibility. */}
+              {order.schedule && (
+                <AddToCalendar
+                  event={{
+                    title: order.eventMapping.titleEn,
+                    start: order.schedule.from,
+                    end: order.schedule.to,
+                    location: locationLine(order.eventMapping) || null,
+                    description: null,
+                  }}
+                />
+              )}
+            </div>
+          )}
 
-        {/* When the event is. The ticket named the event and the order code and
-            then stopped — no date, no time — on the screen people reopen at
-            the door and the day before it. */}
-        {state !== "rejected" && state !== "canceled" && whenLine && (
-          <div className="mt-8 border-t border-border pt-4 text-sm">
-            <div className="font-medium">When</div>
-            <p className="mt-1 text-muted-foreground tabular-nums">{whenLine}</p>
-            {/* No icsHref on purpose. That route resolves through
-                getPublicEvent, which only answers for visibility=public AND
-                liveOnPretix — so a staff walk-in's ticket, or any ticket for
-                an event taken down after it ran, got a dead Apple-Calendar
-                button beside a working Google one. Without it the component
-                builds the .ics in the browser from the same data, which needs
-                no route and no visibility. */}
-            {order.schedule && (
-              <AddToCalendar
-                event={{
-                  title: order.eventMapping.titleEn,
-                  start: order.schedule.from,
-                  end: order.schedule.to,
-                  location: locationLine(order.eventMapping) || null,
-                  description: null,
-                }}
-              />
-            )}
-          </div>
-        )}
+          {state !== "rejected" && state !== "canceled" && hasLocation(order.eventMapping) && (
+            <div className="mt-6">
+              <div className="text-[0.625rem] font-medium uppercase tracking-[0.18em] text-muted-foreground">
+                Venue
+              </div>
+              {locationLine(order.eventMapping) && (
+                <p className="mt-1.5 text-sm">{locationLine(order.eventMapping)}</p>
+              )}
+              {directionsUrl(order.eventMapping) && (
+                <a
+                  className="mt-1 inline-block text-primary-text underline underline-offset-4"
+                  href={directionsUrl(order.eventMapping)!}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  Get directions
+                </a>
+              )}
+            </div>
+          )}
 
-        {state !== "rejected" && state !== "canceled" && hasLocation(order.eventMapping) && (
-          <div className="mt-8 border-t border-border pt-4 text-sm">
-            <div className="font-medium">Venue</div>
-            {locationLine(order.eventMapping) && (
-              <p className="mt-1 text-muted-foreground">{locationLine(order.eventMapping)}</p>
-            )}
-            {directionsUrl(order.eventMapping) && (
-              <a
-                className="mt-1 inline-block text-primary-text underline"
-                href={directionsUrl(order.eventMapping)!}
+          {state !== "rejected" &&
+            state !== "canceled" &&
+            order.eventMapping.whatsappChannelUrl && (
+              <PressLink
+                href={order.eventMapping.whatsappChannelUrl}
                 target="_blank"
                 rel="noopener noreferrer"
+                /* `quiet` rather than the default `ink` plus an override: both
+                   would emit a background utility of equal specificity, and
+                   which one won would come down to their order in the generated
+                   stylesheet rather than anything written here. Starting from a
+                   variant that paints no background leaves nothing to race. */
+                variant="quiet"
+                /* WhatsApp's own green with white on it is 1.98:1 — brand
+                   colour, not a text pair. The green stays (it is how the
+                   button is recognised) and the label goes dark on it:
+                   #111111 on #25D366 measures 9.52:1. */
+                className="mt-7 w-full bg-[#25D366] text-[#111111] hover:opacity-90"
               >
-                Get directions
-              </a>
+                <MessageCircle className="h-5 w-5" />
+                Join our WhatsApp channel
+              </PressLink>
             )}
-          </div>
-        )}
-
-        {state !== "rejected" &&
-          state !== "canceled" &&
-          order.eventMapping.whatsappChannelUrl && (
-            <a
-              href={order.eventMapping.whatsappChannelUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              /* WhatsApp's own green with white on it is 1.98:1 — brand
-                 colour, not a text pair. The green stays (it is how the
-                 button is recognised) and the label goes dark on it:
-                 #111111 on #25D366 measures 9.52:1. */
-              className="mt-6 inline-flex w-full items-center justify-center gap-2 rounded-[var(--radius-lg)] bg-[#25D366] px-4 py-3 font-medium text-[#111111] transition-opacity hover:opacity-90"
-            >
-              <MessageCircle className="h-5 w-5" />
-              Join our WhatsApp channel
-            </a>
-          )}
-      </div>
+        </TicketStub>
+      </Ticket>
     </main>
   );
 }
