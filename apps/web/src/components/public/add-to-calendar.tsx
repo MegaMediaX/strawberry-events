@@ -1,11 +1,11 @@
 "use client";
 
 import { buildIcs, googleCalUrl, type CalendarEvent } from "@/lib/calendar/ics";
-import { buttonVariants } from "@/components/ui/button";
+import { pressClass } from "@/components/paper/press";
 import { cn } from "@/lib/utils";
 
 const btnClass = cn(
-  buttonVariants({ variant: "outline", size: "sm" }),
+  pressClass("ruled", "base"),
   "flex-1 gap-2",
 );
 

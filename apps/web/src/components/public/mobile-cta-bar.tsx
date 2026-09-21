@@ -1,6 +1,5 @@
 import Link from "next/link";
-import { Button, buttonVariants } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
+import { Press, pressClass } from "@/components/paper/press";
 import { centsToPrice } from "@/lib/pretix/mappers";
 
 export function MobileCtaBar({
@@ -34,11 +33,11 @@ export function MobileCtaBar({
           <Link> leaves the anchor focusable and Enter still navigates, which
           walked sold-out attendees into the registration wizard. */}
       {soldOut ? (
-        <Button disabled>Sold out</Button>
+        <Press disabled>Sold out</Press>
       ) : (
         <Link
           href={`/${locale}/events/${slug}/register`}
-          className={cn(buttonVariants())}
+          className={pressClass()}
         >
           Register
         </Link>

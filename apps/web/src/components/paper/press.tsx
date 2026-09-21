@@ -38,7 +38,17 @@ const SIZE: Record<PressSize, string> = {
   icon: "h-11 w-11 p-0",
 };
 
-function pressClass(variant: PressVariant, size: PressSize, className: string): string {
+/**
+ * The press styling as a class string, for elements this layer does not own —
+ * chiefly Next's <Link>, which is a component rather than a raw anchor and so
+ * cannot be PressLink. The counterpart to the `buttonVariants` escape hatch
+ * the previous primitive exposed, and used for the same three call sites.
+ */
+export function pressClass(
+  variant: PressVariant = "ink",
+  size: PressSize = "base",
+  className = "",
+): string {
   return [
     "paper-press",
     VARIANT[variant],

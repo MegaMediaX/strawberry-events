@@ -4,6 +4,7 @@ import Link from "next/link";
 import { ArrowRight } from "lucide-react";
 import { coverFocus, focusPosition } from "@/lib/events/cover-focus";
 import { dissolve } from "@/lib/motion";
+import { Stamp } from "@/components/paper/stamp";
 
 export interface EventCardData {
   slug: string;
@@ -50,7 +51,12 @@ export function EventCard({ event, locale }: { event: EventCardData; locale: str
   const band = (
     <div
       className={[
-        "overflow-hidden rounded-[var(--radius-xl)] bg-muted",
+        // The frame, not the stock: paper-edge draws the printed rule and
+        // squares the corners WITHOUT painting a background, because this
+        // element already has one. A full plate here would emit two background
+        // declarations of equal specificity and let stylesheet order decide
+        // which showed through behind a cover that failed to load.
+        "paper-edge overflow-hidden bg-muted",
         // 16/9 at every width, NOT the house --aspect-cinema. The cinema ratio
         // is the frame a cover is SHOWN in — hero, plate, skeleton, all at one
         // size. A grid thumbnail is an index entry, and 16/6 at a third of the
@@ -84,16 +90,12 @@ export function EventCard({ event, locale }: { event: EventCardData; locale: str
   const body = (
     <div className="mt-4 flex flex-col gap-2">
       <div className="flex items-center gap-2">
-        <span
-          className={[
-            "inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold tracking-[0.1em] uppercase",
-            event.comingSoon
-              ? "bg-muted text-muted-foreground"
-              : "bg-[color-mix(in_oklab,var(--brand-success)_14%,transparent)] text-[var(--brand-success-text)]",
-          ].join(" ")}
-        >
+        {/* The same mark the ticket carries, so a state reads the same on the
+            listing as it does in the hand. A stamp says its word, which is why
+            it survives greyscale where the old tinted pill did not (1.4.1). */}
+        <Stamp tone={event.comingSoon ? "faded" : "ink"}>
           {event.comingSoon ? "Coming soon" : "Open"}
-        </span>
+        </Stamp>
       </div>
 
       <h2 className="font-heading text-[length:var(--display-4)] leading-[1.02] tracking-[-0.02em]">
@@ -111,7 +113,7 @@ export function EventCard({ event, locale }: { event: EventCardData; locale: str
         // that moved on a pointer the phone does not have, and between them
         // they spent two durations (500ms, 300ms) that appear nowhere in the
         // motion table.
-        <span className="mt-2 inline-flex items-center gap-1.5 self-start rounded-lg text-sm font-semibold">
+        <span className="mt-2 inline-flex items-center gap-1.5 self-start border-b border-[color:var(--paper-ink)] pb-0.5 text-sm font-semibold">
           View event
           <ArrowRight aria-hidden="true" className="h-4 w-4" />
         </span>
@@ -134,7 +136,7 @@ export function EventCard({ event, locale }: { event: EventCardData; locale: str
       aria-label={title}
       /* Same scene change as the featured plate, from the grid. */
       transitionTypes={dissolve()}
-      className="block rounded-[var(--radius-xl)] outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+      className="paper-focus block outline-none"
     >
       {band}
       {body}

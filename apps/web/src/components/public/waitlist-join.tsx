@@ -1,9 +1,9 @@
 "use client";
 
 import { useId, useState, useTransition } from "react";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { Press } from "@/components/paper/press";
+import { Ink, Caption } from "@/components/paper/field";
+
 import { isValidEmail } from "@/lib/registration/email";
 import { joinWaitlistAction } from "@/app/[locale]/(public)/events/[slug]/waitlist-actions";
 
@@ -50,9 +50,9 @@ export function WaitlistJoin({ eventId }: { eventId: string }) {
       ) : (
         <>
           <div className="mt-2 flex flex-col gap-1.5">
-            <Label htmlFor={emailId}>Your email</Label>
+            <Caption htmlFor={emailId}>Your email</Caption>
             <div className="flex gap-2">
-              <Input
+              <Ink
                 id={emailId}
                 type="email"
                 autoComplete="email"
@@ -63,13 +63,13 @@ export function WaitlistJoin({ eventId }: { eventId: string }) {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
               />
-              <Button
+              <Press
                 className="h-11 shrink-0 px-5"
                 disabled={pending || !email}
                 onClick={join}
               >
                 {pending ? "Joining…" : "Join"}
-              </Button>
+              </Press>
             </div>
           </div>
           {result && (

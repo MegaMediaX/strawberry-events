@@ -69,7 +69,7 @@ export function EventHero({
          is unreadable over a pale crop. A near-opaque dark plate reads on any
          artwork; the state is carried by a dot and the word, not by the
          plate's tint. */
-      className="absolute end-4 top-4 z-10 inline-flex items-center gap-1.5 rounded-full bg-black/75 px-3 py-1 text-xs font-semibold text-white backdrop-blur"
+      className="absolute end-4 top-4 z-10 inline-flex items-center gap-1.5 bg-black/75 px-3 py-1 text-xs font-semibold tracking-[0.1em] text-white uppercase backdrop-blur"
     >
       <span
         aria-hidden="true"

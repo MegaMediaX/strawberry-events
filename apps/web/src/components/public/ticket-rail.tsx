@@ -1,6 +1,5 @@
 import Link from "next/link";
-import { Button, buttonVariants } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
+import { Press, pressClass } from "@/components/paper/press";
 import { centsToPrice } from "@/lib/pretix/mappers";
 import { AvailabilityBar } from "./availability-bar";
 import { AddToCalendar } from "./add-to-calendar";
@@ -31,13 +30,13 @@ export function TicketRail({
   soldOut: boolean;
 }) {
   return (
-    <div className="rounded-[var(--radius-lg)] border border-border bg-card p-5 shadow-sm lg:sticky lg:top-20">
+    <div className="paper-plate p-5 lg:sticky lg:top-20">
       <h2 className="text-base font-semibold">Tickets</h2>
       <ul className="mt-3 flex flex-col gap-2">
         {tickets.map((t) => (
           <li
             key={t.id}
-            className="flex items-start justify-between rounded-md bg-muted/40 px-3 py-2.5 text-sm"
+            className="flex items-start justify-between border-b border-[color:var(--paper-rule)] py-2.5 text-sm last:border-b-0"
           >
             <span className="leading-tight">
               <span className="block font-medium">
@@ -49,7 +48,7 @@ export function TicketRail({
                 </span>
               )}
             </span>
-            <span className="ms-4 shrink-0 font-semibold text-foreground">
+            <span className="ms-4 shrink-0 font-semibold tabular-nums text-foreground">
               {t.priceCents === 0 ? (
                 <span className="text-[var(--brand-success-text)]">Free</span>
               ) : (
@@ -70,13 +69,13 @@ export function TicketRail({
           the anchor itself rather than wrapping a button, which also drops the
           invalid <a><button> nesting. */}
       {soldOut ? (
-        <Button className="mt-4 w-full" size="lg" disabled>
+        <Press className="mt-4 w-full" size="lg" disabled>
           Sold out
-        </Button>
+        </Press>
       ) : (
         <Link
           href={`/${locale}/events/${slug}/register`}
-          className={cn(buttonVariants({ size: "lg" }), "mt-4 w-full")}
+          className={pressClass("ink", "lg", "mt-4 w-full")}
         >
           Register now
         </Link>

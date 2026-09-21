@@ -525,6 +525,21 @@
 /* --------------------------------------------------------------------------
    The plate: a die-cut sheet. Square corners, hairline edge, no shadow.
    -------------------------------------------------------------------------- */
+/* Edge only: the printed rule and square corners, with NO background or ink
+   colour of its own.
+
+   This exists because .paper-plate paints a background, and putting it on an
+   element that already has one (a cover band carrying bg-muted, say) emits two
+   background declarations of equal specificity — where the winner is decided
+   by their order in the generated stylesheet rather than by anything at the
+   call site. The same trap the WhatsApp button fell into. A picture needs the
+   frame, not the stock. */
+.paper-edge {
+  position: relative;
+  border: 1px solid var(--paper-rule);
+  border-radius: 0;
+}
+
 .paper-plate {
   position: relative;
   background: var(--paper);

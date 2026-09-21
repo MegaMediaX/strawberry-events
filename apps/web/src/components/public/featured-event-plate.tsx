@@ -59,7 +59,9 @@ export function FeaturedEventPlate({
 
         {/* The one red on the screen. A span, not a button: the whole plate is
             the link, and an anchor inside an anchor is not markup. */}
-        <span className="mt-2 inline-flex h-12 items-center gap-2 self-start rounded-lg bg-primary px-6 text-sm font-semibold text-primary-foreground transition-colors group-hover:bg-primary/85 motion-reduce:transition-none">
+        {/* Square, like every action in the paper layer. The radius was the
+            last thing on the opening shot still speaking the card grammar. */}
+        <span className="paper-press mt-2 h-12 self-start bg-primary px-6 text-sm text-primary-foreground group-hover:bg-primary/85">
           View event and register
           <ArrowRight aria-hidden="true" className="h-4 w-4" />
         </span>
