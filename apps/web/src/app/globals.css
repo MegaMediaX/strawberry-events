@@ -238,6 +238,12 @@
   --perf-r: 11px;
   --perf-dash: 5px;
   --perf-gap: 5px;
+
+  /* The rule under a field. This one is NOT decorative: it is the entire
+     visible boundary of an interactive control, so WCAG 1.4.11 puts it at 3:1
+     against the stock. Same value the boxed input used, for the same reason —
+     3.65:1 on white. */
+  --paper-field: #8a8580;
 }
 
 .dark {
@@ -316,6 +322,8 @@
   /* The light-mode stamp red is 1.77:1 on this stock — a fill colour, not a
      text one. Lifted until it carries as words. */
   --paper-stamp: #f08b8b;
+
+  --paper-field: #7b8187;
 }
 
 @layer components {
@@ -673,5 +681,100 @@
   }
   .paper-press:active:not(:disabled) {
     transform: none;
+  }
+}
+
+/* --------------------------------------------------------------------------
+   The form, filled in by hand.
+
+   Fields are RULED LINES, not boxes. A printed form gives you a rule to write
+   on, and that is both the strongest thing this layer can borrow from paper
+   and the furthest it gets from the rounded, bordered, shadowed input box the
+   rest of the world ships.
+
+   The rule is load-bearing, not decoration: it is the whole visible boundary
+   of the control, which is why --paper-field answers to 3:1 (WCAG 1.4.11)
+   while --paper-rule, which only ever draws dividers, does not.
+   -------------------------------------------------------------------------- */
+.paper-ink {
+  width: 100%;
+  min-width: 0;
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid var(--paper-field);
+  border-radius: 0;
+  /* The padding, not a height class, is what makes the control 44px (WCAG
+     2.5.5). Setting a height instead would centre the text in the box and
+     leave the rule stranded at the bottom — which puts a gap between the line
+     and the words written on it, and makes the focus outline enclose a box
+     rather than hug the field. The rule belongs directly under the text. */
+  padding: 0.625rem 0.125rem;
+  color: var(--paper-ink);
+  outline: none;
+  transition: border-color var(--dur-quick) var(--ease);
+}
+
+.paper-ink::placeholder {
+  color: var(--muted-foreground);
+}
+
+/* Focus changes TWO things, not one. A rule that merely thickens is a change
+   of weight that a low-vision reader can miss against a field they are already
+   looking at, so the outline carries it and the rule confirms it. */
+.paper-ink:focus-visible {
+  border-bottom-width: 2px;
+  border-bottom-color: var(--ring);
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+/* Invalid is never the rule's colour alone — the wizard also renders the
+   message and points aria-describedby at it (1.4.1). */
+.paper-ink[aria-invalid="true"] {
+  border-bottom-width: 2px;
+  border-bottom-color: var(--destructive);
+}
+
+.paper-ink:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* The caption above a field: a printed form's label, not a UI label. */
+.paper-caption {
+  display: block;
+  font-size: 0.625rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  color: var(--muted-foreground);
+}
+
+/* The punched box. Square, because every checkbox in every app is rounded. */
+.paper-tick-box {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.25rem;
+  height: 1.25rem;
+  flex-shrink: 0;
+  border: 2px solid var(--paper-field);
+  border-radius: 0;
+  background: transparent;
+  transition:
+    background-color var(--dur-quick) var(--ease),
+    border-color var(--dur-quick) var(--ease);
+}
+
+.paper-tick-box[data-checked] {
+  border-color: var(--primary);
+  background: var(--primary);
+  color: var(--primary-foreground);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .paper-ink,
+  .paper-tick-box {
+    transition: none;
   }
 }

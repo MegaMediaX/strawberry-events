@@ -17,7 +17,7 @@ import type { AnchorHTMLAttributes, ButtonHTMLAttributes, ReactNode } from "reac
  */
 
 export type PressVariant = "ink" | "ruled" | "quiet";
-export type PressSize = "base" | "lg";
+export type PressSize = "base" | "lg" | "icon";
 
 const VARIANT: Record<PressVariant, string> = {
   /* The red is a FILL here, with white on it — 6.56:1 in light, and the dark
@@ -32,6 +32,10 @@ const VARIANT: Record<PressVariant, string> = {
 const SIZE: Record<PressSize, string> = {
   base: "px-4 py-2.5 text-sm",
   lg: "px-6 py-3.5 text-base",
+  /* Square, and 44px rather than the 32px the primitive this replaces used for
+     its icon sizes. These are the quantity steppers on a phone, and WCAG 2.5.5
+     asks for 44x44 — a stepper is exactly the control people miss and mis-tap. */
+  icon: "h-11 w-11 p-0",
 };
 
 function pressClass(variant: PressVariant, size: PressSize, className: string): string {

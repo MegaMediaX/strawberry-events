@@ -248,6 +248,19 @@ describe("paper", () => {
       ).toBeGreaterThanOrEqual(TEXT);
     });
 
+    it(`gives a field a boundary that clears the non-text floor (${theme})`, () => {
+      /*
+       * --paper-field is the ONLY visible boundary of a ruled field: there is
+       * no box around it. That makes it the boundary of an interactive
+       * component, which WCAG 1.4.11 puts at 3:1 — and it is the reason this
+       * is a separate token from --paper-rule, which only ever draws dividers
+       * and is free to stay quiet.
+       */
+      expect(contrast(token("paper-field", theme), token("paper", theme))).toBeGreaterThanOrEqual(
+        NON_TEXT,
+      );
+    });
+
     it(`draws a rule that is visible without pretending to be text (${theme})`, () => {
       // Decorative, so no 4.5:1 — but a rule nobody can see is not a rule. The
       // floor is only that it is distinguishable from the stock at all.
