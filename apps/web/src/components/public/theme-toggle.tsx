@@ -1,25 +1,31 @@
 "use client";
 
-import { useState } from "react";
 import { Moon, Sun } from "lucide-react";
 import { THEME_STORAGE_KEY } from "@/lib/theme/theme";
 import { Press } from "@/components/paper/press";
 
 /**
- * `initialDark` is resolved on the server from the theme cookie (the same value
- * the root layout uses to set `<html class="dark">`), so the first client render
- * matches the server HTML — no hydration mismatch.
+ * Flips between light and dark and saves the choice.
+ *
+ * Holds NO React state, on purpose. The page's theme is decided in two places
+ * React cannot see into — the server's cookie read and the <head> script that
+ * answers "system" before hydration — so any state seeded from the server can
+ * disagree with the page. It did: seeded from `cookie === "dark"`, a first-time
+ * visitor with a dark OS got a dark page whose toggle believed it was light,
+ * so the first click set "dark" and nothing visibly happened.
+ *
+ * So the DOM is the only source of truth. The icon follows the `.dark` class in
+ * CSS, which also removes the hydration mismatch a state-driven icon would
+ * cause, and a click reads the class at the moment it happens.
  */
-export function ThemeToggle({ initialDark = false }: { initialDark?: boolean }) {
-  const [dark, setDark] = useState<boolean>(initialDark);
-
+export function ThemeToggle() {
   function toggle() {
-    const next = !dark;
+    const next = !document.documentElement.classList.contains("dark");
     const value = next ? "dark" : "light";
-    setDark(next);
     document.documentElement.classList.toggle("dark", next);
-    // Persist in a cookie so the server renders the right theme on next load
-    // (no client init script needed). Mirror to localStorage as a convenience.
+    // A cookie, so the server themes the next load itself (no script needed for
+    // an explicit choice). The <head> script re-reads it on OS changes, so
+    // this choice also outranks a later switch of the system theme.
     document.cookie = `${THEME_STORAGE_KEY}=${value};path=/;max-age=31536000;samesite=lax`;
     try {
       localStorage.setItem(THEME_STORAGE_KEY, value);
@@ -32,13 +38,13 @@ export function ThemeToggle({ initialDark = false }: { initialDark?: boolean }) 
     <Press
       variant="quiet"
       size="icon"
-      // size="icon" is 32px, below the 40px touch-target floor the rest of the
-      // public flow now holds to.
       className="size-10"
       aria-label="Toggle theme"
       onClick={toggle}
     >
-      {dark ? <Sun className="size-4" /> : <Moon className="size-4" />}
+      {/* Shows what a click switches TO: the sun in dark, the moon in light. */}
+      <Sun aria-hidden="true" className="hidden size-4 dark:block" />
+      <Moon aria-hidden="true" className="block size-4 dark:hidden" />
     </Press>
   );
 }
