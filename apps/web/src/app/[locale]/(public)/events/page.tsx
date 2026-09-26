@@ -40,6 +40,8 @@ function toCardData(e: EventMapping, range: DateRange | undefined): EventCardDat
     metaLine: eventMetaLine(range?.from ?? null, range?.to ?? null, e.venueName),
     focusX: e.coverFocusX,
     focusY: e.coverFocusY,
+    coverWidth: e.coverWidth,
+    coverHeight: e.coverHeight,
   };
 }
 

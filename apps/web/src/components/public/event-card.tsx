@@ -22,6 +22,14 @@ export interface EventCardData {
    */
   focusX?: number | null;
   focusY?: number | null;
+  /**
+   * The cover's pixel size, recorded at upload. Where a surface shows the
+   * poster WHOLE rather than cropping it, this is what reserves its space
+   * before the image arrives — without it the page jumps when it loads.
+   * Null for covers uploaded before sizes were recorded.
+   */
+  coverWidth?: number | null;
+  coverHeight?: number | null;
 }
 
 /**
