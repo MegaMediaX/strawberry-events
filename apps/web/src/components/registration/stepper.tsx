@@ -48,7 +48,7 @@ export function Stepper({
             key={s}
             className="h-[2px] flex-1 rounded-full transition-colors duration-200"
             style={{
-              background: i <= current ? "var(--primary)" : "var(--border)",
+              background: i <= current ? "var(--foreground)" : "var(--border)",
             }}
           />
         ))}

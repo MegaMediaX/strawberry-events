@@ -583,7 +583,7 @@ export function RegistrationWizard({
                     accept the consents at the last step.{" "}
                     <button
                       type="button"
-                      className="font-semibold text-primary underline-offset-4 hover:underline"
+                      className="font-semibold text-primary-text underline-offset-4 hover:underline"
                       onClick={() => {
                         clearDraft(slug);
                         setA({ ...EMPTY_ATTENDEE });
@@ -828,7 +828,7 @@ export function RegistrationWizard({
                           "outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50",
                           "disabled:pointer-events-none disabled:opacity-40",
                           (qty[t.id] ?? 0) > 0
-                            ? "border-primary bg-primary text-primary-foreground"
+                            ? "border-foreground bg-foreground text-background"
                             : "border-border bg-background",
                         ].join(" ")}
                       >
@@ -907,7 +907,7 @@ export function RegistrationWizard({
                       </div>
                       <input
                         type="checkbox"
-                        className="size-5 shrink-0 accent-[var(--color-primary)]"
+                        className="size-5 shrink-0 accent-[var(--color-foreground)]"
                         checked={checked}
                         onChange={() => toggleCategory(category)}
                       />
@@ -987,7 +987,7 @@ export function RegistrationWizard({
                               <input
                                 id={fieldId}
                                 type="checkbox"
-                                className="size-5 accent-[var(--color-primary)]"
+                                className="size-5 accent-[var(--color-foreground)]"
                                 aria-describedby={helpId}
                                 checked={val === "true"}
                                 onChange={(e) => set(e.target.checked ? "true" : "")}
@@ -1183,7 +1183,7 @@ export function RegistrationWizard({
                       href={`/${locale}/legal/terms`}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="text-primary underline"
+                      className="text-primary-text underline"
                     >
                       Terms and Conditions
                     </a>
@@ -1196,7 +1196,7 @@ export function RegistrationWizard({
                       href={`/${locale}/legal/privacy`}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="text-primary underline"
+                      className="text-primary-text underline"
                     >
                       Privacy Policy
                     </a>
@@ -1213,7 +1213,7 @@ export function RegistrationWizard({
                       href={`/${locale}/legal/privacy-disclaimer`}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="text-primary underline"
+                      className="text-primary-text underline"
                     >
                       Read the full disclaimer
                     </a>

@@ -166,7 +166,7 @@ export default async function RegisterPage({
         <h1 className="font-heading text-[40px] leading-[0.98] tracking-[-0.02em] lg:text-[60px] lg:leading-[0.94]">
           {title}
         </h1>
-        <div className="h-[3px] w-11 rounded-full bg-primary" />
+        <div className="h-[3px] w-11 rounded-full bg-foreground" />
         {metaLine && (
           <p className="text-[13px] font-medium tracking-[0.04em] text-muted-foreground uppercase tabular-nums">
             {metaLine}

@@ -129,13 +129,13 @@ export function RegisterForm({ locale }: { locale: string }) {
               type="button"
               onClick={onResend}
               disabled={busy}
-              className="text-primary underline-offset-4 hover:underline disabled:opacity-50"
+              className="text-primary-text underline-offset-4 hover:underline disabled:opacity-50"
             >
               Send a new code
             </button>
             <Link
               href={`/${locale}/login`}
-              className="font-medium text-primary underline-offset-4 hover:underline"
+              className="font-medium text-primary-text underline-offset-4 hover:underline"
             >
               Go to sign in
             </Link>

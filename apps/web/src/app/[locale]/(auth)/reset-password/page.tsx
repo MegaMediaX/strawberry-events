@@ -29,7 +29,7 @@ export default async function ResetPasswordPage({
         ) : (
           <p className="text-center text-sm text-muted-foreground">
             This reset link is invalid or has expired.{" "}
-            <Link className="text-primary underline" href={`/${locale}/forgot-password`}>
+            <Link className="text-primary-text underline" href={`/${locale}/forgot-password`}>
               Request a new one
             </Link>
             .

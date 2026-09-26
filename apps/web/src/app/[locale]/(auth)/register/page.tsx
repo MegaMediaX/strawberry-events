@@ -24,7 +24,7 @@ export default async function RegisterPage({
         <RegisterForm locale={locale} />
         <p className="mt-4 text-center text-sm text-muted-foreground">
           Already have an account?{" "}
-          <Link className="text-primary underline" href={`/${locale}/login`}>
+          <Link className="text-primary-text underline" href={`/${locale}/login`}>
             Sign in
           </Link>
         </p>

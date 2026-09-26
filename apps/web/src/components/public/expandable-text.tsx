@@ -59,7 +59,7 @@ export function ExpandableText({
         aria-expanded={open}
         aria-controls={id}
         onClick={() => setOpen((v) => !v)}
-        className="mt-1 inline-flex min-h-10 items-center text-[13px] font-semibold tracking-[0.04em] text-primary uppercase underline-offset-4 outline-none hover:underline focus-visible:underline"
+        className="mt-1 inline-flex min-h-10 items-center text-[13px] font-semibold tracking-[0.04em] text-primary-text uppercase underline-offset-4 outline-none hover:underline focus-visible:underline"
       >
         {open ? "Show less" : "Read more"}
       </button>

@@ -236,8 +236,10 @@
      lines and should look it. Decorative, so the 3:1 of 1.4.11 does not apply
      — that floor is for the boundary of an INTERACTIVE control. */
   --paper-rule: #b9b2ab;
-  /* The stamp is words, so it is held to the 4.5:1 text floor on the stock. */
-  --paper-stamp: #8a1616;
+  /* The stamp is words, so it is held to the 4.5:1 text floor on the stock.
+     It is printed in the ink, not the red: red is kept for things you can
+     press, and a stamp only reports a state. */
+  --paper-stamp: #111111;
 
   /* Die-cut geometry. --perf-r is the radius of the half-circle bitten out of
      each edge at the seam; the two halves of a ticket both read it, so they
@@ -328,9 +330,9 @@
   --paper: #2f363c;
   --paper-ink: #f7f4f1;
   --paper-rule: #565e66;
-  /* The light-mode stamp red is 1.77:1 on this stock — a fill colour, not a
-     text one. Lifted until it carries as words. */
-  --paper-stamp: #f08b8b;
+  /* Ink on the dark stock, for the same reason as the light one: a stamp is
+     a state, and red is kept for actions. */
+  --paper-stamp: #f7f4f1;
 
   --paper-field: #7b8187;
 }
@@ -802,10 +804,11 @@
       border-color var(--dur-quick) var(--ease);
   }
 
+  /* Checked is a state, not an action, so it is inked rather than red. */
   .paper-tick-box[data-checked] {
-    border-color: var(--primary);
-    background: var(--primary);
-    color: var(--primary-foreground);
+    border-color: var(--paper-ink);
+    background: var(--paper-ink);
+    color: var(--paper);
   }
 
   @media (prefers-reduced-motion: reduce) {

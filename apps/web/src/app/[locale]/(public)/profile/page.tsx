@@ -32,7 +32,7 @@ export default async function ProfilePage({
     <main className="mx-auto max-w-md px-4 py-10">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold tracking-tight">Profile</h1>
-        <Link href={`/${locale}/my-registrations`} className="text-sm text-primary underline-offset-4 hover:underline">
+        <Link href={`/${locale}/my-registrations`} className="text-sm text-primary-text underline-offset-4 hover:underline">
           My registrations
         </Link>
       </div>
