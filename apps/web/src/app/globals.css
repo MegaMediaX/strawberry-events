@@ -217,6 +217,13 @@
   --sidebar-border: #d4d0ce;
   --sidebar-ring: #b10b0b;
 
+  /* Tells the UA which surface to paint its own widgets on: the <select>
+     popup, scrollbars, and form controls it draws itself. Without it a dark
+     theme gets a LIGHT native option list while the options inherit the
+     theme's light text — the attendee-type and job-title lists read blank.
+     Not a Tailwind concern; the browser only honours this property. */
+  color-scheme: light;
+
   /* --- PAPER: the ticket as a physical object. See the PAPER section below
      for the shape language these drive. --- */
 
@@ -314,6 +321,8 @@
   --sidebar-accent-foreground: #f7f4f1;
   --sidebar-border: #3f444b;
   --sidebar-ring: #cc1414;
+
+  color-scheme: dark;
 
   /* --- PAPER, dark stock. --- */
   --paper: #2f363c;
@@ -508,288 +517,301 @@
   }
 }
 
-/* ==========================================================================
-   PAPER — the ticket as a physical object.
+/* Everything below is in @layer components, like the rest of this file's
+   component classes (see .well above).
 
-   The visual grammar of this product's public surfaces is a printed ticket:
-   die-cut edges, a perforated tear line, ink rules, and a rubber stamp. It is
-   deliberately NOT the rounded-card-on-a-neutral-field grammar the rest of the
-   app inherits from shadcn, and the two are kept apart on purpose — admin and
-   staff keep the boring, legible card layer; the attendee-facing flow does not.
+   This is load-bearing, not tidiness. Tailwind v4 puts its utilities in
+   @layer utilities, and UNLAYERED css beats every layer — so an unlayered
+   `.paper-press { border: ... }` silently outranks a `border-[color:...]`
+   utility written at the call site, and no amount of reading the JSX shows it.
+   That is exactly what happened: every variant="ruled" control rendered with a
+   transparent border, and .paper-stamp needed `!` prefixes to claw its own
+   colours back. Inside the layer, a utility at the call site wins, which is
+   what anyone writing one expects. */
+@layer components {
+  /* ==========================================================================
+     PAPER — the ticket as a physical object.
 
-   Everything here is geometry and ink. No shadows: a real ticket is a flat
-   object seen head-on, and a drop shadow is the one thing that would put it
-   back into the card idiom it is trying to leave.
-   ========================================================================== */
+     The visual grammar of this product's public surfaces is a printed ticket:
+     die-cut edges, a perforated tear line, ink rules, and a rubber stamp. It is
+     deliberately NOT the rounded-card-on-a-neutral-field grammar the rest of the
+     app inherits from shadcn, and the two are kept apart on purpose — admin and
+     staff keep the boring, legible card layer; the attendee-facing flow does not.
 
-/* --------------------------------------------------------------------------
-   The plate: a die-cut sheet. Square corners, hairline edge, no shadow.
-   -------------------------------------------------------------------------- */
-/* Edge only: the printed rule and square corners, with NO background or ink
-   colour of its own.
+     Everything here is geometry and ink. No shadows: a real ticket is a flat
+     object seen head-on, and a drop shadow is the one thing that would put it
+     back into the card idiom it is trying to leave.
+     ========================================================================== */
 
-   This exists because .paper-plate paints a background, and putting it on an
-   element that already has one (a cover band carrying bg-muted, say) emits two
-   background declarations of equal specificity — where the winner is decided
-   by their order in the generated stylesheet rather than by anything at the
-   call site. The same trap the WhatsApp button fell into. A picture needs the
-   frame, not the stock. */
-.paper-edge {
-  position: relative;
-  border: 1px solid var(--paper-rule);
-  border-radius: 0;
-}
+  /* --------------------------------------------------------------------------
+     The plate: a die-cut sheet. Square corners, hairline edge, no shadow.
+     -------------------------------------------------------------------------- */
+  /* Edge only: the printed rule and square corners, with NO background or ink
+     colour of its own.
 
-.paper-plate {
-  position: relative;
-  background: var(--paper);
-  color: var(--paper-ink);
-  border: 1px solid var(--paper-rule);
-  border-radius: 0;
-}
+     This exists because .paper-plate paints a background, and putting it on an
+     element that already has one (a cover band carrying bg-muted, say) emits two
+     background declarations of equal specificity — where the winner is decided
+     by their order in the generated stylesheet rather than by anything at the
+     call site. The same trap the WhatsApp button fell into. A picture needs the
+     frame, not the stock. */
+  .paper-edge {
+    position: relative;
+    border: 1px solid var(--paper-rule);
+    border-radius: 0;
+  }
 
-/* The notch.
+  .paper-plate {
+    position: relative;
+    background: var(--paper);
+    color: var(--paper-ink);
+    border: 1px solid var(--paper-rule);
+    border-radius: 0;
+  }
 
-   A ticket is built as TWO die-cut plates meeting, not one plate with a line
-   ruled across it at a measured offset. The body bites half-circles out of its
-   bottom corners, the stub bites matching ones out of its top, and together
-   they read as a single punched hole at the seam.
+  /* The notch.
 
-   The reason is robustness: the seam then falls wherever the content actually
-   ends. A single plate would need --perf-y as a fixed length, and the body's
-   height is not fixed — it carries a QR on an issued ticket and not on a
-   pending one, so any constant would be wrong on one of them.
+     A ticket is built as TWO die-cut plates meeting, not one plate with a line
+     ruled across it at a measured offset. The body bites half-circles out of its
+     bottom corners, the stub bites matching ones out of its top, and together
+     they read as a single punched hole at the seam.
 
-   The bites are MASKED OUT rather than painted over in the page colour, so
-   they are genuinely transparent and the ticket can sit on an image, a
-   gradient or a scrim without showing a wrong-coloured disc. The border is cut
-   away with everything else at those points, which is how a die-cut edge
-   behaves: there is no ink along the cut.
+     The reason is robustness: the seam then falls wherever the content actually
+     ends. A single plate would need --perf-y as a fixed length, and the body's
+     height is not fixed — it carries a QR on an issued ticket and not on a
+     pending one, so any constant would be wrong on one of them.
 
-   `mask-composite: intersect` is what makes two gradients subtract from the
-   same shape; the -webkit- pair is the older Safari/Chrome spelling and has to
-   come first. */
-.paper-cut-bottom {
-  /* No bottom border. The seam is owned entirely by the stub's dashed tear
-     line; leaving a solid rule here too puts two lines a pixel apart and the
-     perforation reads as a muddy double edge rather than a tear. */
-  border-bottom: 0;
-  -webkit-mask-image:
-    radial-gradient(circle var(--perf-r) at left bottom, #0000 calc(100% - 0.5px), #000 100%),
-    radial-gradient(circle var(--perf-r) at right bottom, #0000 calc(100% - 0.5px), #000 100%);
-  -webkit-mask-composite: source-in;
-  mask-image:
-    radial-gradient(circle var(--perf-r) at left bottom, #0000 calc(100% - 0.5px), #000 100%),
-    radial-gradient(circle var(--perf-r) at right bottom, #0000 calc(100% - 0.5px), #000 100%);
-  mask-composite: intersect;
-}
+     The bites are MASKED OUT rather than painted over in the page colour, so
+     they are genuinely transparent and the ticket can sit on an image, a
+     gradient or a scrim without showing a wrong-coloured disc. The border is cut
+     away with everything else at those points, which is how a die-cut edge
+     behaves: there is no ink along the cut.
 
-.paper-cut-top {
-  /* No top border: the seam carries the dashed tear line below instead, and a
-     solid rule as well would read as two stacked cards rather than one torn
-     ticket. */
-  border-top: 0;
-  -webkit-mask-image:
-    radial-gradient(circle var(--perf-r) at left top, #0000 calc(100% - 0.5px), #000 100%),
-    radial-gradient(circle var(--perf-r) at right top, #0000 calc(100% - 0.5px), #000 100%);
-  -webkit-mask-composite: source-in;
-  mask-image:
-    radial-gradient(circle var(--perf-r) at left top, #0000 calc(100% - 0.5px), #000 100%),
-    radial-gradient(circle var(--perf-r) at right top, #0000 calc(100% - 0.5px), #000 100%);
-  mask-composite: intersect;
-}
+     `mask-composite: intersect` is what makes two gradients subtract from the
+     same shape; the -webkit- pair is the older Safari/Chrome spelling and has to
+     come first. */
+  .paper-cut-bottom {
+    /* No bottom border. The seam is owned entirely by the stub's dashed tear
+       line; leaving a solid rule here too puts two lines a pixel apart and the
+       perforation reads as a muddy double edge rather than a tear. */
+    border-bottom: 0;
+    -webkit-mask-image:
+      radial-gradient(circle var(--perf-r) at left bottom, #0000 calc(100% - 0.5px), #000 100%),
+      radial-gradient(circle var(--perf-r) at right bottom, #0000 calc(100% - 0.5px), #000 100%);
+    -webkit-mask-composite: source-in;
+    mask-image:
+      radial-gradient(circle var(--perf-r) at left bottom, #0000 calc(100% - 0.5px), #000 100%),
+      radial-gradient(circle var(--perf-r) at right bottom, #0000 calc(100% - 0.5px), #000 100%);
+    mask-composite: intersect;
+  }
 
-/* The tear line, inset so it begins where the two notches end. Dashed, not
-   solid: solid reads as a divider, dashed reads as "tear here". */
-.paper-cut-top::before {
-  content: "";
-  position: absolute;
-  top: 0;
-  left: var(--perf-r);
-  right: var(--perf-r);
-  height: 1px;
-  background-image: repeating-linear-gradient(
-    to right,
-    var(--paper-rule) 0,
-    var(--paper-rule) var(--perf-dash),
-    #0000 var(--perf-dash),
-    #0000 calc(var(--perf-dash) + var(--perf-gap))
-  );
-  pointer-events: none;
-}
+  .paper-cut-top {
+    /* No top border: the seam carries the dashed tear line below instead, and a
+       solid rule as well would read as two stacked cards rather than one torn
+       ticket. */
+    border-top: 0;
+    -webkit-mask-image:
+      radial-gradient(circle var(--perf-r) at left top, #0000 calc(100% - 0.5px), #000 100%),
+      radial-gradient(circle var(--perf-r) at right top, #0000 calc(100% - 0.5px), #000 100%);
+    -webkit-mask-composite: source-in;
+    mask-image:
+      radial-gradient(circle var(--perf-r) at left top, #0000 calc(100% - 0.5px), #000 100%),
+      radial-gradient(circle var(--perf-r) at right top, #0000 calc(100% - 0.5px), #000 100%);
+    mask-composite: intersect;
+  }
 
-/* --------------------------------------------------------------------------
-   The stamp: pressed, not placed. Sits slightly off-square because a hand-held
-   stamp never lands true, and that tilt is most of what makes it read as one.
-   -------------------------------------------------------------------------- */
-.paper-stamp {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  gap: 0.5rem;
-  border: 2px solid var(--paper-stamp);
-  color: var(--paper-stamp);
-  padding: 0.35rem 0.75rem;
-  text-transform: uppercase;
-  letter-spacing: 0.14em;
-  font-size: 0.6875rem;
-  font-weight: 600;
-  line-height: 1;
-  border-radius: 2px;
-  transform: rotate(-3deg);
-}
+  /* The tear line, inset so it begins where the two notches end. Dashed, not
+     solid: solid reads as a divider, dashed reads as "tear here". */
+  .paper-cut-top::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: var(--perf-r);
+    right: var(--perf-r);
+    height: 1px;
+    background-image: repeating-linear-gradient(
+      to right,
+      var(--paper-rule) 0,
+      var(--paper-rule) var(--perf-dash),
+      #0000 var(--perf-dash),
+      #0000 calc(var(--perf-dash) + var(--perf-gap))
+    );
+    pointer-events: none;
+  }
 
-/* The ink of a rubber stamp is never uniform. A faint second rule inside the
-   first does more for that than any texture image, and costs nothing. */
-.paper-stamp::before {
-  content: "";
-  position: absolute;
-  inset: 2px;
-  border: 1px solid currentColor;
-  opacity: 0.35;
-  border-radius: 1px;
-  pointer-events: none;
-}
+  /* --------------------------------------------------------------------------
+     The stamp: pressed, not placed. Sits slightly off-square because a hand-held
+     stamp never lands true, and that tilt is most of what makes it read as one.
+     -------------------------------------------------------------------------- */
+  .paper-stamp {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    border: 2px solid var(--paper-stamp);
+    color: var(--paper-stamp);
+    padding: 0.35rem 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.14em;
+    font-size: 0.6875rem;
+    font-weight: 600;
+    line-height: 1;
+    border-radius: 2px;
+    transform: rotate(-3deg);
+  }
 
-/* --------------------------------------------------------------------------
-   Press: the action. A printed block with a hard edge that physically depresses
-   — no soft hover wash, no rounded pill.
-   -------------------------------------------------------------------------- */
-.paper-press {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.5rem;
-  border-radius: 0;
-  border: 1px solid transparent;
-  font-weight: 600;
-  letter-spacing: 0.02em;
-  transition:
-    transform var(--dur-quick) var(--ease),
-    background-color var(--dur-quick) var(--ease),
-    color var(--dur-quick) var(--ease);
-}
+  /* The ink of a rubber stamp is never uniform. A faint second rule inside the
+     first does more for that than any texture image, and costs nothing. */
+  .paper-stamp::before {
+    content: "";
+    position: absolute;
+    inset: 2px;
+    border: 1px solid currentColor;
+    opacity: 0.35;
+    border-radius: 1px;
+    pointer-events: none;
+  }
 
-.paper-press:active:not(:disabled) {
-  transform: translateY(1px);
-}
-
-.paper-press:disabled {
-  opacity: 0.5;
-  pointer-events: none;
-}
-
-/* The focus ring is the charcoal brand tone and sits OUTSIDE the block, for the
-   same reason the rest of this codebase keeps it off the red: red is reserved
-   for destructive, so a focused control must never read as an invalid one
-   (WCAG 1.4.1 — colour is not the only signal). */
-.paper-press:focus-visible,
-.paper-focus:focus-visible {
-  outline: 2px solid var(--ring);
-  outline-offset: 2px;
-}
-
-@media (prefers-reduced-motion: reduce) {
+  /* --------------------------------------------------------------------------
+     Press: the action. A printed block with a hard edge that physically depresses
+     — no soft hover wash, no rounded pill.
+     -------------------------------------------------------------------------- */
   .paper-press {
-    transition: none;
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    border-radius: 0;
+    border: 1px solid transparent;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    transition:
+      transform var(--dur-quick) var(--ease),
+      background-color var(--dur-quick) var(--ease),
+      color var(--dur-quick) var(--ease);
   }
+
   .paper-press:active:not(:disabled) {
-    transform: none;
+    transform: translateY(1px);
   }
-}
 
-/* --------------------------------------------------------------------------
-   The form, filled in by hand.
+  .paper-press:disabled {
+    opacity: 0.5;
+    pointer-events: none;
+  }
 
-   Fields are RULED LINES, not boxes. A printed form gives you a rule to write
-   on, and that is both the strongest thing this layer can borrow from paper
-   and the furthest it gets from the rounded, bordered, shadowed input box the
-   rest of the world ships.
+  /* The focus ring is the charcoal brand tone and sits OUTSIDE the block, for the
+     same reason the rest of this codebase keeps it off the red: red is reserved
+     for destructive, so a focused control must never read as an invalid one
+     (WCAG 1.4.1 — colour is not the only signal). */
+  .paper-press:focus-visible,
+  .paper-focus:focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
 
-   The rule is load-bearing, not decoration: it is the whole visible boundary
-   of the control, which is why --paper-field answers to 3:1 (WCAG 1.4.11)
-   while --paper-rule, which only ever draws dividers, does not.
-   -------------------------------------------------------------------------- */
-.paper-ink {
-  width: 100%;
-  min-width: 0;
-  background: transparent;
-  border: 0;
-  border-bottom: 1px solid var(--paper-field);
-  border-radius: 0;
-  /* The padding, not a height class, is what makes the control 44px (WCAG
-     2.5.5). Setting a height instead would centre the text in the box and
-     leave the rule stranded at the bottom — which puts a gap between the line
-     and the words written on it, and makes the focus outline enclose a box
-     rather than hug the field. The rule belongs directly under the text. */
-  padding: 0.625rem 0.125rem;
-  color: var(--paper-ink);
-  outline: none;
-  transition: border-color var(--dur-quick) var(--ease);
-}
+  @media (prefers-reduced-motion: reduce) {
+    .paper-press {
+      transition: none;
+    }
+    .paper-press:active:not(:disabled) {
+      transform: none;
+    }
+  }
 
-.paper-ink::placeholder {
-  color: var(--muted-foreground);
-}
+  /* --------------------------------------------------------------------------
+     The form, filled in by hand.
 
-/* Focus changes TWO things, not one. A rule that merely thickens is a change
-   of weight that a low-vision reader can miss against a field they are already
-   looking at, so the outline carries it and the rule confirms it. */
-.paper-ink:focus-visible {
-  border-bottom-width: 2px;
-  border-bottom-color: var(--ring);
-  outline: 2px solid var(--ring);
-  outline-offset: 2px;
-}
+     Fields are RULED LINES, not boxes. A printed form gives you a rule to write
+     on, and that is both the strongest thing this layer can borrow from paper
+     and the furthest it gets from the rounded, bordered, shadowed input box the
+     rest of the world ships.
 
-/* Invalid is never the rule's colour alone — the wizard also renders the
-   message and points aria-describedby at it (1.4.1). */
-.paper-ink[aria-invalid="true"] {
-  border-bottom-width: 2px;
-  border-bottom-color: var(--destructive);
-}
+     The rule is load-bearing, not decoration: it is the whole visible boundary
+     of the control, which is why --paper-field answers to 3:1 (WCAG 1.4.11)
+     while --paper-rule, which only ever draws dividers, does not.
+     -------------------------------------------------------------------------- */
+  .paper-ink {
+    width: 100%;
+    min-width: 0;
+    background: transparent;
+    border: 0;
+    border-bottom: 1px solid var(--paper-field);
+    border-radius: 0;
+    /* The padding, not a height class, is what makes the control 44px (WCAG
+       2.5.5). Setting a height instead would centre the text in the box and
+       leave the rule stranded at the bottom — which puts a gap between the line
+       and the words written on it, and makes the focus outline enclose a box
+       rather than hug the field. The rule belongs directly under the text. */
+    padding: 0.625rem 0.125rem;
+    color: var(--paper-ink);
+    outline: none;
+    transition: border-color var(--dur-quick) var(--ease);
+  }
 
-.paper-ink:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
+  .paper-ink::placeholder {
+    color: var(--muted-foreground);
+  }
 
-/* The caption above a field: a printed form's label, not a UI label. */
-.paper-caption {
-  display: block;
-  font-size: 0.625rem;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.18em;
-  color: var(--muted-foreground);
-}
+  /* Focus changes TWO things, not one. A rule that merely thickens is a change
+     of weight that a low-vision reader can miss against a field they are already
+     looking at, so the outline carries it and the rule confirms it. */
+  .paper-ink:focus-visible {
+    border-bottom-width: 2px;
+    border-bottom-color: var(--ring);
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
 
-/* The punched box. Square, because every checkbox in every app is rounded. */
-.paper-tick-box {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 1.25rem;
-  height: 1.25rem;
-  flex-shrink: 0;
-  border: 2px solid var(--paper-field);
-  border-radius: 0;
-  background: transparent;
-  transition:
-    background-color var(--dur-quick) var(--ease),
-    border-color var(--dur-quick) var(--ease);
-}
+  /* Invalid is never the rule's colour alone — the wizard also renders the
+     message and points aria-describedby at it (1.4.1). */
+  .paper-ink[aria-invalid="true"] {
+    border-bottom-width: 2px;
+    border-bottom-color: var(--destructive);
+  }
 
-.paper-tick-box[data-checked] {
-  border-color: var(--primary);
-  background: var(--primary);
-  color: var(--primary-foreground);
-}
+  .paper-ink:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
 
-@media (prefers-reduced-motion: reduce) {
-  .paper-ink,
+  /* The caption above a field: a printed form's label, not a UI label. */
+  .paper-caption {
+    display: block;
+    font-size: 0.625rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.18em;
+    color: var(--muted-foreground);
+  }
+
+  /* The punched box. Square, because every checkbox in every app is rounded. */
   .paper-tick-box {
-    transition: none;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.25rem;
+    height: 1.25rem;
+    flex-shrink: 0;
+    border: 2px solid var(--paper-field);
+    border-radius: 0;
+    background: transparent;
+    transition:
+      background-color var(--dur-quick) var(--ease),
+      border-color var(--dur-quick) var(--ease);
+  }
+
+  .paper-tick-box[data-checked] {
+    border-color: var(--primary);
+    background: var(--primary);
+    color: var(--primary-foreground);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .paper-ink,
+    .paper-tick-box {
+      transition: none;
+    }
   }
 }
