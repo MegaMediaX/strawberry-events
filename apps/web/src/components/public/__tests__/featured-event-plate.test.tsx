@@ -12,8 +12,9 @@ import type { EventCardData } from "../event-card";
  * held legible by a scrim, the cover cropped to a focal point in a 16/6 frame.
  * That design was retired by decision: posters carry their own headline,
  * dates and venue, so the overlay put every fact on screen twice with the two
- * headlines colliding. The scrim contract those tests guarded no longer exists
- * here (it still guards the event page's hero, which uses CinemaFrame).
+ * headlines colliding. The event page's header followed the same decision, so
+ * the scrim, its tokens and CinemaFrame are gone entirely; the rules for
+ * showing a poster whole live in `poster.tsx`, shared by both.
  */
 const EVENT: EventCardData = {
   slug: "strawberry-summit",

@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { ArrowRight } from "lucide-react";
 import { dissolve } from "@/lib/motion";
-import { titleStep } from "./cinema-frame";
+import { Poster, titleStep } from "./poster";
 import type { EventCardData } from "./event-card";
 
 /**
@@ -40,21 +40,6 @@ import type { EventCardData } from "./event-card";
  *     a poster rather than a sliver.
  */
 
-/**
- * The tallest the poster may be: what the viewport has left once the header
- * and the title block below it are paid for (25rem, measured: nav + index
- * heading above, title + meta + button below), never above 72vh, never under
- * 15rem. The width follows from this and the poster's own ratio.
- */
-const POSTER_MAX_H = "max(15rem, min(72vh, 100svh - 25rem))";
-
-/** Box style for a poster of ratio w/h: exact shape, fits the column and the height budget. */
-function posterBox(w: number, h: number): React.CSSProperties {
-  return {
-    aspectRatio: `${w} / ${h}`,
-    width: `min(100%, calc(${POSTER_MAX_H} * ${+(w / h).toFixed(4)}))`,
-  };
-}
 export function FeaturedEventPlate({
   event,
   locale,
@@ -66,7 +51,6 @@ export function FeaturedEventPlate({
   // titleEn today — kept live so the branch works the day it returns.
   const title = locale === "ar" && event.titleAr ? event.titleAr : event.titleEn;
   const href = `/${locale}/events/${event.slug}`;
-  const sized = Boolean(event.coverWidth && event.coverHeight);
 
   return (
     /* The index is the trailer and the event page is the feature: this is the
@@ -78,39 +62,12 @@ export function FeaturedEventPlate({
       transitionTypes={dissolve()}
       className="paper-focus group mx-auto block max-w-5xl px-4 outline-none sm:px-6"
     >
-      {event.coverUrl ? (
-        // The poster, framed by the printed rule, in a box of its exact shape
-        // so the space is held before a single pixel arrives. Flush LEFT, not
-        // centred: the title, dates and button below start at the column edge,
-        // as do the index heading above and the grid, so a centred poster left
-        // the text hanging ~60px outside it on desktop.
-        <div
-          className="paper-edge overflow-hidden bg-muted"
-          style={sized ? posterBox(event.coverWidth!, event.coverHeight!) : posterBox(16, 9)}
-        >
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={event.coverUrl}
-            // The title is right below; describing the poster again is noise.
-            alt=""
-            // The index's LCP element.
-            loading="eager"
-            fetchPriority="high"
-            decoding="async"
-            width={sized ? event.coverWidth! : undefined}
-            height={sized ? event.coverHeight! : undefined}
-            // contain, never cover: an exact-shape box shows the poster edge to
-            // edge anyway, and a legacy cover of another shape is letterboxed
-            // on the matte rather than cut.
-            className="block h-full w-full object-contain"
-          />
-        </div>
-      ) : (
-        <div
-          className="paper-edge"
-          style={{ ...posterBox(16, 9), backgroundImage: "var(--gradient-hero-strong)" }}
-        />
-      )}
+      <Poster
+        coverUrl={event.coverUrl}
+        width={event.coverWidth}
+        height={event.coverHeight}
+        priority
+      />
 
       <div className="mt-6 flex flex-col gap-3 sm:mt-8">
         <h1

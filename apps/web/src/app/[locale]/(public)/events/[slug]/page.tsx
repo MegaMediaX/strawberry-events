@@ -101,8 +101,8 @@ export default async function EventDetailPage({
           event.comingSoon ? "Coming soon" : soldOut ? "Sold out" : "Open"
         }
         coverUrl={event.coverImagePath ? coverImageUrl(event.coverImagePath) : null}
-        focusX={event.coverFocusX}
-        focusY={event.coverFocusY}
+        coverWidth={event.coverWidth}
+        coverHeight={event.coverHeight}
       />
 
       <div className="mx-auto mt-10 grid max-w-5xl grid-cols-1 gap-8 px-4 sm:px-6 lg:grid-cols-[1fr_320px]">
