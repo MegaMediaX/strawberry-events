@@ -6,7 +6,7 @@ import { NextIntlClientProvider, hasLocale } from "next-intl";
 import { setRequestLocale } from "next-intl/server";
 import { routing } from "@/i18n/routing";
 import { dirForLocale } from "@/lib/i18n/dir";
-import { THEME_COOKIE } from "@/lib/theme/theme";
+import { THEME_COOKIE, THEME_INIT_SCRIPT, themeFromCookie } from "@/lib/theme/theme";
 import "../globals.css";
 
 const spaceGrotesk = Space_Grotesk({ subsets: ["latin"], variable: "--font-sans" });
@@ -51,9 +51,11 @@ export default async function LocaleLayout({
   }
   setRequestLocale(locale);
 
-  // Theme is resolved server-side from a cookie — no client script, no FOUC.
-  const themeCookie = (await cookies()).get(THEME_COOKIE)?.value;
-  const isDark = themeCookie === "dark";
+  // An explicit choice is themed here, from the cookie, so it holds with
+  // JavaScript off. "system" — which is also no cookie, i.e. every first visit —
+  // cannot be: the OS preference is a media query and never reaches the server.
+  // THEME_INIT_SCRIPT answers that one in <head>, before the body paints.
+  const isDark = themeFromCookie((await cookies()).get(THEME_COOKIE)?.value) === "dark";
 
   return (
     <html
@@ -62,6 +64,12 @@ export default async function LocaleLayout({
       className={`${spaceGrotesk.variable} ${instrumentSerif.variable} ${plexArabic.variable}${isDark ? " dark" : ""}`}
       suppressHydrationWarning
     >
+      <head>
+        {/* suppressHydrationWarning above is what lets this work: the script
+            may add .dark to <html> before React hydrates, and React must keep
+            the DOM's class rather than the server's. */}
+        <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
+      </head>
       <body className="min-h-screen bg-background text-foreground antialiased">
         <NextIntlClientProvider>{children}</NextIntlClientProvider>
       </body>
