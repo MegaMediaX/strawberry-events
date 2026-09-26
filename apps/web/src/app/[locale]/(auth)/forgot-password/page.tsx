@@ -22,7 +22,7 @@ export default async function ForgotPasswordPage({
         </div>
         <ForgotPasswordForm locale={locale} />
         <p className="mt-4 text-center text-sm text-muted-foreground">
-          <Link className="text-primary underline" href={`/${locale}/login`}>
+          <Link className="text-primary-text underline" href={`/${locale}/login`}>
             Back to sign in
           </Link>
         </p>

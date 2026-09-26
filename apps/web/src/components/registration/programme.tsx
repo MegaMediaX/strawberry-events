@@ -84,7 +84,7 @@ export function Programme({
                 visibly assembles itself as the user selects. */}
             <span
               aria-hidden="true"
-              className="absolute inset-y-0 start-0 w-[3px] origin-top rounded-full bg-primary transition-transform duration-300 ease-out motion-reduce:transition-none"
+              className="absolute inset-y-0 start-0 w-[3px] origin-top rounded-full bg-foreground transition-transform duration-300 ease-out motion-reduce:transition-none"
               style={{ transform: on ? "scaleY(1)" : "scaleY(0)" }}
             />
             <span

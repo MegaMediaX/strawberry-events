@@ -9,8 +9,8 @@ import type { ReactNode } from "react";
  *
  * Colour is NOT the signal. Every stamp carries its word, and the icon is
  * supplementary, so the state survives greyscale and colour blindness
- * (WCAG 1.4.1). The tint only ever shifts within reds and neutrals that clear
- * 4.5:1 on the stock — see --paper-stamp.
+ * (WCAG 1.4.1). It is printed in the ink, never the red — red is kept for
+ * things you can press — and clears 4.5:1 on the stock; see --paper-stamp.
  */
 export function Stamp({
   children,
@@ -20,7 +20,7 @@ export function Stamp({
 }: {
   children: ReactNode;
   icon?: ReactNode;
-  /** `ink` uses the stamp red; `faded` is for states that are over and done. */
+  /** `ink` prints in the stamp ink; `faded` is for states that are over and done. */
   tone?: "ink" | "faded";
   className?: string;
 }) {

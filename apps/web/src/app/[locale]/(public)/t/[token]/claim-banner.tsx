@@ -31,7 +31,7 @@ export function ClaimBanner({
         <span className="font-medium">Saved to your account.</span>{" "}
         <Link
           href={`/${locale}/my-registrations`}
-          className="text-primary underline-offset-4 hover:underline"
+          className="text-primary-text underline-offset-4 hover:underline"
         >
           See your registrations
         </Link>
@@ -44,7 +44,7 @@ export function ClaimBanner({
       <div className="mb-4 rounded-md border border-border bg-muted/40 p-3 text-sm text-muted-foreground">
         <Link
           href={`/${locale}/login`}
-          className="font-medium text-primary underline-offset-4 hover:underline"
+          className="font-medium text-primary-text underline-offset-4 hover:underline"
         >
           Sign in
         </Link>{" "}

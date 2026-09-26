@@ -30,7 +30,7 @@ export default async function MyRegistrationsPage({
     <main className="mx-auto max-w-2xl px-4 py-10">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold tracking-tight">My registrations</h1>
-        <Link href={`/${locale}/profile`} className="text-sm text-primary underline-offset-4 hover:underline">
+        <Link href={`/${locale}/profile`} className="text-sm text-primary-text underline-offset-4 hover:underline">
           Profile
         </Link>
       </div>
@@ -38,7 +38,7 @@ export default async function MyRegistrationsPage({
       {rows.length === 0 ? (
         <p className="mt-10 text-center text-sm text-muted-foreground">
           You have no registrations yet.{" "}
-          <Link href={`/${locale}/events`} className="text-primary underline">Browse events</Link>.
+          <Link href={`/${locale}/events`} className="text-primary-text underline">Browse events</Link>.
         </p>
       ) : (
         <ul className="mt-6 flex flex-col gap-4">

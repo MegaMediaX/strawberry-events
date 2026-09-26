@@ -158,13 +158,13 @@ export function SeatSelector({
                             ? "border-2 border-dashed border-foreground/50"
                             : "",
                           !meta.selectable ? "text-muted-foreground line-through" : "",
-                          isSel ? "text-primary-foreground" : "",
+                          isSel ? "text-background" : "",
                           blockedByCap ? "opacity-50" : "",
                         ]
                           .filter(Boolean)
                           .join(" ")}
                         style={{
-                          background: isSel ? "var(--primary)" : meta.color,
+                          background: isSel ? "var(--foreground)" : meta.color,
                           // White on the light border grey failed contrast at
                           // every size; unavailable seats now take the muted
                           // pair, which is defined against it.

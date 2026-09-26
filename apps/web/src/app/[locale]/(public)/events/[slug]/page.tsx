@@ -121,7 +121,7 @@ export default async function EventDetailPage({
               {locLine && <p className="mt-2 text-muted-foreground">{locLine}</p>}
               {dir && (
                 <a
-                  className="mt-2 inline-block text-primary underline"
+                  className="mt-2 inline-block text-primary-text underline"
                   href={dir}
                   target="_blank"
                   rel="noopener noreferrer"

@@ -101,7 +101,7 @@ export function VerifyEmailPanel({
             </Button>
             <button
               type="button"
-              className="text-xs text-primary underline-offset-4 hover:underline disabled:opacity-50"
+              className="text-xs text-primary-text underline-offset-4 hover:underline disabled:opacity-50"
               disabled={pending}
               onClick={() =>
                 start(async () => {

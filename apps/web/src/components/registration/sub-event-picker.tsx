@@ -149,7 +149,7 @@ export function SubEventPicker({ locale, subEvents, selected, totalAllowance, on
                 >
                   <span
                     aria-hidden="true"
-                    className="absolute inset-y-0 start-0 w-[3px] origin-top bg-primary transition-transform duration-300 ease-out motion-reduce:transition-none"
+                    className="absolute inset-y-0 start-0 w-[3px] origin-top bg-foreground transition-transform duration-300 ease-out motion-reduce:transition-none"
                     style={{ transform: on ? "scaleY(1)" : "scaleY(0)" }}
                   />
 
@@ -220,7 +220,7 @@ export function SubEventPicker({ locale, subEvents, selected, totalAllowance, on
                         "outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50",
                         "disabled:pointer-events-none disabled:opacity-40",
                         on
-                          ? "border-primary bg-primary text-primary-foreground"
+                          ? "border-foreground bg-foreground text-background"
                           : "border-border bg-background",
                       ].join(" ")}
                     >

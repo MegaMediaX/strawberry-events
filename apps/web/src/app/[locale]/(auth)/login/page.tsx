@@ -26,13 +26,13 @@ export default async function LoginPage({
         </div>
         <LoginForm locale={locale} justReset={reset === "1"} />
         <p className="mt-4 text-center text-sm text-muted-foreground">
-          <Link className="text-primary underline" href={`/${locale}/forgot-password`}>
+          <Link className="text-primary-text underline" href={`/${locale}/forgot-password`}>
             Forgot password?
           </Link>
         </p>
         <p className="mt-1 text-center text-sm text-muted-foreground">
           New here?{" "}
-          <Link className="text-primary underline" href={`/${locale}/register`}>
+          <Link className="text-primary-text underline" href={`/${locale}/register`}>
             Create an account
           </Link>
         </p>
