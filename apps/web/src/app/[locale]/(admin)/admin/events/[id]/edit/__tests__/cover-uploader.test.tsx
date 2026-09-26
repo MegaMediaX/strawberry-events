@@ -50,11 +50,14 @@ describe("the cover crop picker", () => {
    */
   it("lights exactly the surviving window", () => {
     const html = render();
-    // 1200x1600 at 16/6 keeps 28.125% of the height; at focus 12% it starts
-    // 8.625% down, so 63.25% is left below it.
-    expect(html).toContain("clip-path:inset(8.625% 0% 63.25% 0%)");
-    expect(html).toContain("height:28.125%");
-    expect(html).toContain("top:8.625%");
+    // The preview is the listing card's 16/9 crop — the only crop left, since
+    // the event page and homepage feature now show the poster whole. (It was
+    // 16/6, which would now promise a loss that no longer happens.)
+    // 1200x1600 at 16/9 keeps 42.1875% of the height; at focus 12% it starts
+    // 6.9375% down, so 50.875% is left below it. Numbers from safeCropBox.
+    expect(html).toContain("clip-path:inset(6.9375% 0% 50.875% 0%)");
+    expect(html).toContain("height:42.1875%");
+    expect(html).toContain("top:6.9375%");
   });
 
   it("puts the marker where the organiser pointed", () => {

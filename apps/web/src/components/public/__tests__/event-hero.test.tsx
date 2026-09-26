@@ -4,14 +4,16 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { EventHero } from "../event-hero";
 
 /**
- * The event page's feature.
+ * The event page's header: the poster whole, then the event's name, status,
+ * date and venue below it.
  *
- * Two claims this file exists to hold. The crop is now a DECISION — the hero
- * cropped every non-16:6 cover from the centre and said in a comment that it
- * never cropped at all, so the picture's subject survived by luck. And the
- * title is a title card: the most important headline in the product was set in
- * the heavy sans, on a band inside a 1024px column, because Instrument Serif
- * ships weight 400 only and nobody wrote that down.
+ * This file used to assert the opposite — a full-bleed 16/6 frame, the title
+ * laid over the cover behind a scrim and vignette, the cover cropped to the
+ * organiser's focal point. That composition was retired by decision, the same
+ * one applied to the index: posters carry their own title, dates and venue, so
+ * the overlay put every fact on screen twice with the headlines colliding.
+ * The poster rules themselves (no crop, reserved space, height budget) are
+ * tested once, through the index plate, since both use `poster.tsx`.
  */
 const render = (props: Partial<Parameters<typeof EventHero>[0]> = {}) =>
   renderToStaticMarkup(
@@ -21,11 +23,13 @@ const render = (props: Partial<Parameters<typeof EventHero>[0]> = {}) =>
       locationLabel="Le Royal Hotel Beirut"
       statusLabel="Open"
       coverUrl="https://cdn.example.com/cover.jpg"
+      coverWidth={1600}
+      coverHeight={900}
       {...props}
     />,
   );
 
-describe("the event hero", () => {
+describe("the event page's header", () => {
   it("sets the event's name as the page's h1, in the display face", () => {
     const html = render();
     expect(html).toMatch(/<h1[^>]*font-heading[^>]*>The Beirut Hospitality Forum<\/h1>/);
@@ -34,72 +38,71 @@ describe("the event hero", () => {
   it.each([
     ["Summit", 1],
     ["The Beirut Hospitality & Culinary Forum 2026", 2],
-    ["Annual General Assembly of the Lebanese Franchise Association", 3],
-  ])("sizes %s from the house scale, not its own pixels", (title, step) => {
+    ["Annual General Assembly of the Lebanese Franchise Association and Awards Night", 3],
+  ])("sizes %s at display-%i", (title, step) => {
     expect(render({ title })).toContain(`font-size:var(--display-${step})`);
   });
 
-  /**
-   * The whole point of Stage 2. A 3:4 poster keeps 28% of its height in this
-   * frame; which 28% is the organiser's call, and it has to reach the image.
-   */
-  it("applies the organiser's crop", () => {
-    expect(render({ focusX: 65, focusY: 10 })).toContain("object-position:65% 10%");
-  });
-
-  it("centres when no crop was ever chosen — the old behaviour, exactly", () => {
-    expect(render({ focusX: null, focusY: null })).toContain("object-position:50% 50%");
-  });
-
-  it("never shows the cover without the scrim and the vignette over it", () => {
+  it("sets the title BELOW the poster, with nothing laid over the artwork", () => {
     const html = render();
-    expect(html).toContain("var(--scrim-cinema)");
-    expect(html).toContain("var(--vignette)");
-    expect(html.indexOf("cover.jpg")).toBeLessThan(html.indexOf("var(--scrim-cinema)"));
+    expect(html.indexOf("cover.jpg")).toBeLessThan(html.indexOf("<h1"));
+    expect(html).not.toContain("--scrim-cinema");
+    expect(html).not.toContain("--vignette");
+    expect(html).not.toContain("text-white");
+    expect(html).not.toMatch(/absolute inset-0/);
   });
 
-  /** White at 85% over the worst-case scrimmed pixel is 3.95:1. */
-  it("sets no translucent type over the artwork", () => {
-    expect(render()).not.toMatch(/text-white\/\d/);
-  });
-
-  it("keeps the status badge exactly as it was — it already solved this", () => {
-    const html = render({ statusLabel: "Sold out" });
-    expect(html).toContain("bg-black/75");
-    expect(html).toContain("Sold out");
-  });
-
-  /** The badge is pinned to the frame, so it has to paint above the picture. */
-  it("keeps the badge above the cover", () => {
-    expect(render()).toMatch(/class="absolute end-4 top-4 z-10/);
-  });
-
-  it("marks the cover as the page's LCP element, and hides it from readers", () => {
+  it("shows the poster whole, in a box of its own shape", () => {
     const html = render();
-    expect(html).toMatch(/<img[^>]+alt=""/);
-    expect(html).toMatch(/<img[^>]+fetchpriority="high"/i);
+    expect(html).toContain("object-contain");
+    expect(html).not.toContain("object-cover");
+    expect(html).not.toContain("object-position");
+    expect(html).toContain("aspect-ratio:1600 / 900");
   });
 
-  it("still renders the frame, the title and the badge with no cover at all", () => {
+  it("marks the poster as the page's LCP element, and hides it from readers", () => {
+    const img = /<img[^>]*>/.exec(render())![0];
+    expect(img).toContain('alt=""');
+    expect(img).toContain('loading="eager"');
+    expect(img).toMatch(/fetchpriority="high"/i);
+  });
+
+  it("carries the status as a stamp that says its word", () => {
+    // It was a dark plate with a coloured dot, because it sat on an unknown
+    // photograph. On the page the word does the work (1.4.1).
+    const html = render();
+    expect(html).toMatch(/<span class="paper-stamp[^"]*"[^>]*>Open<\/span>/);
+    expect(html).not.toContain("bg-black");
+  });
+
+  it.each([
+    ["Open", false],
+    ["Sold out", true],
+    ["Coming soon", true],
+  ])("stamps %s in the %s tone", (statusLabel, faded) => {
+    const stamp = /<span class="(paper-stamp[^"]*)"/.exec(render({ statusLabel }))![1];
+    expect(stamp.includes("muted-foreground")).toBe(faded);
+  });
+
+  it("keeps the header, title and status with no cover at all", () => {
     const html = render({ coverUrl: null });
+    expect(html).not.toContain("<img");
     expect(html).toContain("var(--gradient-hero-strong)");
-    expect(html).toContain("var(--scrim-cinema)");
     expect(html).toContain("<h1");
-    expect(html).toContain("Open");
+    expect(html).toContain(">Open<");
   });
 
   it("survives an event with neither a date nor a venue", () => {
     const html = render({ dateLabel: null, locationLabel: null });
-    expect(html).toContain("The Beirut Hospitality Forum");
-    expect(html).not.toContain("Le Royal");
+    expect(html).toContain("<h1");
+    expect(html).not.toContain("lucide-calendar");
+    expect(html).not.toContain("lucide-map-pin");
   });
 
   /**
-   * The hero used to open at `opacity: 0` and be faded in by framer-motion. On
-   * the element that is now the page's largest paint that means the whole
-   * feature is an empty hole until the bundle lands — and stays one if it
-   * never does. Caught by screenshotting the built page; the markup alone
-   * looked fine.
+   * An entrance that opened at opacity 0 left the page's largest element an
+   * empty hole whenever the script was late or blocked. Caught by
+   * screenshotting the built page, so it stays pinned.
    */
   it("is painted by the server, not by a script that has to arrive first", () => {
     const html = render();
@@ -107,9 +110,8 @@ describe("the event hero", () => {
     expect(html).not.toMatch(/translateY/);
   });
 
-  /** Shared with the index plate: one composition, one contrast contract. */
-  it("uses the house frame rather than a second copy of it", () => {
-    expect(render()).toContain("aspect-[var(--aspect-cinema)]");
-    expect(render()).toContain("pt-[var(--scrim-fade)]");
+  it("uses the shared poster rather than a second copy of it", () => {
+    // One implementation of "shown whole", shared with the index plate.
+    expect(render()).toMatch(/<div class="paper-edge overflow-hidden bg-muted" style="aspect-ratio:/);
   });
 });

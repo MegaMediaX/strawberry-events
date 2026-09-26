@@ -5,15 +5,16 @@ import { FeaturedEventPlate } from "../featured-event-plate";
 import type { EventCardData } from "../event-card";
 
 /**
- * The opening shot puts type over an admin-uploaded photograph, which is the
- * one composition the rest of this product deliberately avoids: every other
- * surface sets its text on a token whose contrast can be computed. Here the
- * ground is unknown, so three structural properties carry it, and each is
- * asserted rather than reviewed.
+ * The opening shot shows the organiser's poster WHOLE and sets the site's
+ * title below it, never on top of it.
  *
- * The contrast arithmetic itself lives in app/__tests__/token-contrast.test.ts,
- * which proves the scrim token's own floor. This file proves the plate cannot
- * be rendered without it.
+ * This file used to assert the opposite composition — type over the artwork,
+ * held legible by a scrim, the cover cropped to a focal point in a 16/6 frame.
+ * That design was retired by decision: posters carry their own headline,
+ * dates and venue, so the overlay put every fact on screen twice with the two
+ * headlines colliding. The event page's header followed the same decision, so
+ * the scrim, its tokens and CinemaFrame are gone entirely; the rules for
+ * showing a poster whole live in `poster.tsx`, shared by both.
  */
 const EVENT: EventCardData = {
   slug: "strawberry-summit",
@@ -23,83 +24,103 @@ const EVENT: EventCardData = {
   comingSoon: false,
   coverUrl: "https://cdn.example.com/cover.jpg",
   metaLine: "28—30 Aug 2026 · Le Royal Hotel Beirut",
+  coverWidth: 1600,
+  coverHeight: 900,
 };
 
 const render = (event: Partial<EventCardData> = {}, locale = "en") =>
   renderToStaticMarkup(<FeaturedEventPlate locale={locale} event={{ ...EVENT, ...event }} />);
 
-describe("the featured plate's frame", () => {
+describe("the featured plate", () => {
   it("is the page's title card — the event title is the h1", () => {
-    expect(render()).toContain("<h1");
     expect(/<h1[^>]*>Strawberry Summit<\/h1>/.test(render())).toBe(true);
   });
 
-  it("never shows a cover without the scrim over it", () => {
+  it("sets the title BELOW the poster, not over it", () => {
     const html = render();
-    expect(html).toContain("cover.jpg");
-    expect(html).toContain("var(--scrim-cinema)");
-    expect(html).toContain("var(--vignette)");
-    // The scrim must come after the image in paint order, or it is behind it.
-    expect(html.indexOf("cover.jpg")).toBeLessThan(html.indexOf("var(--scrim-cinema)"));
+    // Document order is paint order here: nothing is positioned over the
+    // image, so the title coming after it means it sits beneath it.
+    expect(html.indexOf("cover.jpg")).toBeLessThan(html.indexOf("<h1"));
+    expect(html).not.toMatch(/absolute inset-0/);
+  });
+
+  it("puts no scrim and no white type on the artwork", () => {
+    // Both only exist to make type legible over an unknown picture. Their
+    // presence would mean the overlay composition had come back.
+    const html = render();
+    expect(html).not.toContain("--scrim-cinema");
+    expect(html).not.toContain("text-white");
+  });
+
+  const box = (html: string) => /<div class="paper-edge[^"]*" style="([^"]*)"/.exec(html)![1];
+
+  it("never crops the poster", () => {
+    const img = /<img[^>]*>/.exec(render())![0];
+    expect(img).not.toContain("object-cover");
+    expect(img).not.toContain("object-position");
+    // Contained, in a box of the poster's own shape: edge to edge, nothing cut.
+    expect(img).toContain("object-contain");
+    expect(box(render())).toContain("aspect-ratio:1600 / 900");
   });
 
   /**
-   * The scrim is on the text block, and the block's top padding is the length
-   * over which the scrim fades out. If the padding grows past the fade, type
-   * moves up into the part of the gradient that is below the floor and goes
-   * illegible on a pale cover — silently, and only on pale covers. One token
-   * spends both, so the element carrying the gradient must carry the padding.
+   * THE thing that stops the page jumping — and the lesson of this file's
+   * first draft. That draft asserted width/height ATTRIBUTES on the <img>. They
+   * were present, the test passed, and the page still shifted by 0.22 on load:
+   * `width: auto` overrides them, so the box had no size until the pixels
+   * arrived. A test of the attribute proved nothing. The box's own
+   * aspect-ratio is what holds the space, so that is what is asserted.
    */
-  it("pads the scrimmed block by exactly the scrim's own fade", () => {
-    const html = render();
-    const block = /<div class="([^"]*)"[^>]*style="background-image:var\(--scrim-cinema\)/.exec(
-      html,
-    );
-    expect(block, "no element carries --scrim-cinema").not.toBeNull();
-    expect(block![1]).toContain("pt-[var(--scrim-fade)]");
+  it("reserves the poster's space before it loads, from the recorded size", () => {
+    expect(box(render())).toContain("aspect-ratio:1600 / 900");
   });
 
-  /**
-   * The block hugs the bottom of the frame. Stretched to the full cell it is
-   * the frame-wide blanket this design rejected — same pixels under the text,
-   * and the cover erased above it.
-   */
-  it("lets the scrimmed block hug the foot of the frame", () => {
-    expect(/<div class="[^"]*self-end[^"]*"[^>]*style="background-image:var\(--scrim-cinema\)/
-      .test(render())).toBe(true);
+  it("sizes the poster to leave the title and button on screen", () => {
+    // Measured at 1440x900: with the title below, an unbudgeted poster put the
+    // button at 918px — below the fold. The width follows from a height budget
+    // that pays for the title block first.
+    const style = box(render());
+    expect(style).toContain("100svh - 25rem");
+    expect(style).toContain("* 1.7778"); // 1600 / 900
   });
 
-  it("keeps the scrim when there is no cover at all", () => {
-    const html = render({ coverUrl: null });
-    expect(html).toContain("var(--gradient-hero-strong)");
-    expect(html).toContain("var(--scrim-cinema)");
+  it("gives a portrait poster its own, narrower box", () => {
+    const style = box(render({ coverWidth: 1080, coverHeight: 1350 }));
+    expect(style).toContain("aspect-ratio:1080 / 1350");
+    expect(style).toContain("* 0.8");
   });
 
-  /**
-   * White at 85% over the worst-case scrimmed pixel is 3.95:1 — under the
-   * floor. Every other surface can afford a translucent secondary tone because
-   * its ground is a known token; this one cannot, and the failure would be
-   * invisible on any cover that happens to be dark.
-   */
-  it("sets no translucent text over the artwork", () => {
-    const html = render();
-    expect(html).toContain("text-white");
-    expect(html).not.toMatch(/text-white\/\d/);
+  it("still holds space for a cover uploaded before sizes were recorded", () => {
+    // No recorded size: a 16/9 box with the poster contained in it —
+    // letterboxed if it is another shape, but never cropped and never shifting.
+    const html = render({ coverWidth: null, coverHeight: null });
+    expect(box(html)).toContain("aspect-ratio:16 / 9");
+    const img = /<img[^>]*>/.exec(html)![0];
+    expect(img).toContain("object-contain");
+    // And it does not pretend to know the image's size.
+    expect(img).not.toMatch(/\swidth=/);
+  });
+
+  it("marks the poster as the index's LCP element and leaves it out of the a11y tree", () => {
+    const img = /<img[^>]*>/.exec(render())![0];
+    expect(img).toContain('alt=""');
+    expect(img).toContain('loading="eager"');
+    expect(img).toMatch(/fetchpriority="high"/i);
   });
 
   it("is one link, not a link inside a link", () => {
     const html = render();
     expect(html.match(/<a\s/g)).toHaveLength(1);
     expect(html).toContain('href="/en/events/strawberry-summit"');
-    // The action is a span for exactly that reason.
     expect(html).toContain("View event and register");
   });
 
-  it("marks the cover as the index's LCP element and leaves it out of the a11y tree", () => {
+  it("keeps its only red on the action", () => {
+    // Red means "act here" — the decision for the whole palette. On this
+    // surface that is the button and nothing else.
     const html = render();
-    expect(html).toMatch(/<img[^>]+alt=""/);
-    expect(html).toMatch(/<img[^>]+loading="eager"/);
-    expect(html).toMatch(/<img[^>]+fetchpriority="high"/i);
+    expect(html.match(/bg-primary(?![\w/-])/g)).toHaveLength(1);
+    expect(html).toMatch(/<span class="paper-press[^"]*bg-primary/);
   });
 
   it("carries the meta line, and survives an event that has none", () => {
@@ -107,28 +128,17 @@ describe("the featured plate's frame", () => {
     expect(render({ metaLine: null })).not.toContain("Le Royal");
   });
 
-  it("uses the house frame, not its own ratio", () => {
-    expect(render()).toContain("aspect-[var(--aspect-cinema)]");
+  it("falls back to a plain plate when there is no cover, title still below", () => {
+    const html = render({ coverUrl: null });
+    expect(html).not.toContain("<img");
+    expect(html).toContain("var(--gradient-hero-strong)");
+    expect(html.indexOf("gradient-hero-strong")).toBeLessThan(html.indexOf("<h1"));
   });
 
   /**
-   * A weak guard for a bug only a browser could show: the ratio spacer's width
-   * is derived from its min-height, so in an AUTO grid column it made the cell
-   * 640px wide inside a 390px phone and the headline's second half was clipped
-   * away behind overflow-hidden — silently. grid-cols-1 gives the cell a zero
-   * minimum. Asserting the class cannot prove the layout; it does put the
-   * reason in front of whoever deletes it next.
-   */
-  it("keeps the grid cell shrinkable", () => {
-    expect(render()).toContain("grid-cols-1");
-  });
-
-  /**
-   * Measured in Chromium at 1280px: the 78-character title below ran to five
-   * 88px lines at a fixed display-1 and took the frame to 1.94:1 — a wall of
-   * type, not a widescreen plate. Stepping the size down by title length put
-   * it back to two lines at 2.67:1. The steps are house tokens, never a
-   * computed size.
+   * Measured in Chromium at 1280px: a 78-character title ran to five 88px
+   * lines at a fixed display-1. Stepping the size down by title length keeps
+   * it to a readable block. The steps are house tokens, never a computed size.
    */
   it.each([
     ["Summit", 1],
@@ -139,36 +149,19 @@ describe("the featured plate's frame", () => {
     expect(render({ titleEn })).toContain(`font-size:var(--display-${step})`);
   });
 
-  /**
-   * The frame's own top edge is unscrimmed picture and may be white, so a
-   * single white indicator there is not guaranteed to be visible. The pair is.
-   *
-   * It sits INSIDE the frame, shown by `group-focus-visible`, rather than on
-   * the anchor: an inset shadow on the anchor is painted beneath its children,
-   * and the frame's background and cover image are children — so the ring the
-   * anchor drew was invisible under its own picture.
-   */
-  it("gives focus a two-tone indicator, since the ground is unknown", () => {
-    const html = render();
-    expect(html).toContain("shadow-[inset_0_0_0_4px_#ffffff,inset_0_0_0_8px_#111111]");
-    expect(html).toContain("group-focus-visible:block");
-    // On the anchor, the indicator would be painted under the cover.
-    expect(html).not.toMatch(/<a[^>]*shadow-\[inset/);
-  });
-
-  /**
-   * The crop is a decision now, and this is where it is applied. A cover with
-   * its subject high keeps the subject only if the focus reaches the image.
-   */
-  it("crops the cover to the focus the organiser chose", () => {
-    expect(render({ focusX: 20, focusY: 85 })).toContain("object-position:20% 85%");
-  });
-
-  it("falls back to centre, which is what every cover got before", () => {
-    expect(render({ focusX: null, focusY: null })).toContain("object-position:50% 50%");
-  });
-
   it("still resolves the Arabic title if that locale is ever restored", () => {
     expect(render({}, "ar")).toContain("قمة الفراولة");
+  });
+});
+
+describe("the featured plate's alignment", () => {
+  it("sets the poster flush with the text below it, not centred", () => {
+    // Measured in Chromium at 1440px: a centred poster, narrowed to leave room
+    // for the button, started ~60px right of the title beneath it.
+    const html = renderToStaticMarkup(
+      <FeaturedEventPlate locale="en" event={{ ...EVENT }} />,
+    );
+    const frame = /<div class="(paper-edge[^"]*)"/.exec(html)![1];
+    expect(frame).not.toContain("mx-auto");
   });
 });

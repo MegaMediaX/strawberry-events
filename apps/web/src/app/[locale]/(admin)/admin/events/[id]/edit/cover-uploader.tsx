@@ -6,8 +6,15 @@ import { toast } from "@/components/ui/toast";
 import { coverFocus, safeCropBox, type CoverFocus } from "@/lib/events/cover-focus";
 import { uploadCoverAction, removeCoverAction, setCoverFocusAction } from "./cover-actions";
 
-/** The ratio every public surface frames a cover at. Mirrors --aspect-cinema. */
-const CINEMA = 16 / 6;
+/**
+ * The only crop left: the listing card's 16/9 thumbnail (event-card.tsx).
+ *
+ * This was 16/6, the ratio the homepage feature and the event page used to cut
+ * every cover to. Both now show the poster WHOLE (poster.tsx), so previewing a
+ * 16/6 crop would tell an organiser that part of their poster is lost when it
+ * is not — and hide the crop the grid card really does apply.
+ */
+const CARD_RATIO = 16 / 9;
 
 export function CoverUploader({
   locale,
@@ -74,7 +81,7 @@ export function CoverUploader({
     void setFocusTo(coverFocus(focus.x + delta[0], focus.y + delta[1]));
   }
 
-  const crop = safeCropBox(size, focus, CINEMA);
+  const crop = safeCropBox(size, focus, CARD_RATIO);
 
   async function onUpload(file: File) {
     setBusy(true);
@@ -197,8 +204,10 @@ export function CoverUploader({
         <p className="mt-2 text-sm text-muted-foreground">
           {crop ? (
             <>
-              The lit area is what attendees see. Click the part that must stay in
-              frame, or focus the photo and use the arrow keys.{" "}
+              The lit area is what shows on the event&apos;s listing card; the
+              event page and the homepage feature show the whole poster. Click the
+              part that must stay in frame, or focus the photo and use the arrow
+              keys.{" "}
               {crop.height < 99.5 && `Keeps ${Math.round(crop.height)}% of the height.`}
               {crop.width < 99.5 && `Keeps ${Math.round(crop.width)}% of the width.`}
             </>

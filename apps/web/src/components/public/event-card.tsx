@@ -22,6 +22,14 @@ export interface EventCardData {
    */
   focusX?: number | null;
   focusY?: number | null;
+  /**
+   * The cover's pixel size, recorded at upload. Where a surface shows the
+   * poster WHOLE rather than cropping it, this is what reserves its space
+   * before the image arrives — without it the page jumps when it loads.
+   * Null for covers uploaded before sizes were recorded.
+   */
+  coverWidth?: number | null;
+  coverHeight?: number | null;
 }
 
 /**
@@ -57,11 +65,10 @@ export function EventCard({ event, locale }: { event: EventCardData; locale: str
         // declarations of equal specificity and let stylesheet order decide
         // which showed through behind a cover that failed to load.
         "paper-edge overflow-hidden bg-muted",
-        // 16/9 at every width, NOT the house --aspect-cinema. The cinema ratio
-        // is the frame a cover is SHOWN in — hero, plate, skeleton, all at one
-        // size. A grid thumbnail is an index entry, and 16/6 at a third of the
-        // page width is a 120px strip. Covers are admin-uploaded at arbitrary
-        // ratios, so the band stays close to what posters are made at.
+        // 16/9: a grid thumbnail is an index entry, and posters are made
+        // close to this shape. The ONE place a cover is still cropped — the
+        // homepage feature and the event page show it whole (poster.tsx) — so
+        // this is the crop the admin's focal-point preview draws.
         "aspect-[16/9]",
       ].join(" ")}
     >
