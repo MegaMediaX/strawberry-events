@@ -67,7 +67,6 @@ export function AvailabilityBar({
             width: `${reduced ? pct : w}%`,
             height: "100%",
             background: COLOR[state],
-            borderRadius: "9999px",
             transition: reduced
               ? undefined
               : "width 800ms cubic-bezier(0.16,1,0.30,1)",

@@ -30,9 +30,14 @@ export function PhoneCountryField({
         aria-label="Country code"
         value={cc}
         onChange={(e) => onCc(e.target.value)}
-        /* h-10 keeps the code select the same height as the number field
-           beside it; they read as one control only when they line up. */
-        className="well h-11 shrink-0 rounded-lg border border-input px-2 text-sm focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 outline-none"
+        /* Same ruled grammar as every other field, and sized by the same
+           padding, so the code and the number read as one control. */
+        /* w-auto, because .paper-ink sets width:100% for a field that owns its
+           row — and a 100%-wide shrink-0 select eats the whole flex row and
+           squeezes the number field to nothing. The utility wins here only
+           because the paper layer is inside @layer components; unlayered, this
+           line would have done nothing. */
+        className="paper-ink w-auto shrink-0 px-2 text-sm"
       >
         {CODES.map((c) => (
           <option key={c} value={c}>
@@ -41,7 +46,7 @@ export function PhoneCountryField({
         ))}
       </select>
       <Ink
-        className="well h-11"
+        className=""
         id={id}
         type="tel"
         autoComplete="tel"

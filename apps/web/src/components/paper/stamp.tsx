@@ -24,9 +24,13 @@ export function Stamp({
   tone?: "ink" | "faded";
   className?: string;
 }) {
+  // No `!` prefixes. Those existed only to out-rank .paper-stamp back when
+  // this layer was unlayered css and therefore beat every Tailwind utility;
+  // now that it sits in @layer components, a utility at the call site wins on
+  // its own and the escape hatch would only mislead the next reader.
   const toneCls =
     tone === "faded"
-      ? "!border-[color:var(--muted-foreground)] !text-[color:var(--muted-foreground)]"
+      ? "border-[color:var(--muted-foreground)] text-[color:var(--muted-foreground)]"
       : "";
   return (
     <span className={`paper-stamp ${toneCls} ${className}`}>
