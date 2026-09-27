@@ -21,6 +21,7 @@ export function TicketRail({
   capacity,
   calendar,
   soldOut,
+  ended = false,
 }: {
   locale: string;
   slug: string;
@@ -28,6 +29,7 @@ export function TicketRail({
   capacity: { sold: number; total: number | null };
   calendar: CalendarEvent;
   soldOut: boolean;
+  ended?: boolean;
 }) {
   return (
     <div className="paper-plate p-5 lg:sticky lg:top-20">
@@ -68,7 +70,11 @@ export function TicketRail({
           wizard for an event with nothing left to sell. The open case styles
           the anchor itself rather than wrapping a button, which also drops the
           invalid <a><button> nesting. */}
-      {soldOut ? (
+      {ended ? (
+        <Press className="mt-4 w-full" size="lg" disabled>
+          This event has ended
+        </Press>
+      ) : soldOut ? (
         <Press className="mt-4 w-full" size="lg" disabled>
           Sold out
         </Press>

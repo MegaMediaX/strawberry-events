@@ -5,6 +5,7 @@ import { FeaturedEventPlate } from "@/components/public/featured-event-plate";
 import { EventsHeroBanner } from "@/components/public/events-hero-banner";
 import { coverImageUrl } from "@/lib/events/cover-image";
 import { eventMetaLine } from "@/lib/events/format";
+import { hasEnded } from "@/lib/events/ended";
 import { prisma } from "@/lib/db/client";
 import type { EventMapping } from "@prisma/client";
 
@@ -36,6 +37,7 @@ function toCardData(e: EventMapping, range: DateRange | undefined): EventCardDat
     titleAr: e.titleAr,
     visibility: e.visibility,
     comingSoon: e.comingSoon,
+    ended: hasEnded(range?.from ?? null, range?.to ?? null),
     coverUrl: e.coverImagePath ? coverImageUrl(e.coverImagePath) : null,
     metaLine: eventMetaLine(range?.from ?? null, range?.to ?? null, e.venueName),
     focusX: e.coverFocusX,
@@ -53,8 +55,19 @@ export default async function EventsPage({
   const { locale } = await params;
   setRequestLocale(locale);
 
-  const { open, comingSoon } = await listPublicEvents();
-  const ranges = await loadDateRanges([...open, ...comingSoon].map((e) => e.id));
+  const { open: published, comingSoon } = await listPublicEvents();
+  const ranges = await loadDateRanges([...published, ...comingSoon].map((e) => e.id));
+
+  // An event that is over is still published, but it is no longer "on": it
+  // leaves the spotlight and the count and is listed under Past events, with
+  // no path to registering. Dates come from sub-events, so an event without
+  // any is never treated as past here — the event page still closes it.
+  const isPast = (e: EventMapping) => {
+    const r = ranges.get(e.id);
+    return hasEnded(r?.from ?? null, r?.to ?? null);
+  };
+  const open = published.filter((e) => !isPast(e));
+  const past = published.filter(isPast);
 
   // The first open event is the spotlight; the rest flow into a grid. With a
   // single event this reads as a featured statement rather than one small card
@@ -110,6 +123,19 @@ export default async function EventsPage({
           </h2>
           <div className="mt-8 grid grid-cols-1 gap-x-8 gap-y-12 sm:grid-cols-2 lg:grid-cols-3">
             {comingSoon.map((e) => (
+              <EventCard key={e.id} locale={locale} event={toCardData(e, ranges.get(e.id))} />
+            ))}
+          </div>
+        </section>
+      )}
+
+      {past.length > 0 && (
+        <section className="mx-auto mt-20 max-w-5xl px-4 sm:px-6">
+          <h2 className="border-b border-border pb-3 text-[11px] font-semibold tracking-[0.14em] text-muted-foreground uppercase">
+            Past events
+          </h2>
+          <div className="mt-8 grid grid-cols-1 gap-x-8 gap-y-12 sm:grid-cols-2 lg:grid-cols-3">
+            {past.map((e) => (
               <EventCard key={e.id} locale={locale} event={toCardData(e, ranges.get(e.id))} />
             ))}
           </div>
