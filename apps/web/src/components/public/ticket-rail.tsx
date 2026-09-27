@@ -60,9 +60,13 @@ export function TicketRail({
           </li>
         ))}
       </ul>
-      <div className="mt-4">
-        <AvailabilityBar sold={capacity.sold} total={capacity.total} />
-      </div>
+      {/* Availability is a sales fact. On an event that is over it read "Open
+          registration" directly above "This event has ended". */}
+      {!ended && (
+        <div className="mt-4">
+          <AvailabilityBar sold={capacity.sold} total={capacity.total} />
+        </div>
+      )}
       {/* A sold-out event renders no link at all. Disabling a button INSIDE a
           <Link> disables nothing: the anchor stays in the tab order, Enter
           still navigates, and a click that lands on the link rather than the
@@ -70,12 +74,15 @@ export function TicketRail({
           wizard for an event with nothing left to sell. The open case styles
           the anchor itself rather than wrapping a button, which also drops the
           invalid <a><button> nesting. */}
+      {/* Closed states are ruled, not red: red is for actions, and a control
+          that cannot be pressed is a notice. A half-opacity red block read as
+          a broken register button. */}
       {ended ? (
-        <Press className="mt-4 w-full" size="lg" disabled>
+        <Press variant="ruled" className="mt-4 w-full" size="lg" disabled>
           This event has ended
         </Press>
       ) : soldOut ? (
-        <Press className="mt-4 w-full" size="lg" disabled>
+        <Press variant="ruled" className="mt-4 w-full" size="lg" disabled>
           Sold out
         </Press>
       ) : (

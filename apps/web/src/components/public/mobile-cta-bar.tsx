@@ -34,10 +34,15 @@ export function MobileCtaBar({
       {/* No link when there is nothing to sell: a disabled button inside a
           <Link> leaves the anchor focusable and Enter still navigates, which
           walked sold-out attendees into the registration wizard. */}
+      {/* Ruled, not red, for the same reason as the ticket rail. */}
       {ended ? (
-        <Press disabled>Ended</Press>
+        <Press variant="ruled" disabled>
+          Ended
+        </Press>
       ) : soldOut ? (
-        <Press disabled>Sold out</Press>
+        <Press variant="ruled" disabled>
+          Sold out
+        </Press>
       ) : (
         <Link
           href={`/${locale}/events/${slug}/register`}
