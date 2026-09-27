@@ -1,7 +1,7 @@
-# State — 2026-09-27
+# State — 2026-09-28
 
 LEBTECH 2026 (28–30 Aug) ran on this platform. Work since then is hardening, attendee
-accounts and a visual redesign. `main` is at #123; the last 8 CI runs are green; no open PRs or issues.
+accounts and a visual redesign. `main` is at #126; recent CI runs are green.
 
 ## Shipped since the event
 
@@ -14,6 +14,7 @@ accounts and a visual redesign. `main` is at #123; the last 8 CI runs are green;
 | 09-14 → 09-16 | #105–#111 | Two UI/UX reviews (34 findings), door panel DOM tests, external-audit fixes, a11y conformance pass |
 | 09-16 → 09-17 | #112–#116 | "Cinematic" redesign stages 1–4 (index, event, ticket, motion); CI asserts its DB wiring (#116) |
 | 09-21 → 09-26 | #117–#123 | "Paper" redesign (ticket, forms, listing), `@layer` fix, OS-following theme, full event posters, red reserved for actions |
+| 09-28 | #125–#126 | **Ended events stop selling**: moved to "Past events", event page shows Ended, register page redirects and the public action refuses. Card focus ring restored (`outline-none` beat `paper-focus` across layers). Closed controls ruled, not red |
 
 Latest migration: `20260917070000_event_cover_focus_and_size` (47 in total).
 
