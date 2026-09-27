@@ -7,11 +7,13 @@ export function MobileCtaBar({
   slug,
   fromCents,
   soldOut,
+  ended = false,
 }: {
   locale: string;
   slug: string;
   fromCents: number | null;
   soldOut: boolean;
+  ended?: boolean;
 }) {
   return (
     // The registration form's own fixed bar already pads for the home
@@ -32,8 +34,15 @@ export function MobileCtaBar({
       {/* No link when there is nothing to sell: a disabled button inside a
           <Link> leaves the anchor focusable and Enter still navigates, which
           walked sold-out attendees into the registration wizard. */}
-      {soldOut ? (
-        <Press disabled>Sold out</Press>
+      {/* Ruled, not red, for the same reason as the ticket rail. */}
+      {ended ? (
+        <Press variant="ruled" disabled>
+          Ended
+        </Press>
+      ) : soldOut ? (
+        <Press variant="ruled" disabled>
+          Sold out
+        </Press>
       ) : (
         <Link
           href={`/${locale}/events/${slug}/register`}

@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { setRequestLocale } from "next-intl/server";
 import { getPublicEvent } from "@/lib/events/public";
 import { coverImageUrl } from "@/lib/events/cover-image";
@@ -13,6 +13,7 @@ import { verifyInvite } from "@/lib/tokens/invite";
 import type { SectionNode } from "@/components/seats/seat-selector";
 import type { SubEventItem } from "@/components/registration/sub-event-picker";
 import { eventMetadata } from "@/lib/events/metadata";
+import { hasEnded } from "@/lib/events/ended";
 
 export const dynamic = "force-dynamic";
 
@@ -47,6 +48,9 @@ export default async function RegisterPage({
 
   const data = await getPublicEvent(slug);
   if (!data) notFound();
+  // The event page explains that it has ended; the wizard would only take a
+  // registration the action then refuses.
+  if (hasEnded(data.dateFrom, data.dateTo)) redirect(`/${locale}/events/${slug}`);
 
   // Validate invite token and unlock invite-only tickets if valid.
   const rawInvite = typeof sp.invite === "string" ? sp.invite : undefined;

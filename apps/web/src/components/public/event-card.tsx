@@ -12,6 +12,8 @@ export interface EventCardData {
   titleAr: string | null;
   visibility: string;
   comingSoon: boolean;
+  /** The event is over: listed as a record, never offered for sale. */
+  ended?: boolean;
   coverUrl?: string | null;
   /** "28—30 Aug 2026 · Le Royal Hotel Beirut", already composed. */
   metaLine?: string | null;
@@ -100,8 +102,8 @@ export function EventCard({ event, locale }: { event: EventCardData; locale: str
         {/* The same mark the ticket carries, so a state reads the same on the
             listing as it does in the hand. A stamp says its word, which is why
             it survives greyscale where the old tinted pill did not (1.4.1). */}
-        <Stamp tone={event.comingSoon ? "faded" : "ink"}>
-          {event.comingSoon ? "Coming soon" : "Open"}
+        <Stamp tone={event.comingSoon || event.ended ? "faded" : "ink"}>
+          {event.comingSoon ? "Coming soon" : event.ended ? "Ended" : "Open"}
         </Stamp>
       </div>
 
@@ -143,7 +145,10 @@ export function EventCard({ event, locale }: { event: EventCardData; locale: str
       aria-label={title}
       /* Same scene change as the featured plate, from the grid. */
       transitionTypes={dissolve()}
-      className="paper-focus block outline-none"
+      /* No `outline-none` beside paper-focus: that utility sits in @layer
+         utilities, which beats paper-focus's @layer components rule whatever
+         the specificity, and it removed the only keyboard focus ring. */
+      className="paper-focus block"
     >
       {band}
       {body}

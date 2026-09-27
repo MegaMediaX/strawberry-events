@@ -8,6 +8,8 @@ import { publicRegisterFields } from "@/lib/registration/public-input";
 import { rateLimit } from "@/lib/security/rate-limit";
 import { clientIp } from "@/lib/security/client-ip";
 import { PretixValidationError, flattenFieldErrors } from "@/lib/pretix/errors";
+import { getPublicEventDates } from "@/lib/events/public";
+import { hasEnded } from "@/lib/events/ended";
 
 export interface RegisterActionResult {
   error?: string;
@@ -45,6 +47,14 @@ export async function registerAction(
       (fieldErrors[key] ??= []).push(i.message);
     }
     return { fieldErrors };
+  }
+
+  // The public storefront stops selling an event once it is over. Enforced
+  // here rather than in register(), which staff walk-ins share. The pages hide
+  // the way in; this closes it for a stale tab or a hand-typed URL.
+  const dates = await getPublicEventDates(slug);
+  if (dates && hasEnded(dates.dateFrom, dates.dateTo)) {
+    return { error: "This event has ended, so registration is closed." };
   }
 
   let result;

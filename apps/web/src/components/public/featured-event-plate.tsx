@@ -52,6 +52,8 @@ export function FeaturedEventPlate({
   const title = locale === "ar" && event.titleAr ? event.titleAr : event.titleEn;
   const href = `/${locale}/events/${event.slug}`;
 
+  // No `outline-none` on the link: see event-card.tsx — beside paper-focus it
+  // cancelled the focus ring on the one path to registering.
   return (
     /* The index is the trailer and the event page is the feature: this is the
        one link in the flow that is a scene change rather than a step, so it is
@@ -60,7 +62,7 @@ export function FeaturedEventPlate({
       href={href}
       aria-label={title}
       transitionTypes={dissolve()}
-      className="paper-focus group mx-auto block max-w-5xl px-4 outline-none sm:px-6"
+      className="paper-focus group mx-auto block max-w-5xl px-4 sm:px-6"
     >
       <Poster
         coverUrl={event.coverUrl}
