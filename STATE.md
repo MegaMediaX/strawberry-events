@@ -14,24 +14,27 @@ accounts and a visual redesign. `main` is at #126; recent CI runs are green.
 | 09-14 → 09-16 | #105–#111 | Two UI/UX reviews (34 findings), door panel DOM tests, external-audit fixes, a11y conformance pass |
 | 09-16 → 09-17 | #112–#116 | "Cinematic" redesign stages 1–4 (index, event, ticket, motion); CI asserts its DB wiring (#116) |
 | 09-21 → 09-26 | #117–#123 | "Paper" redesign (ticket, forms, listing), `@layer` fix, OS-following theme, full event posters, red reserved for actions |
-| 09-28 | #125–#126 | **Ended events stop selling**: moved to "Past events", event page shows Ended, register page redirects and the public action refuses. Card focus ring restored (`outline-none` beat `paper-focus` across layers). Closed controls ruled, not red |
+| 09-28 | #125–#127 | **Ended events stop selling**: moved to "Past events", event page shows Ended, register page redirects and the public action refuses. Card focus ring restored (`outline-none` beat `paper-focus` across layers). Closed controls ruled, not red. Public footer (organiser, contact, privacy, terms); `/` and `/en` redirect straight to `/en/events`; test suite green on Node 26 |
 
 Latest migration: `20260917070000_event_cover_focus_and_size` (47 in total).
 
 ## Known stale docs
 
-- `README.md` still says "Status: Milestone 1 (Foundation) complete", lists en/ar RTL
-  (Arabic is retired), and describes nginx + a cookie-only theme (theme now follows the
-  OS on first visit, #121). Architecture and milestone sections are historical.
+- `README.md` milestone sections are the original build record, not current behaviour.
 - `CLAUDE_CODE_STRAWBERRY_PRETIX_REBUILD_PROMPT_V2.md` (2,058 lines) and
   `docs/superpowers/` are the June build brief and plans — reference only.
 - `docs/audits/event-day-checklist.md` is pre-event.
 
 ## Open items
 
-1. Refresh `README.md` status/stack to match the above.
-2. Archive purge (`cleanup()`) and webhook retry (`retryDue()`) are still admin-invoked;
+1. Archive purge (`cleanup()`) and webhook retry (`retryDue()`) are still admin-invoked;
    nothing schedules them.
-3. Rate limiting is in-memory, single instance.
-4. SMS/WhatsApp notifiers are stubs; the admin UI calls them "providers".
-5. Update `docs/audits/event-day-checklist.md` before the next event.
+2. Rate limiting is in-memory, single instance.
+3. SMS/WhatsApp notifiers are stubs; the admin UI calls them "providers".
+4. Update `docs/audits/event-day-checklist.md` before the next event.
+5. Posters, when the next event is featured: the featured plate letterboxes a cover
+   into 16/9 when `coverWidth`/`coverHeight` are null (covers uploaded before sizes
+   were recorded — LEBTECH's is 1536×1024), and covers are served full-size with no
+   `srcset` (~400 KB to a phone). Re-upload or backfill the dimensions; consider
+   `next/image` for covers.
+6. "Sign in" in the nav is 40px tall on mobile (44px target).

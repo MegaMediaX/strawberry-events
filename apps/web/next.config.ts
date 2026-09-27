@@ -39,6 +39,15 @@ const nextConfig: NextConfig = {
    */
   async redirects() {
     return [
+      /**
+       * The site has no home page of its own — `/` and `/en` exist only to
+       * land on the events index. They got there in two hops: next-intl 307'd
+       * `/` to `/en`, whose page then redirected again, and because that page
+       * streams, the second hop arrived as a 200 plus a one-second meta
+       * refresh. Answered here, before the middleware, it is a single 307.
+       */
+      { source: "/", destination: "/en/events", permanent: false },
+      { source: "/en", destination: "/en/events", permanent: false },
       { source: "/C/:slug", destination: "/en/c/:slug", permanent: false },
       { source: "/c/:slug", destination: "/en/c/:slug", permanent: false },
       /**

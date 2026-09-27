@@ -3,14 +3,15 @@
 Multi-organizer event registration & operations platform. Next.js 16 frontend/admin
 on top of self-hosted **pretix** as the ticketing/order/check-in source of truth.
 
-> **Status:** Milestone 1 (Foundation) complete. See
-> `docs/superpowers/specs/2026-06-08-foundation-design.md` and
-> `docs/superpowers/plans/2026-06-08-foundation.md`. Milestones 2–12 are planned
-> as separate spec → plan → build cycles.
+> **Status:** in production at register.strawberryagency.com; ran LEBTECH 2026
+> (28–30 Aug). Milestones 1–12 below are built. Current state and open items:
+> [`STATE.md`](STATE.md); agent/operator rules: [`CLAUDE.md`](CLAUDE.md). The
+> milestone sections are the original build record — `docs/superpowers/` holds
+> the June specs and plans.
 
 ## Stack
 
-Next.js 16 (App Router) · TypeScript · Tailwind v4 · shadcn/ui · next-intl (en/ar, RTL)
+Next.js 16 (App Router) · TypeScript · Tailwind v4 · shadcn/ui · next-intl (English only; the Arabic locale was retired)
 · Auth.js v5 (credentials, JWT sessions) · Prisma · PostgreSQL · Redis · self-hosted
 pretix · Docker Compose · nginx.
 
@@ -22,6 +23,8 @@ nginx ──/──> next-app (Next.js) ──> postgres-app (custom layer)
                   next-app & pretix ──> redis
 ```
 
+- This is the bundled Compose stack. The production deployment has its own compose
+  file and reverse proxy; CI deploys to it by image (see *CD* below).
 - pretix is the source of truth for events/orders/tickets/check-ins.
 - The custom Postgres DB (`postgres-app`) holds platform-only data: organizations,
   memberships, event mappings, seat maps, badges, approvals, custom fields,
@@ -78,9 +81,9 @@ DATABASE_URL=postgresql://app:password@localhost:5433/strawberry_platform npx pr
 
 ### Theme
 
-Theme (light/dark) is resolved **server-side from the `strawberry.theme` cookie** in the
-locale layout — no client init script (avoids the React "script tag while rendering"
-warning and FOUC). The toggle writes the cookie + localStorage + `documentElement` class.
+Theme (light/dark) follows the visitor's OS setting on a first visit (#121). Once the
+toggle is used, the choice is kept in the `strawberry.theme` cookie and resolved
+server-side in the locale layout.
 
 ### Running the app outside Docker
 

@@ -1256,6 +1256,7 @@ export function RegistrationWizard({
       {/* Sticky bottom action bar. pb uses the safe-area inset so the buttons
           clear the iOS home indicator instead of sitting under it. */}
       <div
+        data-fixed-bar="always"
         className="fixed inset-x-0 bottom-0 z-40 flex items-center justify-between gap-3 border-t border-border bg-background/90 px-4 py-3 backdrop-blur"
         style={{ paddingBottom: "calc(0.75rem + env(safe-area-inset-bottom))" }}
       >
