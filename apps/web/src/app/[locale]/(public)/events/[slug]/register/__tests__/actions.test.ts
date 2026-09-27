@@ -13,9 +13,13 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
  * standing between a crafted payload and the created order.
  */
 
-const { registerMock } = vi.hoisted(() => ({ registerMock: vi.fn() }));
+const { registerMock, datesMock } = vi.hoisted(() => ({
+  registerMock: vi.fn(),
+  datesMock: vi.fn(),
+}));
 
 vi.mock("@/lib/registration/service", () => ({ register: registerMock }));
+vi.mock("@/lib/events/public", () => ({ getPublicEventDates: datesMock }));
 vi.mock("@/lib/security/rate-limit", () => ({ rateLimit: () => ({ allowed: true }) }));
 vi.mock("@/lib/security/client-ip", () => ({ clientIp: async () => "127.0.0.1" }));
 vi.mock("next/navigation", () => ({
@@ -55,6 +59,8 @@ async function callAction(values: unknown) {
 
 describe("registerAction — staff-only fields cannot cross the public boundary", () => {
   beforeEach(() => {
+    datesMock.mockReset();
+    datesMock.mockResolvedValue({ dateFrom: null, dateTo: null });
     registerMock.mockReset();
     registerMock.mockResolvedValue({
       orderCode: "ABCDE",
@@ -105,5 +111,34 @@ describe("registerAction — staff-only fields cannot cross the public boundary"
 
     expect(res.fieldErrors).toBeDefined();
     expect(registerMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("registerAction — an event that is over cannot be registered for", () => {
+  beforeEach(() => {
+    registerMock.mockReset();
+    datesMock.mockReset();
+  });
+
+  it("refuses without calling register() once the event has ended", async () => {
+    datesMock.mockResolvedValue({
+      dateFrom: "2026-08-28T09:00:00Z",
+      dateTo: "2026-08-30T18:00:00Z",
+    });
+    const result = await registerAction("en", "expo", wizardPayload);
+    expect(result.error).toMatch(/has ended/);
+    expect(registerMock).not.toHaveBeenCalled();
+  });
+
+  it("still registers when pretix returns no dates", async () => {
+    datesMock.mockResolvedValue({ dateFrom: null, dateTo: null });
+    registerMock.mockResolvedValue({
+      orderCode: "ABCDE",
+      status: "paid",
+      approvalStatus: "approved",
+      magicLinkToken: "tok",
+    });
+    await expect(registerAction("en", "expo", wizardPayload)).rejects.toThrow("NEXT_REDIRECT");
+    expect(registerMock).toHaveBeenCalledTimes(1);
   });
 });

@@ -8,6 +8,7 @@ import { coverImageUrl } from "@/lib/events/cover-image";
 import { VENUE_TIME_ZONE } from "@/lib/datetime/uk";
 import { EventHero } from "@/components/public/event-hero";
 import { TicketRail } from "@/components/public/ticket-rail";
+import { hasEnded } from "@/lib/events/ended";
 import { MobileCtaBar } from "@/components/public/mobile-cta-bar";
 import { WaitlistJoin } from "@/components/public/waitlist-join";
 import { eventMetadata } from "@/lib/events/metadata";
@@ -65,6 +66,9 @@ export default async function EventDetailPage({
       ? event.descriptionAr
       : event.descriptionEn;
   const soldOut = capacityState(capacity.sold, capacity.total) === "sold_out";
+  // Over is final, so it outranks sold out: the page stays up as a record of
+  // the event but offers no way to register (the action refuses it too).
+  const ended = hasEnded(dateFrom, dateTo);
   const fromCents = tickets.length
     ? Math.min(...tickets.map((t) => t.priceCents))
     : null;
@@ -98,7 +102,13 @@ export default async function EventDetailPage({
         dateLabel={fmtDate(dateFrom)}
         locationLabel={event.venueName ?? (locLine || null)}
         statusLabel={
-          event.comingSoon ? "Coming soon" : soldOut ? "Sold out" : "Open"
+          ended
+            ? "Ended"
+            : event.comingSoon
+              ? "Coming soon"
+              : soldOut
+                ? "Sold out"
+                : "Open"
         }
         coverUrl={event.coverImagePath ? coverImageUrl(event.coverImagePath) : null}
         coverWidth={event.coverWidth}
@@ -140,7 +150,7 @@ export default async function EventDetailPage({
               )}
             </section>
           )}
-          {event.waitlistEnabled && soldOut && (
+          {event.waitlistEnabled && soldOut && !ended && (
             <section className="mt-6">
               <WaitlistJoin eventId={event.id} />
             </section>
@@ -156,11 +166,12 @@ export default async function EventDetailPage({
             capacity={capacity}
             calendar={calendar}
             soldOut={soldOut}
+            ended={ended}
           />
         </aside>
       </div>
 
-      <MobileCtaBar locale={locale} slug={slug} fromCents={fromCents} soldOut={soldOut} />
+      <MobileCtaBar locale={locale} slug={slug} fromCents={fromCents} soldOut={soldOut} ended={ended} />
     </main>
   );
 }

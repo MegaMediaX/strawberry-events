@@ -43,6 +43,31 @@ export async function listPublicEvents(): Promise<{
 }
 
 /**
+ * Just the dates of a public event, for the register action's "has it ended"
+ * check. getPublicEvent would also fetch items and quotas — three pretix calls
+ * on every registration for a yes/no. Null when the event is not public; dates
+ * are null when pretix does not answer, which the caller treats as not ended so
+ * a pretix hiccup can never close registration.
+ */
+export async function getPublicEventDates(
+  slug: string,
+): Promise<{ dateFrom: string | null; dateTo: string | null } | null> {
+  const event = await prisma.eventMapping.findFirst({
+    where: { pretixEventSlug: slug, visibility: "public", liveOnPretix: true },
+  });
+  if (!event) return null;
+  const org = await prisma.organization.findUnique({
+    where: { id: event.organizationId },
+  });
+  if (!org) return null;
+  const ctx = resolvePretixContext(org);
+  const detail = await pretixEvents
+    .getEvent(ctx.organizerSlug, event.pretixEventSlug, ctx.token)
+    .catch(() => null);
+  return { dateFrom: detail?.dateFrom ?? null, dateTo: detail?.dateTo ?? null };
+}
+
+/**
  * Public event detail: mapping + tickets + aggregated capacity. Null if not
  * public.
  *
