@@ -2,6 +2,7 @@ import { ViewTransition } from "react";
 import { setRequestLocale } from "next-intl/server";
 import { DISSOLVE } from "@/lib/motion";
 import { PublicNav } from "@/components/public/public-nav";
+import { PublicFooter } from "@/components/public/public-footer";
 
 /**
  * The public shell, and where the site's scenes are cut together.
@@ -50,6 +51,7 @@ export default async function PublicLayout({
       >
         <div className="flex-1">{children}</div>
       </ViewTransition>
+      <PublicFooter locale={locale} />
     </div>
   );
 }

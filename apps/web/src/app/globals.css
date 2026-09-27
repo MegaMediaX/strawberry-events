@@ -757,3 +757,19 @@
     }
   }
 }
+
+/* The footer is the last thing on the page, which is exactly where the fixed
+   bottom bars sit: the event page's mobile register bar (below lg) and the
+   registration wizard's bar (always). Without this the footer's links sit
+   underneath them at the end of the scroll. The bars mark themselves with
+   data-fixed-bar so the footer does not need to know which route it is on. */
+@layer components {
+  body:has([data-fixed-bar="always"]) .site-footer {
+    padding-bottom: 6rem;
+  }
+  @media (width < 64rem) {
+    body:has([data-fixed-bar="mobile"]) .site-footer {
+      padding-bottom: 6rem;
+    }
+  }
+}
