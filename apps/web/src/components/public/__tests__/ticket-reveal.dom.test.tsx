@@ -5,6 +5,21 @@ import { render, screen, waitFor } from "@testing-library/react";
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: vi.fn() }) }));
 
 /**
+ * Node 25+ defines its own global `localStorage`, which is undefined unless
+ * Node runs with --localstorage-file. Vitest does not overwrite a global Node
+ * already has, so under jsdom `localStorage` stayed Node's and every test here
+ * failed on `localStorage.clear()` — on newer local Node only, never on CI's
+ * Node 20. Point it back at jsdom's own storage.
+ */
+const jsdomWindow = (globalThis as { jsdom?: { window: Window } }).jsdom?.window;
+if (jsdomWindow) {
+  Object.defineProperty(globalThis, "localStorage", {
+    value: jsdomWindow.localStorage,
+    configurable: true,
+  });
+}
+
+/**
  * The QR is stubbed to a component that settles ON DEMAND, because the whole
  * point of the reveal's gate is the window between "the plate is on screen"
  * and "the symbol is drawn". A stub that settles immediately would make that
